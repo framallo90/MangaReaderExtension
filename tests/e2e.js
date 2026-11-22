@@ -582,9 +582,14 @@ function serve(req, res) {
       eq('quitar todos', (await b.storage('misSitios')).length + ' · ' + await b.ext.eval(`document.querySelector('#sitiosQuitarTodos').hidden`), '0 · true');
     }
 
-    // ═══ 9. Páginas protegidas, direcciones con código y lotes que no encuentran nada (2.8.1) ═══
-    if (/PROTECTED_MSG/.test(fs.readFileSync(path.join(EXT, 'content.js'), 'utf8'))) {
-      console.log('\n── Páginas protegidas y direcciones con código');
+    // ═══ 9. Páginas sin dirección (blob:), direcciones con código y lotes que no encuentran nada (2.8.1) ═══
+    // De la 2.8.1 a la 2.9.0 la extensión avisaba con 🔒 que el sitio protege las páginas. En
+    // la 2.9.1 se sacó el aviso: no las guarda igual, y dice que no encontró páginas.
+    const v9 = JSON.parse(fs.readFileSync(path.join(EXT, 'manifest.json'), 'utf8')).version.split('.').map(Number);
+    const conAviso = /PROTECTED_MSG/.test(fs.readFileSync(path.join(EXT, 'content.js'), 'utf8'));
+    const sinAviso = !conAviso && (v9[0] > 2 || (v9[0] === 2 && (v9[1] > 9 || (v9[1] === 9 && v9[2] >= 1))));
+    if (conAviso || sinAviso) {
+      console.log('\n── Páginas sin dirección para bajar y direcciones con código');
       const PROT = `${SITE}/protegido/viewer/2010289`;
       const tabsP = await b.tabCount();
       const pr = await cdp.open(PROT);
@@ -592,8 +597,17 @@ function serve(req, res) {
       await sleep(2500);
       eq('en un sitio protegido no aparece la burbuja', await pr.eval(`!!document.querySelector('#mr-fab')`), false);
       await b.command(PROT, 'save');
-      await pr.waitFor(`/🔒/.test(document.querySelector('#mr-save-count')?.textContent || '')`, 'el aviso de páginas protegidas', 30000);
-      eq('guardar: avisa que el sitio protege las páginas', (await pr.eval(`document.querySelector('#mr-save-count').textContent`)).startsWith('🔒 Este sitio protege las páginas del capítulo'), true);
+      if (conAviso) {
+        await pr.waitFor(`/🔒/.test(document.querySelector('#mr-save-count')?.textContent || '')`, 'el aviso de páginas protegidas', 30000);
+        eq('guardar: avisa que el sitio protege las páginas', (await pr.eval(`document.querySelector('#mr-save-count').textContent`)).startsWith('🔒 Este sitio protege las páginas del capítulo'), true);
+      } else {
+        await pr.waitFor(`/^No encontré/.test(document.querySelector('#mr-save-count')?.textContent || '')`, 'el resultado de la búsqueda de páginas', 30000);
+        eq('guardar: dice que no encontró páginas, sin un aviso especial',
+          // (la serie de prueba se llama "Serie Protegida": se busca el texto del aviso, no esa palabra)
+          await pr.eval(`document.querySelector('#mr-save-count').textContent + ' · ' + /🔒|protege|cifrad/i.test(document.querySelector('#mr-save').textContent) + ' · ' + getComputedStyle(document.querySelector('#mr-save-warn')).display`),
+          'No encontré páginas del capítulo en esta página. · false · none');
+        eq('  el motivo de las miniaturas tampoco lo nombra', await pr.eval(`document.querySelector('#mr-save .mr-thumb').title`), 'Posible publicidad: no parece una página del capítulo · clic para incluir');
+      }
       eq('  nombre con "[#104] Serie"', await pr.eval(`document.querySelector('#mr-save-name').value`), 'Serie Protegida/Serie Protegida 0104');
       eq('  logo, banner y promoción vienen destildados',
         await pr.eval(`[...document.querySelectorAll('#mr-save .mr-thumb')].map(b => b.classList.contains('on') ? 'P' : 'x').join(' ')`), 'x x x');
@@ -608,8 +622,14 @@ function serve(req, res) {
       eq('  del 100 al 104 marca solo el que tiene dirección', await lote.filas(pr), '104*');
       await pr.eval(`document.querySelector('#mr-chapter-go').click()`);
       const doneP = await lote.fin(pr, 90000);
-      eq('  al descargar para enseguida y dice por qué', doneP.split('\n')[0] + ' / ' + doneP.split('\n')[1].startsWith('🔒 Este sitio protege las páginas'), 'Parado: 0 capítulos guardados / true');
-      eq('  la fila', await lote.filas(pr), '104* [⚠️ protegido]');
+      if (conAviso) {
+        eq('  al descargar para enseguida y dice por qué', doneP.split('\n')[0] + ' / ' + doneP.split('\n')[1].startsWith('🔒 Este sitio protege las páginas'), 'Parado: 0 capítulos guardados / true');
+        eq('  la fila', await lote.filas(pr), '104* [⚠️ protegido]');
+      } else {
+        eq('  al descargar lo informa como cualquier capítulo sin páginas', doneP.split('\n').slice(0, 2).join(' / ') + ' · ' + /🔒|protege|cifrad/i.test(doneP),
+          'Listo: 0 capítulos guardados · 1 con problemas / Capítulo 104: Sin páginas (encontré 0) · false');
+        eq('  la fila', await lote.filas(pr), '104* [⚠️ sin páginas]');
+      }
       eq('  no se guardó nada', b.existe('Serie Protegida'), false);
       eq('  no quedan pestañas abiertas', await b.tabCount(), tabsP + 1);
       await pr.close();

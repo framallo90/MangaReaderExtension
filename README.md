@@ -4,7 +4,7 @@ Extensión de Chrome para guardar capítulos de manga y cómics como **PDF**, **
 
 Es de uso personal, está en español y no tiene dependencias ni compilación: es JavaScript plano (Manifest V3).
 
-**Versión actual: 2.9.0** → carpeta `manga-reader-ext(ver 22-11-2026-5)/manga-reader-ext`
+**Versión actual: 2.9.1** → carpeta `manga-reader-ext(ver 22-11-2026-6)/manga-reader-ext`
 
 ---
 
@@ -30,7 +30,7 @@ No está en la tienda de Chrome: se carga a mano.
 3. Tocá **Cargar descomprimida** y elegí la carpeta de la versión más nueva:
 
    ```
-   manga-reader-ext(ver 22-11-2026-5)/manga-reader-ext
+   manga-reader-ext(ver 22-11-2026-6)/manga-reader-ext
    ```
 
 4. Fijá el ícono de la extensión en la barra para tenerlo a mano.
@@ -136,7 +136,7 @@ El atajo `Alt+S` se cambia en `chrome://extensions/shortcuts`.
 
 ## Qué no hace
 
-- **No guarda páginas protegidas.** Si un sitio entrega las páginas cifradas y su lector las arma en el momento, la extensión lo reconoce, lo avisa con 🔒 y no las guarda.
+- **No guarda páginas protegidas.** Si un sitio entrega las páginas cifradas y su lector las arma en el momento, la extensión no las guarda: dice que no encontró páginas.
 - **No adivina direcciones.** Si la dirección de un capítulo no lleva su número y la página no tiene links a los capítulos, el diálogo lo explica en vez de inventar una. Para eso está pegar los links.
 - **No lee dentro de iframes** ni imágenes puestas como fondo.
 - **No mira el disco:** si borrás un archivo a mano, el registro sigue diciendo que lo guardaste hasta que lo quites en opciones.

@@ -1,6 +1,6 @@
 # Manga Reader — Documentación técnica y de uso
 
-**Versión:** 2.9.0 · **Tipo:** extensión de Chrome (Manifest V3) · **Idioma de la interfaz:** español
+**Versión:** 2.9.1 · **Tipo:** extensión de Chrome (Manifest V3) · **Idioma de la interfaz:** español
 
 ---
 
@@ -165,11 +165,13 @@ Recorre todos los `<img>` de la página en orden del documento (que es el orden 
 
 Devuelve `{ pages: [{url, w, h, external, flag}], failed, locked }`, donde `failed` son las páginas de la carpeta del capítulo que no cargaron.
 
-**Páginas protegidas (`locked`).** Algunos lectores no muestran las páginas como imágenes con dirección: las bajan cifradas y las muestran como imágenes `blob:` (MANGA Plus). La extensión no las guarda. Se cuentan las imágenes `blob:` grandes o que todavía están cargando. Los `<canvas>` **no** se cuentan (desde la 2.8.4): muchos sitios comunes tienen canvas de adorno o de publicidad, y con dos de esos una página de capítulo inexistente frenaba el lote entero como "protegido". Si hay 2 o más imágenes `blob:`, y lo que sí tiene dirección no arma un capítulo (no hay una carpeta con la mayoría de las imágenes) o es menos que lo protegido, la página se da por protegida:
+**Páginas sin dirección para bajar (`locked`).** Algunos lectores no muestran las páginas como imágenes con dirección: las arman en el momento y las muestran como imágenes `blob:` (MANGA Plus). La extensión no las guarda. Se cuentan las imágenes `blob:` grandes o que todavía están cargando; los `<canvas>` no se cuentan, porque muchos sitios comunes tienen canvas de adorno o de publicidad. Si hay 2 o más, y lo que sí tiene dirección no arma un capítulo (no hay una carpeta con la mayoría de las imágenes) o es menos que esas, lo que queda a la vista (el logo, banners o promociones del sitio) viene destildado, para no guardarlo como si fuera el capítulo.
 
-- el diálogo lo dice en un aviso naranja (🔒) y todas las miniaturas vienen destildadas, porque lo que queda a la vista son el logo, banners o promociones del sitio;
-- en un lote, el capítulo responde "Páginas protegidas" y el lote para enseguida;
-- la burbuja no aparece (sección 4.7).
+**No hay un aviso especial (desde la 2.9.1).** De la 2.8.1 a la 2.9.0 el diálogo mostraba un recuadro naranja con 🔒 y el lote frenaba en el primer capítulo con ese mensaje. Se sacó a pedido. Ahora:
+
+- el diálogo de guardar dice "No encontré páginas del capítulo en esta página." y no deja guardar;
+- en un lote, el capítulo sale como cualquier otro "sin páginas", y el lote para si pasa 3 veces seguidas;
+- la burbuja sigue sin aparecer (sección 4.7).
 
 ### 4.2 Filtro de publicidad (`flagNonPages`)
 
@@ -258,7 +260,7 @@ Ver la sección 7 para el detalle interno de cada uno.
 
 ### 4.7 Burbuja flotante
 
-- **Cuándo aparece:** cuando hay 3 o más imágenes ya cargadas de al menos 250 px de ancho y 600 px de alto en la misma carpeta (las miniaturas del diálogo no cuentan, ni las imágenes `blob:` de los lectores que protegen las páginas). Se revisa a los 1,5 s y a los 5 s de cargar la página, y además cada vez que termina de cargar una imagen o bajás por la página (agrupado cada 700 ms), hasta que aparece. Después de 40 revisiones sin que la página parezca un capítulo, deja de mirar, para no gastar en páginas que no son de manga.
+- **Cuándo aparece:** cuando hay 3 o más imágenes ya cargadas de al menos 250 px de ancho y 600 px de alto en la misma carpeta (las miniaturas del diálogo no cuentan, ni las imágenes `blob:`, que no tienen dirección para bajar). Se revisa a los 1,5 s y a los 5 s de cargar la página, y además cada vez que termina de cargar una imagen o bajás por la página (agrupado cada 700 ms), hasta que aparece. Después de 40 revisiones sin que la página parezca un capítulo, deja de mirar, para no gastar en páginas que no son de manga.
 - **Sitios que cambian de página sin recargar:** si cambia la dirección, la burbuja se oculta y se vuelve a revisar desde cero.
 - **Arrastre:** usa Pointer Events con captura del puntero. Un movimiento menor a 5 px se considera clic. La posición se guarda como distancia al borde derecho e inferior (`fabPos`) y se limita para que la burbuja nunca quede fuera de pantalla.
 - **Cartel de ayuda:** se abre hacia abajo si la burbuja está a menos de 340 px del borde superior, y hacia la derecha si está a menos de 280 px del borde izquierdo. Se cierra al hacer clic fuera.
@@ -293,7 +295,7 @@ Vale para los links, para las opciones de un desplegable (el archivo suele venir
 1. Espera 1,5 s (menos en el primero), para no cargar al sitio.
 2. Abre el capítulo en una **pestaña en segundo plano**, al lado de la tuya. Ahí el sitio arma la página como siempre, aunque lo haga con JavaScript.
 3. Espera a que termine de cargar y a que las imágenes de la carpeta más poblada dejen de sumarse (misma cantidad, 3 o más, en tres consultas seguidas cada 700 ms). Si a los ~10 s no hay nada que parezca un capítulo, sigue igual y el paso siguiente lo informa.
-4. Le pide al content script de esa pestaña que se guarde solo (`autoSave`): mismas funciones que el guardado a mano (detección, filtro, nombre, sagas, formatos, "ya guardado"). Con menos de 3 páginas no guarda y responde "Sin páginas"; si el sitio protege las páginas, responde "Páginas protegidas".
+4. Le pide al content script de esa pestaña que se guarde solo (`autoSave`): mismas funciones que el guardado a mano (detección, filtro, nombre, sagas, formatos, "ya guardado"). Con menos de 3 páginas no guarda y responde "Sin páginas".
 5. Cierra la pestaña y devuelve el resultado.
 
 Un capítulo tiene 4 minutos como máximo. **Cancelar** cierra la pestaña del capítulo en curso y no sigue con los demás.
@@ -301,11 +303,10 @@ Un capítulo tiene 4 minutos como máximo. **Cancelar** cierra la pestaña del c
 **El lote para solo** (2.8.1):
 
 - **3 capítulos seguidos "sin páginas"** (`BATCH_MAX_EMPTY`): si todavía no se guardó ninguno, la dirección no debe ser la de los capítulos, así que lo dice y abre "Dirección y nombre de los capítulos" para revisarla; si ya se guardaron algunos, avisa que puede que el sitio no tenga más con esa dirección. Los marcados que faltaban quedan tildados para volver a intentarlo.
-- **Páginas protegidas:** para en el primero, porque si el sitio protege un capítulo protege todos.
 
-En los dos casos el resultado empieza con "Parado:" en vez de "Listo:".
+Ahí el resultado empieza con "Parado:" en vez de "Listo:".
 
-**Resultado por capítulo:** ✅ con la cantidad de páginas; ⚠️ *incompleto* si alguna página no bajó (se guarda igual, no se anota como guardado); ⚠️ *sin páginas* si la dirección no llevó a un capítulo; ⚠️ *protegido* si el sitio protege las páginas; ⚠️ *falló* por cualquier otro motivo. El detalle queda abajo del botón.
+**Resultado por capítulo:** ✅ con la cantidad de páginas; ⚠️ *incompleto* si alguna página no bajó (se guarda igual, no se anota como guardado); ⚠️ *sin páginas* si la dirección no llevó a un capítulo; ⚠️ *falló* por cualquier otro motivo. El detalle queda abajo del botón.
 
 **Pegar los links de los capítulos (desde la 2.9).** Para cuando la extensión no puede sacar los capítulos de la página, o cuando ya tenés los links. En el diálogo, **Pegar los links de los capítulos** abre un cuadro donde se pega el texto como venga: un link por renglón o varios juntos, con o sin algo adelante (`01: https://…`, `Capítulo 12 - https://…`) y con renglones sin link en el medio (títulos como "Capítulos 01–09"), que se ignoran. Pueden ser de cualquier sitio, no solo del de la página abierta. Con **Usar estos links** la lista del diálogo pasa a ser esa, todos marcados, cada uno con su número (`chaptersFromLinks`):
 
@@ -597,7 +598,7 @@ Al desinstalar la extensión (o quitar su tarjeta para cargar otra versión), es
 | 60 s | "Guardar y siguiente" | Cuánto vale la marca para abrir el diálogo en el capítulo siguiente |
 | 1,5 s | `BATCH_PAUSE` (content) | Respiro entre capítulos de un lote |
 | 3 | `BATCH_MAX_EMPTY` (content) | Capítulos seguidos "sin páginas" después de los cuales el lote para |
-| 2 | `collectPages` | Imágenes `blob:` de 250×250 o más (o cargando) a partir de las cuales la página puede darse por protegida |
+| 2 | `collectPages` | Imágenes `blob:` de 250×250 o más (o cargando) a partir de las cuales lo que queda a la vista viene destildado (las páginas del capítulo no tienen dirección para bajar) |
 | 1900–2099 · 1–12 · 1–31 | `isDateArchive` (content) | Año, mes y día con los que una dirección `…/AAAA/MM/` o `…/AAAA/MM/DD/` se toma como archivo por fecha y no como capítulo |
 | `.html` `.htm` `.xhtml` `.shtml` `.php` `.asp` `.aspx` `.jsp` `.cgi` | `collectChapters` | Terminaciones de archivo con las que no se supone "esta dirección + /número" |
 | 6 cifras | `collectChapters` | Largo a partir del cual un número en el último tramo de la dirección se toma como código del sitio y no como capítulo |
@@ -627,7 +628,7 @@ Corren sobre el código real de la versión, sin dependencias. Sin argumento usa
 
 ### Prueba en navegador real (`node tests/e2e.js`)
 
-Carga la extensión en un Chromium sin interfaz (el que instala Playwright) y la usa sobre un sitio de prueba local armado como el sitio real: la página se dibuja con JavaScript, los capítulos no tienen links, los menores a 10 llevan cero adelante y las imágenes dicen `.png` pero son JPG. 139 comprobaciones, todas bien:
+Carga la extensión en un Chromium sin interfaz (el que instala Playwright) y la usa sobre un sitio de prueba local armado como el sitio real: la página se dibuja con JavaScript, los capítulos no tienen links, los menores a 10 llevan cero adelante y las imágenes dicen `.png` pero son JPG. 140 comprobaciones, todas bien:
 
 - **Guardar:** burbuja, un solo diálogo aunque se pida dos veces, nombre, miniaturas con logo y banner marcados, recorrido automático de la página, PDF + CBZ + imágenes en sus carpetas, imágenes con su tipo real e idénticas al original, PDF abierto y dibujado con PyMuPDF (5 JPG + 1 PNG), registro de guardado.
 - **Guardar y siguiente:** abre el capítulo que sigue con el diálogo listo.
@@ -640,7 +641,7 @@ Carga la extensión en un Chromium sin interfaz (el que instala Playwright) y la
 - **Sitios de manga y cómics (de la 2.8 a la 2.8.4, cuando había lista incluida):** la lista muestra todos los sitios incluidos, la **i** abre tipo, si se guarda y descripción, los filtros Manga y Cómics filtran bien, el buscador encuentra por descripción, un sitio propio se agrega desde opciones (con `https://` completado), se edita, no se repite, aparece primero con TUYO, tocar el nombre lo abre en una pestaña nueva y se quita.
 - **División y filtro de idioma (2.8.3):** dos secciones con su cantidad (4 descargables y 19 para leer), en Descargables solo ✅ o 📥 y en Para leer solo 👁 o ❔; botones de idioma Todos, Español e Inglés, que dejan solo sitios con esa etiqueta en las dos secciones; plegar "Para leer" deja solo los descargables; idioma y secciones plegadas se recuerdan; un sitio propio marcado "Se puede descargar" se guarda con `descargable: true` y aparece primero en Descargables.
 - **Mi lista de sitios, pegada entera (2.8.5):** sin sitios cargados el popup ofrece pegar la lista; en opciones se pega un texto con títulos de grupo, un link de Markdown, una dirección sola, otra sin `https://` y un repetido, y antes de agregar muestra los 4 sitios que detectó; quedan guardados con nombre, tipo, idioma, descripción y `descargable`; una segunda lista para leer avisa el que ya estaba y agrega solo el nuevo; la lista de opciones cuenta 4 descargables y 1 para leer, se busca en ella y no deja repetir a mano. En el popup aparecen divididos, cada uno en su sección, con los filtros de idioma y de tipo, la **i**, plegar, buscar y abrir en una pestaña nueva. Por último, quitar uno y **Quitar todos**.
-- **Páginas protegidas y direcciones con código (2.8.1):** un lector armado como MANGA Plus (dirección `/viewer/2010289`, título `[#104] Serie`, páginas como imágenes `blob:` y logo, banner y promoción alrededor). Sin burbuja; el diálogo de guardar avisa con 🔒, nombra el capítulo 104, viene todo destildado y no ofrece "Guardar y siguiente"; el de varios capítulos no supone dirección, explica el código, del 100 al 104 marca solo el abierto y al descargar para enseguida sin guardar nada ni dejar pestañas. Además, un rango de capítulos que no existen (2001 a 2006) para a los 3 seguidos y abre la dirección para revisarla.
+- **Páginas protegidas y direcciones con código (2.8.1):** un lector armado como MANGA Plus (dirección `/viewer/2010289`, título `[#104] Serie`, páginas como imágenes `blob:` y logo, banner y promoción alrededor). Sin burbuja; el diálogo de guardar avisa con 🔒, nombra el capítulo 104, viene todo destildado y no ofrece "Guardar y siguiente"; el de varios capítulos no supone dirección, explica el código, del 100 al 104 marca solo el abierto y al descargar para enseguida sin guardar nada ni dejar pestañas. Además, un rango de capítulos que no existen (2001 a 2006) para a los 3 seguidos y abre la dirección para revisarla. **Desde la 2.9.1, sin el aviso:** el diálogo dice que no encontró páginas del capítulo, ni el diálogo ni las miniaturas nombran la protección, y el lote lo informa como "Sin páginas (encontré 0)".
 - **Sitio con el número dentro del nombre de la página (2.8.4):** un sitio de prueba de una sola serie, con capítulos en `/fan/leer/serie-fan-manga-<n>/` (barra final), título que termina en un año, carga diferida del navegador (`loading="lazy"`), dos `<canvas>` de adorno y un listado con un código largo en su dirección. Desde el listado toma los capítulos de los links y baja los tres con el nombre correcto (el número de la dirección, no el año) y 6 páginas sin el logo; desde un capítulo, los canvas no lo dan por protegido, avisa que ya está guardado, ofrece "Guardar y siguiente" y arma el molde y la lista.
 - **Sitio con archivo por mes (2.8.6):** un sitio de prueba armado como un blog, con la tira "enero 2021… junio 2021" en todas las páginas, el mismo archivo en un desplegable y un calendario con links por día; la página de un mes muestra juntos dos capítulos. Desde el inicio la lista trae los 4 capítulos con su nombre y no los meses; "del 1 al 2" baja los capítulos 1 y 2, cada uno con sus 6 páginas, sin abrir ninguna página del archivo; desde un capítulo tampoco aparecen los meses; y desde la página de un mes se ofrecen los capítulos de ese mes.
 - **Dirección terminada en un archivo (2.8.7):** en el mismo sitio de prueba, un capítulo en `…/2021/02/serie-blog-manga-3-espanol.html`, con el número en el medio del nombre y sin links a otros capítulos. Guardar el capítulo abierto anda igual (6 páginas, sin "siguiente" inventado); el diálogo de varios capítulos no supone una dirección, explica por qué no encontró los otros, "del 1 al 5" no marca nada y dice qué falta, y no se abre ninguna pestaña ni se pide ninguna dirección inventada. Escribiendo la dirección con `{n}` a mano, el rango vuelve a marcar.
@@ -691,7 +692,7 @@ El 22-11-2026, con la 2.8.4 y con ventana (pestañas en segundo plano como en el
 - **Sin detección de tomo (volumen).** La página no lo indica.
 - **El nombre depende del título de la página.** Si el sitio no actualiza el título al pasar de capítulo sin recargar, el nombre puede quedar con el número anterior; se soluciona con F5.
 - **El registro de guardados no mira el disco.** Si borrás un archivo a mano, la extensión sigue diciendo que lo guardaste hasta que lo quites en opciones.
-- **Lectores que protegen las páginas** (imágenes `blob:` descifradas en el momento, como MANGA Plus): no se guardan. Desde la 2.8.1 se reconocen y se avisa (sección 4.1). Los lectores que dibujan las páginas en un `<canvas>` y las imágenes puestas como fondo CSS no se detectan: ahí el diálogo dice "No encontré páginas".
+- **Lectores que protegen las páginas** (imágenes `blob:` descifradas en el momento, como MANGA Plus): no se guardan. La extensión las reconoce solo para no guardar en su lugar el logo y los banners, y dice que no encontró páginas (sección 4.1). Los lectores que dibujan las páginas en un `<canvas>` y las imágenes puestas como fondo CSS no se detectan: ahí el diálogo dice "No encontré páginas".
 - **Solo Chrome de escritorio** (y navegadores Chromium que acepten extensiones descomprimidas).
 - **Referer:** las imágenes se bajan sin el Referer del sitio. En one-piece-fans2.com no hace falta (verificado); si otro servidor de imágenes lo exige, devuelve 403 y el guardado lo informa como "No se pudo leer ninguna página (HTTP 403)".
 - **Iframes:** el script no corre dentro de iframes; un lector que muestre las páginas dentro de uno no se detecta.
@@ -775,7 +776,7 @@ Para probar un sitio nuevo sin dejar archivos: `node tests/probar_sitio.js "<dir
 | "No se pudo leer ninguna página (HTTP 403)" | El servidor de imágenes rechaza a la extensión (Referer, sesión) | Limitación conocida (sección 12) |
 | "guardado como … Capitulo" sin acento | El sistema rechazó el nombre con acentos | Automático; el archivo se guardó igual |
 | No aparece "Guardar y siguiente" | No se pudo saber cuál es el siguiente (la dirección no tiene número y no hay lista) | Pasar a mano |
-| 🔒 "Este sitio protege las páginas del capítulo" | El lector muestra las páginas cifradas (imágenes `blob:`) | No se pueden guardar con la extensión (sección 12) |
+| "No encontré páginas del capítulo en esta página" | El lector muestra las páginas como imágenes `blob:`, sin dirección para bajar | No se pueden guardar con la extensión (sección 12) |
 | Varios capítulos: "la dirección de este capítulo no lleva su número" y el campo Dirección vacío | El sitio usa un código por capítulo (por ejemplo `/viewer/2010289`) | Bajar los que figuren en la lista, o escribir el molde con `{n}` si lo conocés |
 | Lote: "Parado: … Los primeros 3 capítulos no tenían páginas" | La dirección con `{n}` no es la de los capítulos, o el sitio solo carga a la vista | Revisar "Dirección y nombre de los capítulos"; tildar "Abrir cada capítulo a la vista" |
 | Lote: "Parado: … 3 capítulos seguidos no tenían páginas" | Se pasó del último capítulo que tiene el sitio | Normal |
@@ -813,4 +814,5 @@ Para probar un sitio nuevo sin dejar archivos: `node tests/probar_sitio.js "<dir
 | 2.8.6 | **El archivo por mes de un sitio ya no se toma como capítulos.** En los sitios armados como un blog, los links "enero 2021", "febrero 2021"… (`/2021/01/`) y los del calendario (`/2021/01/15/`) terminan en un número y la lista de varios capítulos los mostraba como capítulo 1, 2, 3…; pedir "del 1 al 104" bajaba la página de cada mes, con varios capítulos mezclados y sin orden. Ahora se descartan en links, desplegables y en la dirección de la página, y la lista sale de los links a los capítulos. Sitio de prueba nuevo con ese armado |
 | 2.8.7 | **No se inventan direcciones sobre un archivo.** Cuando la página del capítulo termina en `.html`, `.php` y parecidos sin el número al final, y no hay links a los capítulos, el diálogo de varios capítulos suponía "esta dirección + /número" (`….html/1`) y el lote abría páginas que no existen. Ahora deja la dirección vacía, explica que no encontró los otros capítulos y no abre nada. El texto de la lista vacía ya no invita a marcar un rango si no hay dirección con `{n}` |
 | 2.9 | **Pegar los links de los capítulos.** En el diálogo de varios capítulos se pega una lista de links, de cualquier sitio y con el texto que traiga alrededor, y la extensión arma la lista con el número de cada uno: el que esté escrito adelante, el que trae el propio link (aunque esté en el medio del nombre) o el orden en que se pegaron, desde el número que se elija y también al revés. Avisa repetidos y números que faltan. Con la serie escrita, cada archivo sale con esa serie y el número de la lista, que manda sobre el título de la página |
+| 2.9.1 | **Se saca el aviso de páginas protegidas.** Ya no están el recuadro 🔒 del diálogo de guardar ni el corte del lote con ese mensaje. Esas páginas siguen sin guardarse: el diálogo dice que no encontró páginas del capítulo, y en un lote salen como "sin páginas" |
 | 2.7 | **Varios capítulos seguidos, rehecho:** cada capítulo se abre en una pestaña en segundo plano y se guarda con el mismo código del guardado normal; funciona desde un capítulo y desde la portada; rango por número con ceros adelante; desplegables; cancelar; saltear guardados. **Una sola bajada por página** para PDF, CBZ e imágenes, con reintentos y aviso de qué páginas faltaron. **PNG sin pérdida** en el PDF. **Imágenes sueltas con su extensión real.** **Recorrido automático** de la página al abrir. **Guardar y siguiente.** **Sin F5** después de actualizar. **Burbuja por sitio.** Página de **guardados, sagas y opciones** con exportar/importar y capítulos faltantes; sagas editables. Correcciones: títulos con el nombre del capítulo o palabras de más, filtro en webtoons y en lectores con links al CDN, dos diálogos al pedirlo dos veces, clics perdidos en miniaturas, teclado en todo el diálogo, la burbuja deja de revisar páginas que no son de manga |
