@@ -1,12 +1,21 @@
 # 📖 Manga Reader
 
-Extensión de Chrome para guardar capítulos de manga y cómics como **PDF**, **CBZ** o **imágenes sueltas**, de a uno o varios seguidos, con nombre y carpetas automáticos y sin las páginas de publicidad.
+Dos herramientas para guardar capítulos de manga y cómics como **PDF**, **CBZ** o **imágenes sueltas**, con nombre y carpetas automáticos y sin las páginas de publicidad:
 
-Es de uso personal, está en español y no tiene dependencias ni compilación: es JavaScript plano (Manifest V3).
+| | Qué es | Versión | Dónde está |
+|---|---|---|---|
+| 🧩 **La extensión** | Se usa desde Chrome, sobre la página que tenés abierta | 2.9.1 | `manga-reader-ext(ver 22-11-2026-6)/manga-reader-ext` |
+| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.2.0 | `programa/` |
 
-**Versión actual: 2.9.1** → carpeta `manga-reader-ext(ver 22-11-2026-6)/manga-reader-ext`
+Funcionan por separado y comparten el mismo código para detectar páginas, armar nombres y generar los archivos. Son de uso personal, están en español y todo corre en tu máquina, sin servidor.
+
+Lo último que cambió está en [Actualizaciones](#actualizaciones).
 
 ---
+
+# 🧩 La extensión
+
+JavaScript plano (Manifest V3), sin dependencias ni compilación.
 
 ## Qué hace
 
@@ -145,12 +154,85 @@ Usala con contenido que tengas derecho a guardar.
 
 ---
 
+# 🖥 El programa
+
+Aplicación de escritorio para Windows, hecha con Electron y JavaScript plano. Hace lo mismo que la extensión sin depender del navegador, y suma un explorador: pegás una dirección y te muestra por niveles lo que hay ahí.
+
+## Qué hace
+
+| | |
+|---|---|
+| 🔎 **Explorar por niveles** | De una página saca sus listas de links: títulos, capítulos numerados y en orden, y páginas. La flecha › de cada renglón baja un nivel |
+| 🗃 **Encontrar el catálogo** | Si pegás la portada de un sitio y tiene un link a su listado completo ("Directorio", "Biblioteca"), entra solo |
+| 📑 **Listados largos** | Baja hasta el final para ver lo que la página carga de a poco, y con "Traer más páginas" junta las páginas siguientes en una sola lista |
+| 📚 **Volúmenes y sagas** | Si la página separa los capítulos en volúmenes o sagas, aparecen agrupados y se tilda el grupo entero |
+| 📦 **Cola de descargas** | Baja de a un capítulo, muestra en qué anda cada uno y se puede cancelar |
+| 📁 **Carpeta a elección** | Guarda donde quieras, y saltea lo que ya está mirando el disco |
+| 🔗 **Pegar links** | Igual que en la extensión: una lista de links con el número de cada uno |
+| 📄 **Mismos formatos y nombres** | PDF, CBZ e imágenes, como `Serie/Saga/Serie 0012` |
+
+## Cómo abrirlo
+
+Hace falta [Node.js](https://nodejs.org) 22 o más nuevo. Todavía no tiene instalador.
+
+```bash
+cd programa
+npm install      # una sola vez
+npm start
+```
+
+## Cómo se usa
+
+1. Pegá una dirección arriba y tocá **Analizar**. Puede ser la portada de un sitio, un catálogo, una serie o un capítulo.
+2. Elegí una pestaña: **Capítulos** o **Títulos y links**. Con la flecha **›** entrás a cualquier renglón, y la ruta de arriba sirve para volver.
+3. Si el listado sigue en más páginas, tocá **Traer más páginas**.
+4. Tildá lo que querés, elegí formatos y carpeta a la derecha, y tocá **Descargar**.
+
+Lo que todavía le falta y cómo está armado: [programa/README.md](programa/README.md).
+
+---
+
+# Actualizaciones
+
+Lo más nuevo arriba. El historial completo de la extensión está en la sección 15 de [DOCUMENTACION.md](DOCUMENTACION.md).
+
+### 22-11-2026 · Programa 0.2.0
+
+- **Encuentra el catálogo:** desde la portada de un sitio, entra solo al listado completo cuando la página lo enlaza, y lo ofrece como acceso rápido en las demás.
+- **Listados que cargan al bajar:** recorre la página hasta el final antes de leer los links.
+- **Traer más páginas:** sigue la paginación de un listado, de a 10 páginas, y suma los títulos sin repetir.
+
+### 22-11-2026 · Programa 0.1.0, primera versión
+
+- Explorador por niveles: títulos, capítulos y páginas, con volúmenes y sagas cuando la página los separa.
+- Descarga a PDF, CBZ e imágenes en la carpeta elegida, con cola y cancelar.
+- Pegar links, saltear lo que ya está en el disco, y pedido de imágenes con el Referer del capítulo.
+
+### 22-11-2026 · Extensión 2.9.1
+
+- Se saca el aviso de páginas protegidas. Esas páginas siguen sin guardarse: el diálogo dice que no encontró páginas.
+
+### 22-11-2026 · Extensión 2.9.0
+
+- **Pegar los links de los capítulos** en el diálogo de varios capítulos, con el número de cada uno: el escrito adelante, el del propio link o el orden en que se pegaron.
+
+### 22-11-2026 · Extensión 2.8.5 a 2.8.7
+
+- La lista de sitios pasa a ser la del usuario, y se carga pegándola entera.
+- El archivo por mes de un sitio ("enero 2021") ya no se toma como capítulos.
+- No se inventan direcciones cuando la página del capítulo termina en un archivo.
+
+---
+
+# El repositorio
+
 ## Qué hay en el repositorio
 
 | Carpeta o archivo | Qué es |
 |---|---|
 | `manga-reader-ext(ver DD-MM-AAAA)/manga-reader-ext/` | Una carpeta por versión, lista para cargar en Chrome. Cada una trae su `README.md` y su `DOCUMENTACION.md` |
 | `DOCUMENTACION.md` | La referencia completa de la última versión: arquitectura, mensajes, formatos, constantes, limitaciones, solución de problemas e historial |
+| `programa/` | El programa de escritorio (Electron). Tiene su propio `README.md` y sus pruebas |
 | `tests/` | Las pruebas |
 | `reports/`, `research_notes/` | Un estudio de sitios legítimos de manga y cómics y sus fuentes |
 
@@ -177,6 +259,7 @@ node tests/e2e.js           # navegador real, sobre sitios de prueba servidos en
 node tests/lote_largo.js    # un lote de decenas de capítulos seguidos
 ```
 
+- El programa tiene las suyas: `cd programa` y `npm run prueba`.
 - Las pruebas en navegador necesitan el Chromium de Playwright (`%LOCALAPPDATA%\ms-playwright\chromium-*`) o el de la variable `CHROMIUM`. El Chrome común ya no acepta cargar extensiones por línea de comandos.
 - `node tests/probar_sitio.js "<dirección>"` informa qué detecta la extensión en una página, sin dejar archivos.
 - Todas las descargas de las pruebas van a una carpeta temporal que se borra al terminar.

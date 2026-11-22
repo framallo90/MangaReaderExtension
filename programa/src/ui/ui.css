@@ -1,0 +1,91 @@
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; display: flex; flex-direction: column;
+  font: 14px/1.45 'Segoe UI', system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0;
+}
+[hidden] { display: none !important; }
+.tenue { color: #8fa6d8; font-weight: normal; font-size: 12px; }
+
+input[type="text"], input[type="number"], textarea, select {
+  background: #0f1a33; color: #fff; border: 1px solid #2a3a5e; border-radius: 6px; padding: 8px 10px;
+  font: 13px 'Segoe UI', system-ui, sans-serif; outline: none;
+}
+input:focus, textarea:focus, select:focus { border-color: #667eea; }
+input[type="checkbox"] { accent-color: #667eea; width: 15px; height: 15px; flex: none; margin: 0; }
+button {
+  padding: 8px 12px; border: 1px solid #2a3a5e; border-radius: 6px; background: #1f2c50; color: #e0e0e0;
+  font: 13px 'Segoe UI', system-ui, sans-serif; cursor: pointer; white-space: nowrap;
+}
+button:hover:not(:disabled) { border-color: #667eea; color: #fff; }
+button:disabled { opacity: .45; cursor: default; }
+button.main { border: none; background: linear-gradient(135deg, #667eea, #764ba2); color: #fff; font-weight: 600; }
+button.grande { width: 100%; padding: 11px; font-size: 14px; margin-top: 4px; }
+.barra { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+/* ── Arriba: dirección, links pegados y ruta ── */
+header { padding: 12px 16px 8px; background: #16213e; border-bottom: 1px solid #2a3a5e; }
+#buscar { display: flex; align-items: center; gap: 8px; }
+.logo { font-size: 20px; }
+#url { flex: 1; min-width: 0; font-size: 14px; padding: 9px 12px; }
+#pegar { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+#links { width: 100%; min-height: 110px; resize: vertical; white-space: pre; font: 12px Consolas, 'Courier New', monospace; line-height: 1.5; }
+#pegar label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #b9c2d8; }
+#linksDesde { width: 80px; }
+#ruta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-top: 8px; min-height: 22px; font-size: 12px; color: #8fa6d8; }
+#ruta button { border: none; background: none; padding: 2px 6px; color: #a0c4ff; font-size: 12px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+#ruta button:last-of-type { color: #fff; font-weight: 600; }
+#ruta .sep { color: #55648a; }
+
+/* ── Cuerpo: explorador a la izquierda, guardar y cola a la derecha ── */
+main { flex: 1; min-height: 0; display: flex; }
+#explorador { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; }
+aside { width: 330px; flex: none; display: flex; flex-direction: column; gap: 9px; padding: 12px 16px; background: #16213e; border-left: 1px solid #2a3a5e; overflow-y: auto; }
+aside h2 { margin: 6px 0 0; font-size: 13px; color: #a0c4ff; text-transform: uppercase; letter-spacing: .5px; }
+
+.estado { font-size: 13px; color: #b9c2d8; min-height: 20px; white-space: pre-line; }
+.estado.error { color: #ff8a7a; }
+.estado.trabajando { color: #f39c12; }
+.estado.bien { color: #7ee2a8; }
+.tarjeta { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; background: #1f2c50; border: 1px solid #2a3a5e; border-radius: 8px; }
+.tarjeta b { color: #fff; }
+.tarjeta span { margin-left: 8px; color: #8fa6d8; font-size: 12px; }
+
+#pistas button { padding: 4px 10px; font-size: 12px; border-color: #667eea; color: #fff; }
+#tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+#tabs button { padding: 5px 10px; border-radius: 14px; font-size: 12px; background: #0f1a33; color: #b9c2d8; max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
+#tabs button.on { background: #667eea; border-color: #667eea; color: #fff; font-weight: 600; }
+#filtro { flex: 1; min-width: 140px; padding: 6px 9px; }
+#herramientas button { padding: 6px 10px; font-size: 12px; }
+
+#lista { flex: 1; min-height: 0; overflow-y: auto; background: #0f1a33; border: 1px solid #2a3a5e; border-radius: 8px; }
+#lista:empty { display: none; }
+#lista::-webkit-scrollbar, #cola::-webkit-scrollbar, aside::-webkit-scrollbar { width: 8px; }
+#lista::-webkit-scrollbar-thumb, #cola::-webkit-scrollbar-thumb, aside::-webkit-scrollbar-thumb { background: #2a3a5e; border-radius: 4px; }
+.fila, .seccion { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-bottom: 1px solid #1c2947; cursor: pointer; }
+.fila:hover { background: #16213e; }
+.fila .num { flex: none; min-width: 46px; color: #a0c4ff; font-weight: 600; font-variant-numeric: tabular-nums; }
+.fila .txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fila .saga { flex: none; font-size: 11px; color: #c9b6ff; background: #2b2347; border-radius: 3px; padding: 1px 6px; }
+.fila .entrar { flex: none; width: 28px; height: 24px; padding: 0; border-radius: 5px; font-size: 15px; line-height: 1; }
+.seccion { position: sticky; top: 0; z-index: 1; background: #16213e; border-bottom: 1px solid #2a3a5e; font-weight: 600; color: #fff; }
+.seccion .txt { flex: 1; }
+.seccion .n { font-size: 11px; font-weight: 700; color: #b9c2d8; background: #2a3a5e; border-radius: 9px; padding: 1px 7px; }
+#siguiente { align-self: flex-start; }
+
+/* ── Guardar y cola ── */
+.campo { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #8fa6d8; }
+.formatos { display: flex; gap: 14px; }
+.formatos label, .opcion { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #ddd; cursor: pointer; }
+.carpeta { display: flex; align-items: center; gap: 8px; }
+.carpeta span { flex: 1; min-width: 0; font-size: 12px; color: #d0d0d0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.carpeta button { padding: 5px 9px; font-size: 12px; }
+#cola { flex: 1; min-height: 90px; overflow-y: auto; background: #0f1a33; border: 1px solid #2a3a5e; border-radius: 8px; }
+.vacio { padding: 14px; text-align: center; font-size: 12px; color: #777; }
+.tarea { padding: 6px 10px; border-bottom: 1px solid #1c2947; font-size: 12px; }
+.tarea .t-nombre { color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tarea .t-estado { color: #8fa6d8; }
+.tarea.activa .t-estado { color: #f39c12; }
+.tarea.listo .t-estado { color: #7ee2a8; }
+.tarea.mal .t-estado { color: #ff8a7a; white-space: normal; }
+aside .barra button { padding: 6px 9px; font-size: 12px; }

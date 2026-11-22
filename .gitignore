@@ -8,6 +8,10 @@
 manga-reader-copia-*.json
 mis-sitios-*.json
 
+# Programa de escritorio: dependencias y código que se genera al abrirlo
+node_modules/
+programa/generado/
+
 # Restos de pruebas y consultas
 eu.json
 capturas/

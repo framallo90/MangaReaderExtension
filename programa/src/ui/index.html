@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; img-src 'self' data:">
+  <title>Manga Reader</title>
+  <link rel="stylesheet" href="ui.css">
+</head>
+<body>
+  <header>
+    <form id="buscar">
+      <span class="logo">📖</span>
+      <input id="url" type="text" spellcheck="false" autocomplete="off"
+             placeholder="Pegá la dirección de una página: un catálogo, una serie o un capítulo">
+      <button class="main" id="analizar" type="submit">Analizar</button>
+      <button id="verPegar" type="button" title="Pegar una lista de links de capítulos">Pegar links</button>
+    </form>
+    <div id="pegar" hidden>
+      <textarea id="links" spellcheck="false" placeholder="Pegá los links, uno por renglón o todos juntos. Lo que no sea un link se ignora."></textarea>
+      <div class="barra">
+        <select id="linksModo" title="De dónde sale el número de cada capítulo">
+          <option value="auto">Número: el de cada link</option>
+          <option value="order">Número: en el orden pegado</option>
+          <option value="reverse">Número: en el orden pegado, al revés</option>
+        </select>
+        <label>desde <input id="linksDesde" type="number" min="0" step="any" placeholder="1"></label>
+        <button id="usarLinks" type="button">Usar estos links</button>
+      </div>
+    </div>
+    <nav id="ruta"></nav>
+  </header>
+
+  <main>
+    <section id="explorador">
+      <div id="estado" class="estado">Pegá una dirección arriba y tocá Analizar.</div>
+      <div id="pistas" class="barra" hidden></div>
+      <div id="capitulo" class="tarjeta" hidden>
+        <div><b id="capNombre"></b><span id="capDatos"></span></div>
+        <button class="main" id="capBajar" type="button">Descargar este capítulo</button>
+      </div>
+      <div id="tabs"></div>
+      <div id="herramientas" class="barra" hidden>
+        <input id="filtro" type="text" spellcheck="false" autocomplete="off" placeholder="Filtrar…">
+        <button id="todos" type="button">Todos</button>
+        <button id="ninguno" type="button">Ninguno</button>
+        <span id="cuenta" class="tenue"></span>
+      </div>
+      <div id="lista"></div>
+      <button id="siguiente" type="button" hidden title="Lee las páginas siguientes de este listado y suma lo que encuentre">Traer más páginas</button>
+    </section>
+
+    <aside>
+      <h2>Guardar</h2>
+      <label class="campo">Serie
+        <input id="serie" type="text" spellcheck="false" autocomplete="off" placeholder="Automática: sale del título de cada capítulo">
+      </label>
+      <div class="formatos">
+        <label><input type="checkbox" id="fPdf"> PDF</label>
+        <label><input type="checkbox" id="fCbz"> CBZ</label>
+        <label><input type="checkbox" id="fImgs"> Imágenes</label>
+      </div>
+      <label class="opcion"><input type="checkbox" id="saltear"> Saltear lo que ya está en la carpeta</label>
+      <div class="campo">Carpeta
+        <div class="carpeta"><span id="carpeta" title=""></span><button id="cambiarCarpeta" type="button">Cambiar</button></div>
+      </div>
+      <button class="main grande" id="descargar" type="button" disabled>Descargar</button>
+
+      <h2>Cola <span id="colaCuenta" class="tenue"></span></h2>
+      <div id="cola"><div class="vacio">Todavía no hay nada en la cola.</div></div>
+      <div class="barra">
+        <button id="cancelar" type="button" disabled>Cancelar</button>
+        <button id="limpiar" type="button" disabled>Limpiar terminados</button>
+        <button id="abrirCarpeta" type="button">Abrir carpeta</button>
+      </div>
+    </aside>
+  </main>
+  <script src="ui.js"></script>
+</body>
+</html>
