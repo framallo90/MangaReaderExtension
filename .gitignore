@@ -1,0 +1,19 @@
+# Archivos locales de herramientas de desarrollo (no son parte del proyecto)
+.[Cc]laude/
+[Cc]LAUDE.md
+[Cc]LAUDE.local.md
+.mcp.json
+
+# Copias exportadas desde la extensión y otros datos personales
+manga-reader-copia-*.json
+mis-sitios-*.json
+
+# Restos de pruebas y consultas
+eu.json
+capturas/
+*.log
+
+# Sistema
+Thumbs.db
+desktop.ini
+.DS_Store

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { width: 280px; font-family: 'Segoe UI', system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 14px; }
+    h1 { font-size: 15px; text-align: center; color: #fff; margin-bottom: 12px; }
+    .btn { width: 100%; padding: 11px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+           background: linear-gradient(135deg, #667eea, #764ba2); color: #fff; transition: opacity .15s; }
+    .btn:hover { opacity: .9; }
+    .status { text-align: center; font-size: 12px; margin-top: 8px; min-height: 16px; color: #e74c3c; }
+    .tip { text-align: center; font-size: 11px; color: #777; margin-top: 10px; line-height: 1.5; }
+    .opt { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #ccc; margin-top: 8px; cursor: pointer; }
+    .opt input { accent-color: #667eea; }
+    kbd { background: #2a3a5e; padding: 1px 5px; border-radius: 3px; font-size: 10px; color: #a0c4ff; }
+  </style>
+</head>
+<body>
+  <h1>📖 Manga Reader</h1>
+  <button class="btn" id="btnSave">💾 Guardar capítulo</button>
+  <div class="status" id="status"></div>
+  <label class="opt"><input type="checkbox" id="fabEnabled"> Mostrar burbuja flotante en los capítulos</label>
+  <p class="tip">También: <kbd>Alt+S</kbd> o clic derecho → Guardar capítulo<br>Bajá hasta el final del capítulo antes de guardar</p>
+  <script src="popup.js"></script>
+</body>
+</html>

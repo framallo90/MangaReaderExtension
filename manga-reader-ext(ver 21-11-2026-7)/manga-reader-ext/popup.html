@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { width: 320px; font-family: 'Segoe UI', system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 14px; }
+    [hidden] { display: none !important; }
+    h1 { font-size: 15px; text-align: center; color: #fff; margin-bottom: 12px; }
+    .btn { width: 100%; padding: 11px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+           background: linear-gradient(135deg, #667eea, #764ba2); color: #fff; transition: opacity .15s; }
+    .btn + .btn { margin-top: 8px; }
+    .btn:hover { opacity: .9; }
+    .btn.alt { background: #2a3a5e; }
+    .btn.small { padding: 8px; font-size: 12px; font-weight: 500; margin-top: 12px; }
+    .status { text-align: center; font-size: 12px; margin-top: 8px; min-height: 16px; color: #e74c3c; }
+    .tip { text-align: center; font-size: 11px; color: #777; margin-top: 10px; line-height: 1.5; }
+    .opt { display: flex; align-items: flex-start; gap: 6px; font-size: 12px; color: #ccc; margin-top: 8px; cursor: pointer; line-height: 1.3; }
+    .opt input { accent-color: #667eea; margin-top: 1px; flex: none; }
+    kbd { background: #2a3a5e; padding: 1px 5px; border-radius: 3px; font-size: 10px; color: #a0c4ff; }
+
+    /* ── Sitios de manga y cómics ── */
+    .bar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .bar h2 { font-size: 14px; color: #fff; font-weight: 600; flex: 1; }
+    .back { width: 28px; height: 28px; border: none; border-radius: 6px; background: #2a3a5e; color: #fff; font-size: 16px; cursor: pointer; }
+    .back:hover { background: #3a4a7e; }
+    .seg { display: flex; background: #0f1a33; border: 1px solid #2a3a5e; border-radius: 8px; padding: 2px; }
+    .seg button { flex: 1; padding: 5px 0; border: none; border-radius: 6px; background: none; color: #b9c2d8; font: 12px 'Segoe UI', system-ui, sans-serif; cursor: pointer; }
+    .seg button.on { background: #667eea; color: #fff; font-weight: 600; }
+    .filtro { display: flex; align-items: center; gap: 8px; }
+    .filtro + .filtro { margin-top: 6px; }
+    .flabel { flex: none; width: 44px; font-size: 11px; color: #8fa6d8; }
+    .filtro .seg { flex: 1; }
+    /* División: descargables / para leer */
+    .sec { position: sticky; top: 0; z-index: 1; width: 100%; display: flex; align-items: center; gap: 6px; padding: 7px 8px;
+           border: none; border-bottom: 1px solid #2a3a5e; background: #16213e; color: #fff; font: 600 12px 'Segoe UI', system-ui, sans-serif;
+           text-align: left; cursor: pointer; }
+    .sec-body + .sec { border-top: 1px solid #2a3a5e; }
+    .sec:hover { background: #1c2a4d; }
+    .sec-t { flex: 1; }
+    .sec-n { font-size: 11px; font-weight: 700; border-radius: 9px; padding: 1px 7px; background: #2a3a5e; color: #b9c2d8; }
+    .sec.descargables .sec-n { background: #1e4d36; color: #7ee2a8; }
+    .sec-flecha { width: 12px; text-align: center; color: #8fa6d8; transition: transform .15s; }
+    .sec[aria-expanded="false"] .sec-flecha { transform: rotate(-90deg); }
+    .sec-sub { padding: 5px 10px; font-size: 11px; color: #8fa6d8; background: #121b36; border-bottom: 1px solid #1c2947; }
+    .sec-body .vacio { padding: 10px; }
+    #buscar { width: 100%; margin-top: 8px; padding: 7px 9px; border: 1px solid #2a3a5e; border-radius: 6px; background: #0f1a33; color: #fff;
+              font: 12px 'Segoe UI', system-ui, sans-serif; outline: none; }
+    #buscar:focus { border-color: #667eea; }
+    #lista { margin-top: 8px; max-height: 330px; overflow-y: auto; border: 1px solid #2a3a5e; border-radius: 8px; background: #0f1a33; }
+    #lista::-webkit-scrollbar { width: 6px; }
+    #lista::-webkit-scrollbar-thumb { background: #2a3a5e; border-radius: 3px; }
+    .count { font-size: 11px; color: #777; margin-top: 6px; }
+    .vacio { padding: 14px; text-align: center; font-size: 12px; color: #777; }
+    .site { border-bottom: 1px solid #1c2947; }
+    .site:last-child { border-bottom: none; }
+    .site-row { display: flex; align-items: center; gap: 6px; padding: 6px 8px; }
+    .site-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; border: none; background: none; color: #e0e0e0;
+                 font: 13px 'Segoe UI', system-ui, sans-serif; text-align: left; cursor: pointer; padding: 2px 0; }
+    .site-open:hover .site-name { color: #fff; text-decoration: underline; }
+    .site-ico { flex: none; width: 18px; text-align: center; font-size: 13px; }
+    .site-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tag { flex: none; font-size: 9px; font-weight: 700; color: #a0c4ff; background: #1f2c50; border-radius: 3px; padding: 1px 4px; }
+    .tag.mio { color: #f6c445; }
+    .tag.tipo-manga { color: #ff9ecb; background: #3a1f3a; }
+    .tag.tipo-comics { color: #ffc36b; background: #3a2c17; }
+    .tag.tipo-mixto { color: #c9b6ff; background: #2b2347; }
+    .site-i { flex: none; width: 20px; height: 20px; border-radius: 50%; border: none; background: #a0c4ff; color: #1a1a2e;
+              font: italic 700 12px Georgia, 'Times New Roman', serif; line-height: 1; cursor: pointer; }
+    .site-i:hover, .site-i[aria-expanded="true"] { background: #fff; }
+    .site-info { padding: 0 10px 9px 32px; font-size: 12px; line-height: 1.45; color: #b9c2d8; }
+    .site-kind { color: #a0c4ff; font-weight: 600; }
+    .site-save { margin-top: 2px; }
+    .site-save.si { color: #2ecc71; }
+    .site-save.no { color: #f39c12; }
+    .site-desc { margin-top: 4px; color: #d0d0d0; }
+    .site-url { margin-top: 3px; font-size: 11px; color: #777; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <div id="main">
+    <h1>📖 Manga Reader</h1>
+    <button class="btn" id="btnSave">💾 Guardar capítulo</button>
+    <button class="btn alt" id="btnSeries">📦 Descargar varios capítulos</button>
+    <button class="btn alt" id="btnSites">📚 Sitios de manga y cómics</button>
+    <div class="status" id="status"></div>
+    <label class="opt"><input type="checkbox" id="fabEnabled"> Mostrar burbuja flotante en los capítulos</label>
+    <label class="opt" id="siteRow" hidden><input type="checkbox" id="fabSite"> <span id="siteLabel"></span></label>
+    <label class="opt"><input type="checkbox" id="autoScan"> Recorrer la página sola al abrir el diálogo, para que carguen todas las imágenes</label>
+    <button class="btn alt small" id="btnOptions">⚙️ Guardados, sagas, sitios y opciones</button>
+    <p class="tip">También: <kbd>Alt+S</kbd> o clic derecho en la página</p>
+  </div>
+
+  <div id="sites" hidden>
+    <div class="bar">
+      <button class="back" id="back" title="Volver" aria-label="Volver">‹</button>
+      <h2>📚 Sitios de manga y cómics</h2>
+    </div>
+    <div class="filtro">
+      <span class="flabel">Tipo</span>
+      <div class="seg" id="seg">
+        <button data-tipo="todos" class="on">Todos</button>
+        <button data-tipo="manga">Manga</button>
+        <button data-tipo="comics">Cómics</button>
+      </div>
+    </div>
+    <div class="filtro">
+      <span class="flabel">Idioma</span>
+      <div class="seg" id="segIdioma"><button data-idioma="todos" class="on">Todos</button></div>
+    </div>
+    <input id="buscar" type="search" placeholder="Buscar sitio…" autocomplete="off">
+    <div id="lista"></div>
+    <div class="count" id="count"></div>
+    <button class="btn alt small" id="addTab" hidden>＋ Agregar esta página a mis sitios</button>
+    <div class="status" id="sitesStatus"></div>
+    <p class="tip">Tocá el nombre para abrirlo y la <b>i</b> para ver qué tiene. Tocá el título de una sección para plegarla.<br>Tus sitios se editan en ⚙️ Guardados, sagas, sitios y opciones.</p>
+  </div>
+  <script src="sitios.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

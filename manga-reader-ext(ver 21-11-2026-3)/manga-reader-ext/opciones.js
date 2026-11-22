@@ -1,0 +1,336 @@
+/**
+ * Manga Reader v2.8 — página "Guardados y opciones"
+ * - Registro de capítulos guardados: por serie, con lo que falta, exportar e importar
+ * - Tabla de sagas editable
+ * - Sitios donde la burbuja no aparece
+ */
+
+// ── Funciones sin interfaz (también las usan las pruebas en Node) ──
+
+const OPEN_END = 99999;         // "hasta" de la última saga
+
+const titleCase = (s) => s.replace(/(^|[\s-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
+
+// La serie se compara como queda en el nombre del archivo: sin los caracteres que Windows no acepta
+const serieKey = (s) => s.replace(/\//g, '-').replace(/[<>:"\\|?*]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+
+// { 'one piece': [[1, 100, 'East Blue'], …] } → texto para editar
+function sagasToText(table) {
+  return Object.entries(table || {}).map(([serie, rows]) =>
+    [titleCase(serie), ...rows.map(([a, b, name]) => `${a}-${b >= OPEN_END ? '' : b} ${name}`)].join('\n')
+  ).join('\n\n');
+}
+
+// Texto → { table, errors }. Un bloque por serie; cada saga, "desde-hasta Nombre"
+function parseSagas(text) {
+  const table = {}, errors = [];
+  for (const block of String(text || '').replace(/\r/g, '').split(/\n\s*\n/)) {
+    const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
+    if (!lines.length) continue;
+    const serie = lines[0];
+    if (/^\d+\s*[-–+]/.test(serie)) { errors.push(`Falta el nombre de la serie antes de "${serie}"`); continue; }
+    const rows = [];
+    for (const line of lines.slice(1)) {
+      const m = line.match(/^(\d+)\s*(?:[-–]\s*(\d+)?|\+)\s+(.+)$/);
+      if (!m) { errors.push(`${serie}: no entiendo "${line}" (va "desde-hasta Nombre")`); continue; }
+      const a = +m[1], b = m[2] ? +m[2] : OPEN_END;
+      if (b < a) { errors.push(`${serie}: en "${line}" el final es menor que el principio`); continue; }
+      rows.push([a, b, m[3].trim()]);
+    }
+    if (!rows.length) { errors.push(`${serie}: no tiene ninguna saga`); continue; }
+    rows.sort((x, y) => x[0] - y[0]);
+    table[serieKey(serie)] = rows;
+  }
+  return { table, errors };
+}
+
+// Números enteros que faltan entre el primero y el último: [1,2,5,9] → [[3,4],[6,8]]
+function missingRanges(nums) {
+  const have = new Set(nums.map(Math.floor));
+  if (have.size < 2) return [];
+  let min = Infinity, max = -Infinity;
+  for (const n of have) { if (n < min) min = n; if (n > max) max = n; }
+  const out = [];
+  for (let n = min; n <= max; n++) {
+    if (have.has(n)) continue;
+    const last = out[out.length - 1];
+    if (last && last[1] === n - 1) last[1] = n; else out.push([n, n]);
+  }
+  return out;
+}
+
+const rangesText = (ranges) => ranges.map(([a, b]) => (a === b ? `${a}` : `${a}–${b}`)).join(', ');
+
+// Registro de guardados → [{ serie, items: [{path, name, numero, ts, pages, url}], missing }]
+function groupSaved(saved) {
+  const series = new Map();
+  for (const [path, v] of Object.entries(saved || {})) {
+    const parts = path.split('/');
+    const name = parts[parts.length - 1];
+    const m = name.match(/(\d+(?:\.\d+)?)$/);
+    if (!series.has(parts[0])) series.set(parts[0], { serie: parts[0], items: [] });
+    series.get(parts[0]).items.push({ path, name, numero: m ? parseFloat(m[1]) : null, ts: v.ts, pages: v.pages, url: v.url });
+  }
+  for (const g of series.values()) {
+    g.items.sort((a, b) => (a.numero ?? Infinity) - (b.numero ?? Infinity) || a.name.localeCompare(b.name));
+    g.missing = missingRanges(g.items.map(i => i.numero).filter(n => n != null));
+  }
+  return [...series.values()].sort((a, b) => a.serie.localeCompare(b.serie));
+}
+
+// Suma una copia exportada a lo que hay. Los guardados se mezclan (gana el más nuevo);
+// del resto solo se trae lo que acá todavía no está configurado.
+function mergeBackup(local, data) {
+  const saved = { ...(local.savedChapters || {}) };
+  let added = 0;
+  for (const [k, v] of Object.entries(data.savedChapters || {})) {
+    if (!v || typeof v !== 'object' || typeof v.ts !== 'number') continue;
+    if (!saved[k]) added++;
+    if (!saved[k] || saved[k].ts < v.ts) saved[k] = { ts: v.ts, pages: v.pages, url: v.url };
+  }
+  const out = { savedChapters: saved };
+  for (const key of ['sagas', 'sagasText', 'saveFolders', 'batchPad']) {
+    if (local[key] == null && data[key] != null && typeof data[key] === (key === 'sagasText' ? 'string' : 'object')) out[key] = data[key];
+  }
+  if (Array.isArray(data.fabBlockedHosts)) {
+    out.fabBlockedHosts = [...new Set([...(local.fabBlockedHosts || []), ...data.fabBlockedHosts.filter(h => typeof h === 'string')])];
+  }
+  // Mis sitios: se suman los que no estén (misma dirección = mismo sitio)
+  if (Array.isArray(data.misSitios)) {
+    const key = (s) => String(s?.url || '').toLowerCase().replace(/^https?:\/\/(www\.)?/, '').replace(/\/+$/, '');
+    const mios = [...(local.misSitios || [])];
+    const have = new Set(mios.map(key));
+    for (const s of data.misSitios) {
+      if (s && typeof s.nombre === 'string' && typeof s.url === 'string' && /^https?:\/\//i.test(s.url) && !have.has(key(s))) {
+        mios.push(s);
+        have.add(key(s));
+      }
+    }
+    out.misSitios = mios;
+  }
+  return { out, added };
+}
+
+if (typeof module !== 'undefined') {
+  module.exports = { sagasToText, parseSagas, missingRanges, rangesText, groupSaved, mergeBackup, serieKey };
+}
+
+// ── Interfaz ─────────────────────────────────────────
+
+if (typeof document !== 'undefined') {
+  const $ = (id) => document.getElementById(id);
+  const store = chrome.storage.local;
+  const KEYS = ['savedChapters', 'sagas', 'sagasText', 'saveFolders', 'fabBlockedHosts', 'batchPad', 'misSitios'];
+  const el = (tag, props = {}, ...kids) => {
+    const e = Object.assign(document.createElement(tag), props);
+    e.append(...kids);
+    return e;
+  };
+  const say = (id, text, ok) => { $(id).textContent = text; $(id).className = 'msg ' + (ok ? 'ok' : 'err'); };
+  const fecha = (ts) => {
+    const d = new Date(ts);
+    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+  };
+
+  let saved = {};
+  const openSeries = new Set();           // series desplegadas (para que no se cierren al redibujar)
+
+  // ── Guardados ──
+
+  async function removePaths(paths) {
+    saved = (await store.get(['savedChapters'])).savedChapters || {};
+    for (const p of paths) delete saved[p];
+    await store.set({ savedChapters: saved });
+    renderSaved();
+  }
+
+  function renderSaved() {
+    const box = $('series');
+    const q = $('filtro').value.trim().toLowerCase();
+    const groups = groupSaved(saved)
+      .map(g => (q && !g.serie.toLowerCase().includes(q) ? { ...g, items: g.items.filter(i => i.path.toLowerCase().includes(q)) } : g))
+      .filter(g => g.items.length);
+    box.replaceChildren();
+    if (!groups.length) {
+      box.append(el('p', { className: 'vacio', textContent: q ? 'Nada coincide con la búsqueda.' : 'Todavía no guardaste ningún capítulo.' }));
+      return;
+    }
+    for (const g of groups) {
+      const nums = g.items.map(i => i.numero).filter(n => n != null);
+      const datos = `${g.items.length} capítulo${g.items.length === 1 ? '' : 's'}` +
+        (nums.length ? ` · del ${nums[0]} al ${nums[nums.length - 1]}` : '');
+      const summary = el('summary', {},
+        el('span', { className: 'serie-nombre', textContent: g.serie }),
+        el('span', { className: 'serie-datos', textContent: datos }));
+      if (!q && g.missing.length) {
+        summary.append(el('span', { className: 'serie-faltan', textContent: `Te faltan: ${rangesText(g.missing)}` }));
+      }
+      const rows = g.items.map(i => {
+        const quitar = el('button', { className: 'link', textContent: 'quitar', title: 'Quitar del registro (no borra el archivo)' });
+        quitar.onclick = () => removePaths([i.path]);
+        const nombre = el('td', {}, el('div', { textContent: i.name }), el('div', { className: 'ruta', textContent: i.path }));
+        const link = /^https?:\/\//i.test(i.url || '') ? el('a', { href: i.url, target: '_blank', rel: 'noopener', textContent: 'abrir' }) : '';
+        return el('tr', {}, nombre,
+          el('td', { className: 'num', textContent: fecha(i.ts) }),
+          el('td', { className: 'num', textContent: `${i.pages ?? '?'} págs` }),
+          el('td', { className: 'num' }, link),
+          el('td', { className: 'num' }, quitar));
+      });
+      const todo = el('button', { className: 'danger', textContent: `Quitar toda la serie del registro (${g.items.length})` });
+      todo.onclick = () => { if (confirm(`¿Quitar del registro los ${g.items.length} capítulos de "${g.serie}"? Los archivos no se borran.`)) removePaths(g.items.map(i => i.path)); };
+      const det = el('details', { className: 'serie', open: openSeries.has(g.serie) || !!q }, summary,
+        el('table', {}, el('tbody', {}, ...rows)), el('div', { style: 'margin-top: 8px;' }, todo));
+      det.addEventListener('toggle', () => { if (det.open) openSeries.add(g.serie); else openSeries.delete(g.serie); });
+      box.append(det);
+    }
+  }
+
+  $('filtro').addEventListener('input', renderSaved);
+
+  $('exportar').onclick = async () => {
+    const data = await store.get(KEYS);
+    const d = new Date();
+    const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const blob = new Blob([JSON.stringify({ app: 'manga-reader', format: 1, exported: d.toISOString(), data }, null, 2)], { type: 'application/json' });
+    const a = el('a', { href: URL.createObjectURL(blob), download: `manga-reader-copia-${stamp}.json` });
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    say('guardadosMsg', `Copia exportada: ${Object.keys(data.savedChapters || {}).length} capítulos.`, true);
+  };
+
+  $('importar').onclick = () => $('archivo').click();
+  $('archivo').addEventListener('change', async () => {
+    const file = $('archivo').files[0];
+    $('archivo').value = '';
+    if (!file) return;
+    try {
+      const json = JSON.parse(await file.text());
+      const data = json?.app === 'manga-reader' ? json.data : json;
+      if (!data || typeof data.savedChapters !== 'object') throw new Error('no es una copia de Manga Reader');
+      const { out, added } = mergeBackup(await store.get(KEYS), data);
+      await store.set(out);
+      await load();
+      say('guardadosMsg', `Copia importada: ${added} capítulo${added === 1 ? '' : 's'} nuevo${added === 1 ? '' : 's'}.`, true);
+    } catch (e) {
+      say('guardadosMsg', `No se pudo importar: ${e.message}`, false);
+    }
+  });
+
+  // ── Sagas ──
+
+  const includedText = () => sagasToText(globalThis.MR_SAGAS || {});
+
+  $('sagasSave').onclick = async () => {
+    const { table, errors } = parseSagas($('sagasText').value);
+    if (errors.length) return say('sagasMsg', errors.join('\n'), false);
+    await store.set({ sagas: table, sagasText: $('sagasText').value });
+    const n = Object.keys(table).length;
+    say('sagasMsg', `Guardado: ${n} serie${n === 1 ? '' : 's'} con sagas. Vale desde el próximo guardado.`, true);
+  };
+
+  $('sagasReset').onclick = async () => {
+    await store.remove(['sagas', 'sagasText']);
+    $('sagasText').value = includedText();
+    say('sagasMsg', 'Quedaron solo las sagas que vienen incluidas.', true);
+  };
+
+  // ── Burbuja ──
+
+  function renderHosts(hosts) {
+    const ul = $('hosts');
+    ul.replaceChildren();
+    if (!hosts.length) return ul.append(el('li', { className: 'vacio', textContent: 'Ninguno: la burbuja aparece en todos los sitios.' }));
+    for (const h of hosts) {
+      const b = el('button', { textContent: 'Volver a mostrarla' });
+      b.onclick = async () => {
+        const left = ((await store.get(['fabBlockedHosts'])).fabBlockedHosts || []).filter(x => x !== h);
+        await store.set({ fabBlockedHosts: left });
+        renderHosts(left);
+      };
+      ul.append(el('li', {}, el('span', { textContent: h }), b));
+    }
+  }
+
+  // ── Mis sitios de manga y cómics ──
+
+  const S = globalThis.MR_SITIOS;
+  let editando = -1;                      // índice del sitio que se está editando, o -1
+
+  function limpiarForm() {
+    editando = -1;
+    for (const id of ['sitioNombre', 'sitioUrl', 'sitioDesc']) $(id).value = '';
+    $('sitioTipo').value = 'mixto';
+    $('sitioEs').checked = $('sitioEn').checked = false;
+    $('sitioGuardar').textContent = 'Agregar sitio';
+    $('sitioCancelar').hidden = true;
+  }
+
+  function renderMisSitios(mios) {
+    const ul = $('misSitios');
+    ul.replaceChildren();
+    if (!mios.length) return ul.append(el('li', { className: 'vacio', textContent: 'Todavía no agregaste ninguno.' }));
+    mios.forEach((s, i) => {
+      const editar = el('button', { textContent: 'Editar' });
+      editar.onclick = () => {
+        editando = i;
+        $('sitioNombre').value = s.nombre || '';
+        $('sitioUrl').value = s.url || '';
+        $('sitioTipo').value = S.TIPOS[s.tipo] ? s.tipo : 'mixto';
+        $('sitioEs').checked = (s.idiomas || []).includes('es');
+        $('sitioEn').checked = (s.idiomas || []).includes('en');
+        $('sitioDesc').value = s.descripcion || '';
+        $('sitioGuardar').textContent = 'Guardar cambios';
+        $('sitioCancelar').hidden = false;
+        $('sitioNombre').focus();
+      };
+      const quitar = el('button', { className: 'danger', textContent: 'Quitar' });
+      quitar.onclick = async () => {
+        const list = (await store.get(['misSitios'])).misSitios || [];
+        list.splice(i, 1);
+        await store.set({ misSitios: list });
+        limpiarForm();
+      };
+      const r = S.normalizarSitio(s);
+      ul.append(el('li', {},
+        el('span', { className: 's-nombre', textContent: s.nombre }),
+        el('span', { className: 's-datos', textContent: r.ok ? `${S.resumenSitio(r.sitio)} · ${r.sitio.url}` : s.url }),
+        el('span', { className: 's-acc' }, editar, quitar),
+        ...(s.descripcion ? [el('span', { className: 's-desc', textContent: s.descripcion })] : [])));
+    });
+  }
+
+  $('sitioGuardar').onclick = async () => {
+    const idiomas = [...($('sitioEs').checked ? ['es'] : []), ...($('sitioEn').checked ? ['en'] : [])];
+    const r = S.normalizarSitio({ nombre: $('sitioNombre').value, url: $('sitioUrl').value, tipo: $('sitioTipo').value, idiomas, descripcion: $('sitioDesc').value });
+    if (!r.ok) return say('sitiosMsg', r.error, false);
+    const { nombre, url, tipo, descripcion } = r.sitio;
+    const list = (await store.get(['misSitios'])).misSitios || [];
+    const repetido = list.findIndex((s, i) => i !== editando && S.claveUrl(s.url) === S.claveUrl(url));
+    if (repetido >= 0) return say('sitiosMsg', `Ya está en tu lista como "${list[repetido].nombre}"`, false);
+    const sitio = { nombre, url, tipo, idiomas: r.sitio.idiomas, descripcion };
+    if (editando >= 0 && editando < list.length) list[editando] = sitio; else list.push(sitio);
+    await store.set({ misSitios: list });
+    say('sitiosMsg', editando >= 0 ? `Guardado "${nombre}".` : `Agregado "${nombre}". Ya aparece en el ícono de la extensión.`, true);
+    limpiarForm();
+  };
+  $('sitioCancelar').onclick = limpiarForm;
+
+  async function load() {
+    const st = await store.get(KEYS);
+    saved = st.savedChapters || {};
+    renderSaved();
+    $('sagasText').value = typeof st.sagasText === 'string' && st.sagasText.trim() ? st.sagasText : includedText();
+    renderHosts(st.fabBlockedHosts || []);
+    renderMisSitios(st.misSitios || []);
+  }
+
+  // Si se guarda un capítulo mientras esta página está abierta, la lista se actualiza sola
+  chrome.storage.onChanged.addListener((ch, area) => {
+    if (area !== 'local') return;
+    if (ch.savedChapters) { saved = ch.savedChapters.newValue || {}; renderSaved(); }
+    if (ch.fabBlockedHosts) renderHosts(ch.fabBlockedHosts.newValue || []);
+    if (ch.misSitios) renderMisSitios(ch.misSitios.newValue || []);
+  });
+
+  load();
+}

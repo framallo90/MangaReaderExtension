@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Manga Reader — Guardados, sagas, sitios y opciones</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: 'Segoe UI', system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; font-size: 14px; line-height: 1.45; }
+    main { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+    h1 { font-size: 20px; color: #fff; margin: 0 0 20px; }
+    h2 { font-size: 15px; color: #a0c4ff; text-transform: uppercase; letter-spacing: .5px; margin: 0 0 6px; }
+    section { background: #16213e; border: 1px solid #2a3a5e; border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; }
+    p { margin: 0 0 10px; color: #b9c2d8; }
+    code { background: #0f1a33; padding: 1px 5px; border-radius: 4px; color: #a0c4ff; }
+    .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+    input[type="text"], textarea {
+      background: #0f1a33; color: #fff; border: 1px solid #2a3a5e; border-radius: 6px; padding: 8px 10px;
+      font: 13px 'Segoe UI', system-ui, sans-serif; outline: none;
+    }
+    input[type="text"]:focus, textarea:focus { border-color: #667eea; }
+    #filtro { flex: 1; min-width: 180px; }
+    textarea { width: 100%; min-height: 260px; font-family: Consolas, 'Courier New', monospace; line-height: 1.5; resize: vertical; }
+    button {
+      padding: 8px 12px; border: 1px solid #2a3a5e; border-radius: 6px; background: #1f2c50; color: #e0e0e0;
+      font: 13px 'Segoe UI', system-ui, sans-serif; cursor: pointer;
+    }
+    button:hover { border-color: #667eea; color: #fff; }
+    button.main { border: none; background: linear-gradient(135deg, #667eea, #764ba2); color: #fff; font-weight: 600; }
+    button.danger:hover { border-color: #e74c3c; }
+    button.link { border: none; background: none; padding: 0 4px; color: #8fa6d8; font-size: 12px; }
+    button.link:hover { color: #e74c3c; }
+    .msg { font-size: 12px; white-space: pre-line; }
+    .msg.ok { color: #2ecc71; }
+    .msg.err { color: #e74c3c; }
+    .vacio { color: #777; font-style: italic; }
+    details.serie { border-top: 1px solid #2a3a5e; padding: 8px 0; }
+    details.serie:first-child { border-top: none; }
+    details.serie summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+    .serie-nombre { font-weight: 600; color: #fff; font-size: 15px; }
+    .serie-datos { color: #8fa6d8; font-size: 12px; }
+    .serie-faltan { color: #f39c12; font-size: 12px; flex-basis: 100%; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+    th { text-align: left; color: #777; font-weight: 500; padding: 4px 8px; border-bottom: 1px solid #2a3a5e; }
+    td { padding: 4px 8px; border-bottom: 1px solid #1c2947; vertical-align: top; }
+    td.num { text-align: right; white-space: nowrap; color: #b9c2d8; }
+    td a { color: #a0c4ff; text-decoration: none; }
+    td a:hover { text-decoration: underline; }
+    .ruta { color: #777; font-size: 11px; }
+    ul#hosts { list-style: none; margin: 0; padding: 0; }
+    ul#hosts li { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
+    .form-sitio { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; align-items: center; margin-bottom: 10px; }
+    .form-sitio #sitioDesc { grid-column: 1 / -1; }
+    .form-sitio select { background: #0f1a33; color: #fff; border: 1px solid #2a3a5e; border-radius: 6px; padding: 7px 8px; font: 13px 'Segoe UI', system-ui, sans-serif; }
+    .form-sitio .chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #b9c2d8; }
+    .form-sitio .chk input { accent-color: #667eea; }
+    ul#misSitios { list-style: none; margin: 0; padding: 0; }
+    ul#misSitios li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 6px 0; border-top: 1px solid #1c2947; }
+    ul#misSitios li:first-child { border-top: none; }
+    ul#misSitios .s-nombre { font-weight: 600; color: #fff; }
+    ul#misSitios .s-datos { font-size: 12px; color: #8fa6d8; }
+    ul#misSitios .s-desc { flex-basis: 100%; font-size: 12px; color: #b9c2d8; }
+    ul#misSitios .s-acc { margin-left: auto; display: flex; gap: 4px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>📖 Manga Reader — Guardados, sagas, sitios y opciones</h1>
+
+  <section>
+    <h2>Capítulos guardados</h2>
+    <p>El registro de lo que guardaste completo. Vive solo en este navegador y se pierde si desinstalás la extensión:
+       con <b>Exportar copia</b> lo bajás a un archivo, y con <b>Importar copia</b> lo recuperás (lo importado se suma a lo que haya).
+       No mira el disco: si borrás un archivo a mano, quitalo de acá.</p>
+    <div class="bar">
+      <input type="text" id="filtro" placeholder="Buscar serie o capítulo…">
+      <button id="exportar">Exportar copia</button>
+      <button id="importar">Importar copia</button>
+      <input type="file" id="archivo" accept="application/json,.json" hidden>
+    </div>
+    <div class="msg" id="guardadosMsg"></div>
+    <div id="series"></div>
+  </section>
+
+  <section>
+    <h2>Sagas</h2>
+    <p>Con una tabla de sagas, los capítulos de esa serie se guardan en una carpeta por saga
+       (<code>One Piece/11 Saga Final/One Piece 1134</code>). Un bloque por serie, separados por una línea en blanco:
+       primero el nombre de la serie <b>tal como sale en el nombre del archivo</b>, y debajo una saga por línea con
+       <code>desde-hasta Nombre</code>. Dejá el "hasta" vacío en la última (<code>1058- Saga Final</code>).</p>
+    <textarea id="sagasText" spellcheck="false"></textarea>
+    <div class="bar" style="margin-top: 10px;">
+      <button class="main" id="sagasSave">Guardar sagas</button>
+      <button id="sagasReset">Volver a las que vienen incluidas</button>
+      <span class="msg" id="sagasMsg"></span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Mis sitios de manga y cómics</h2>
+    <p>Aparecen arriba de todo en <b>📚 Sitios de manga y cómics</b> (ícono de la extensión), con la etiqueta TUYO,
+       junto a los que vienen incluidos. También se agregan desde ahí con "Agregar esta página".</p>
+    <div class="form-sitio">
+      <input type="text" id="sitioNombre" placeholder="Nombre" maxlength="60">
+      <input type="text" id="sitioUrl" placeholder="Dirección (https://…)">
+      <select id="sitioTipo">
+        <option value="manga">Manga</option>
+        <option value="manhwa">Manhwa</option>
+        <option value="webtoon">Webtoon</option>
+        <option value="comics">Cómics</option>
+        <option value="tiras">Tiras</option>
+        <option value="historieta">Historieta</option>
+        <option value="mixto" selected>Manga y cómics</option>
+      </select>
+      <label class="chk"><input type="checkbox" id="sitioEs"> Español</label>
+      <label class="chk"><input type="checkbox" id="sitioEn"> Inglés</label>
+      <input type="text" id="sitioDesc" placeholder="Descripción (lo que vas a ver en la i)" maxlength="200">
+      <button class="main" id="sitioGuardar">Agregar sitio</button>
+      <button id="sitioCancelar" hidden>Cancelar</button>
+    </div>
+    <div class="msg" id="sitiosMsg"></div>
+    <ul id="misSitios"></ul>
+  </section>
+
+  <section>
+    <h2>Sitios donde la burbuja no aparece</h2>
+    <p>Se agregan con "No mostrar en este sitio" en el cartel de la burbuja, o desde el ícono de la extensión.</p>
+    <ul id="hosts"></ul>
+  </section>
+</main>
+<script src="sagas.js"></script>
+<script src="sitios.js"></script>
+<script src="opciones.js"></script>
+</body>
+</html>
