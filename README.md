@@ -4,8 +4,8 @@ Dos herramientas para guardar capítulos de manga y cómics como **PDF**, **CBZ*
 
 | | Qué es | Versión | Dónde está |
 |---|---|---|---|
-| 🧩 **La extensión** | Se usa desde Chrome, sobre la página que tenés abierta | 2.9.1 | `manga-reader-ext(ver 22-11-2026-6)/manga-reader-ext` |
-| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.2.0 | `programa/` |
+| 🧩 **La extensión** | Se usa desde Chrome, sobre la página que tenés abierta | 2.10.0 | `manga-reader-ext(ver 22-11-2026-7)/manga-reader-ext` |
+| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.3.0 | `programa/` |
 
 Funcionan por separado y comparten el mismo código para detectar páginas, armar nombres y generar los archivos. Son de uso personal, están en español y todo corre en tu máquina, sin servidor.
 
@@ -23,10 +23,11 @@ JavaScript plano (Manifest V3), sin dependencias ni compilación.
 |---|---|
 | 💾 **Guardar el capítulo abierto** | Detecta las páginas, arma el nombre y lo guarda en el formato que elijas |
 | 📦 **Descargar varios capítulos** | Un rango ("del 1 al 50"), los que tildes en la lista, o una lista de links pegada |
+| 📚 **Tomos** | Si la página separa los capítulos en tomos o sagas, los muestra agrupados y se marca un tomo entero con un clic |
 | 🧹 **Filtro de publicidad** | Deja afuera logos, banners, avisos y páginas de créditos; se corrige con un clic en las miniaturas |
-| 🗂 **Nombre y carpetas automáticos** | `Serie/Saga/Serie 0012`, con ceros adelante para que ordenen bien |
+| 🗂 **Nombre y carpetas automáticos** | `Serie/Saga/Serie 0012`, con ceros adelante para que ordenen bien. Se cambia con una plantilla (`{serie}/{volumen}/{serie} {numero}`) |
 | ✔ **Registro de guardados** | Avisa lo que ya guardaste, lo saltea en los lotes y muestra los capítulos que te faltan |
-| 📚 **Tu lista de sitios** | Accesos directos a tus sitios, divididos en descargables y para leer, con filtros |
+| 🔖 **Tu lista de sitios** | Accesos directos a tus sitios, divididos en descargables y para leer, con filtros |
 
 ---
 
@@ -88,6 +89,7 @@ Cada capítulo se abre solo en una pestaña al lado, se guarda con el mismo filt
 - **Los ya guardados** figuran con ✔ y se saltean.
 - **Al terminar** dice cuántos salieron y, de los que no, por qué.
 - **Si 3 seguidos no tienen páginas**, el lote para solo en vez de seguir abriendo pestañas.
+- **Tomos:** si la página separa los capítulos con títulos ("Tomo 3", "Volumen 2", "Saga de…"), arriba de la lista aparece la pestaña **Tomos**, con un renglón por tomo. Tildar uno marca todos sus capítulos.
 
 ### Pegar los links de los capítulos
 
@@ -138,6 +140,26 @@ En las páginas que parecen un capítulo aparece una burbuja 💾.
 - **Sagas:** para que los capítulos de una serie se guarden en una carpeta por saga. Se cargan una por línea (`desde-hasta Nombre`).
 - **Mis sitios:** pegar la lista, y agregar, editar o quitar de a uno.
 - **Sitios donde la burbuja no aparece.**
+- **Cómo se guardan los archivos:** la plantilla del nombre y las carpetas.
+
+### Plantilla de nombres
+
+Por defecto los archivos salen como `Serie/Saga/Serie 0012`. En opciones → **Cómo se guardan los archivos** se puede escribir otra plantilla: una `/` crea una carpeta y lo que va entre llaves se reemplaza por el dato de cada capítulo.
+
+| Marcador | Qué pone |
+|---|---|
+| `{serie}` | El nombre de la serie |
+| `{numero}` | El número del capítulo, con 4 cifras (`0005`) |
+| `{saga}` | La saga, si la serie las tiene cargadas |
+| `{volumen}` | El tomo del capítulo. Solo al bajar varios desde una página que los separa en tomos |
+| `{titulo}` | El nombre del capítulo en la lista. Solo al bajar varios |
+| `{anio}` | El año en que lo guardás |
+| `{sitio}` | El sitio de donde sale |
+
+- **Hay cuatro armadas:** Predeterminada, Sin sagas, Por tomo (`{serie}/{volumen}/{serie} {numero}`) y Por año.
+- **Vista previa:** debajo del campo se ve cómo quedaría un capítulo bajado en un lote y uno guardado de a uno.
+- **Un dato vacío no deja rastro:** ni la carpeta, ni el guion que lo separaba.
+- **Avisa** si faltan `{numero}` y `{titulo}` (todos los capítulos se llamarían igual) o si un marcador no existe.
 
 El atajo `Alt+S` se cambia en `chrome://extensions/shortcuts`.
 
@@ -169,6 +191,7 @@ Aplicación de escritorio para Windows, hecha con Electron y JavaScript plano. H
 | 📦 **Cola de descargas** | Baja de a un capítulo, muestra en qué anda cada uno y se puede cancelar |
 | 📁 **Carpeta a elección** | Guarda donde quieras, y saltea lo que ya está mirando el disco |
 | 🔗 **Pegar links** | Igual que en la extensión: una lista de links con el número de cada uno |
+| ⭐ **Links guardados** | Tu lista de sitios, catálogos y series: se carga de a uno o pegando una lista entera, y cada link se analiza con un clic |
 | 📄 **Mismos formatos y nombres** | PDF, CBZ e imágenes, como `Serie/Saga/Serie 0012` |
 
 ## Cómo abrirlo
@@ -188,6 +211,12 @@ npm start
 3. Si el listado sigue en más páginas, tocá **Traer más páginas**.
 4. Tildá lo que querés, elegí formatos y carpeta a la derecha, y tocá **Descargar**.
 
+Para no pegar siempre las mismas direcciones está **⭐ Guardados**:
+
+- **＋ Guardar esta dirección** suma la que estás mirando.
+- **Cargar una lista** acepta muchos links pegados juntos, uno por renglón y escritos como los tengas (`Nombre: https://sitio.com/ — nota`), igual que "Mis sitios" en la extensión. También sirve el archivo de sitios que exporta la extensión.
+- **Tocar un link guardado** lo analiza. Se puede buscar en la lista, quitar de a uno o todos.
+
 Lo que todavía le falta y cómo está armado: [programa/README.md](programa/README.md).
 
 ---
@@ -195,6 +224,24 @@ Lo que todavía le falta y cómo está armado: [programa/README.md](programa/REA
 # Actualizaciones
 
 Lo más nuevo arriba. El historial completo de la extensión está en la sección 15 de [DOCUMENTACION.md](DOCUMENTACION.md).
+
+### 22-11-2026 · Programa 0.3.0
+
+- **Links guardados:** el botón ⭐ Guardados abre tu lista de sitios, catálogos y series. Se carga de a un link ("Guardar esta dirección") o pegando una lista entera, que se lee igual que "Mis sitios" en la extensión. Tocar un link lo analiza; se puede buscar, quitar de a uno o todos.
+- La lista queda en tu máquina (`links.json`, en la carpeta de datos del programa) y los repetidos no entran.
+
+### 22-11-2026 · Extensión 2.10.0
+
+- **Pestaña "Tomos"** en el diálogo de varios capítulos: cuando la página separa los capítulos con títulos ("Tomo 3", "Volumen 2", "Saga de…"), los muestra agrupados, con el rango de cada tomo, y un tomo entero se marca con un clic. Los que no están en ningún tomo van a "Sin volumen".
+- **Plantilla de nombres** en opciones → "Cómo se guardan los archivos": marcadores `{serie} {saga} {volumen} {numero} {titulo} {anio} {sitio}`, cuatro plantillas armadas, vista previa y avisos. La predeterminada sigue siendo `Serie/Saga/Serie 0012`.
+- El diálogo muestra un **ejemplo** de cómo va a quedar guardado el primer capítulo marcado.
+- **Revisión antes de subirla**, con estos arreglos sobre la primera versión de la 2.10.0:
+  - Tildar un tomo no marcaba nada: trabajaba sobre copias de los capítulos.
+  - La pestaña no aparecía nunca: la lista de capítulos no traía el título que cada uno tiene encima.
+  - `{volumen}` y `{titulo}` no llegaban al guardar (se perdían en el camino a la pestaña del capítulo).
+  - En una pestaña abierta antes de actualizar, el diálogo de varios capítulos se rompía: no se inyectaba el archivo nuevo.
+  - La vista previa de opciones usaba otro código que el guardado. Ahora es el mismo (`plantilla.js`).
+  - Con una plantilla propia, la página de guardados agrupaba mal las series. Ahora cada capítulo queda anotado con su serie y su número.
 
 ### 22-11-2026 · Programa 0.2.0
 
@@ -246,6 +293,7 @@ Dentro de cada versión:
 | `offscreen.js` | Baja las páginas y arma PDF, CBZ e imágenes, sin librerías |
 | `popup.*`, `opciones.*` | El menú del ícono y la página de guardados, sagas, sitios y opciones |
 | `sagas.js`, `sitios.js` | Sagas incluidas y funciones de la lista de sitios |
+| `agrupar.js`, `plantilla.js` | Agrupado de capítulos por tomo y plantilla de nombres. Los dos se comparten con el programa |
 
 ---
 

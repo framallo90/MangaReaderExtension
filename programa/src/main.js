@@ -11,6 +11,7 @@
 const { app, BrowserWindow, ipcMain, dialog, session, shell, Menu } = require('electron');
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
 const nucleo = require('../generado/nucleo.js');
+const sitios = require('../generado/sitios.js');     // leer una lista de links pegada, igual que la extensión
 
 const PARTICION = 'persist:paginas';          // sesión de las páginas web: cookies aparte de las del programa
 const PRUEBA = process.argv.includes('--prueba');
@@ -27,6 +28,59 @@ function guardarConfig(c) {
   config = { ...config, ...c, formatos: { ...config.formatos, ...(c.formatos || {}) } };
   if (!PRUEBA) { try { fs.writeFileSync(archivoConfig(), JSON.stringify(config, null, 2)); } catch {} }
   return config;
+}
+
+// ── Links guardados ──────────────────────────────────
+// La lista de direcciones del usuario (sitios, catálogos, series), para no tener que pegarlas
+// cada vez. Se carga como "Mis sitios" en la extensión: de a una, o pegando una lista entera.
+let guardados = [];          // [{nombre, url, descripcion, tipo, idiomas}]
+const archivoGuardados = () => path.join(app.getPath('userData'), 'links.json');
+function leerGuardados() {
+  try {
+    const l = JSON.parse(fs.readFileSync(archivoGuardados(), 'utf8'));
+    if (Array.isArray(l)) guardados = l.filter(s => s && typeof s.url === 'string' && typeof s.nombre === 'string');
+  } catch {}
+}
+function escribirGuardados() {
+  if (!PRUEBA) { try { fs.writeFileSync(archivoGuardados(), JSON.stringify(guardados, null, 2)); } catch {} }
+}
+const nombreDeUrl = (url) => { try { return new URL(/^[a-z][a-z0-9+.-]*:/i.test(url) ? url : 'https://' + url).hostname.replace(/^www\./, ''); } catch { return ''; } };
+
+// Suma links a la lista. `sitio` es uno solo ({nombre, url}); `texto`, una lista pegada como
+// venga (la lee leerLista, de la extensión) o el archivo que exporta la extensión (.json).
+// Los que ya estaban no se repiten. Devuelve { lista, agregados, repetidos }.
+function guardarLinks({ texto, sitio } = {}) {
+  let leidos = [], repetidos = 0;
+  if (sitio) {
+    const r = sitios.normalizarSitio({ ...sitio, nombre: String(sitio.nombre || '').trim() || nombreDeUrl(sitio.url) });
+    if (!r.ok) throw new Error(r.error);
+    leidos = [r.sitio];
+  } else {
+    let json = null;
+    try { json = JSON.parse(texto); } catch {}
+    const exportados = Array.isArray(json) ? json : Array.isArray(json?.misSitios) ? json.misSitios : null;
+    if (exportados) leidos = exportados.map(s => sitios.normalizarSitio(s)).filter(r => r.ok).map(r => r.sitio);
+    else ({ sitios: leidos, repetidos } = sitios.leerLista(texto));
+    if (!leidos.length) throw new Error('No encontré ningún link en lo que pegaste.');
+  }
+  const tengo = new Set(guardados.map(s => sitios.claveUrl(s.url)));
+  let agregados = 0;
+  for (const s of leidos) {
+    const clave = sitios.claveUrl(s.url);
+    if (tengo.has(clave)) { repetidos++; continue; }
+    tengo.add(clave);
+    guardados.push({ nombre: s.nombre, url: s.url, descripcion: s.descripcion || '', tipo: s.tipo || 'mixto', idiomas: s.idiomas || [] });
+    agregados++;
+  }
+  if (agregados) escribirGuardados();
+  return { lista: guardados, agregados, repetidos };
+}
+// Quita de la lista las direcciones que se pasen, o todas con 'todos'
+function quitarLinks(urls) {
+  const fuera = urls === 'todos' ? null : new Set((Array.isArray(urls) ? urls : [urls]).map(u => sitios.claveUrl(u)));
+  guardados = fuera ? guardados.filter(s => !fuera.has(sitios.claveUrl(s.url))) : [];
+  escribirGuardados();
+  return guardados;
 }
 
 // ── Sesión de las páginas web ────────────────────────
@@ -340,6 +394,9 @@ atender('limpiar', () => limpiar());
 atender('config:leer', () => ({ ...config, nucleo: nucleo.version }));
 atender('config:guardar', (c) => guardarConfig(c || {}));
 atender('saga', ({ serie, numero }) => nucleo.sagaDe(serie, numero));
+atender('guardados:leer', () => guardados);
+atender('guardados:agregar', (dato) => guardarLinks(dato || {}));
+atender('guardados:quitar', (urls) => quitarLinks(urls));
 atender('carpeta', async () => {
   const r = await dialog.showOpenDialog(ui, { title: 'Carpeta donde guardar', defaultPath: config.carpeta, properties: ['openDirectory', 'createDirectory'] });
   return r.canceled || !r.filePaths[0] ? config.carpeta : guardarConfig({ carpeta: r.filePaths[0] }).carpeta;
@@ -357,10 +414,12 @@ app.on('window-all-closed', () => { if (!PRUEBA) app.quit(); });
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   leerConfig();
+  if (!PRUEBA) leerGuardados();               // las pruebas arrancan con la lista vacía y no la escriben
   prepararSesion();
   if (PRUEBA) {
     // "electron . --prueba": corre las pruebas del programa contra un sitio de prueba local
-    const fallas = await require('../tests/prueba.js')({ analizar, seguir, encolar, colaVacia, cancelar, limpiar, guardarConfig, abrirUI, nucleo, config: () => config })
+    const fallas = await require('../tests/prueba.js')({ analizar, seguir, encolar, colaVacia, cancelar, limpiar, guardarConfig, abrirUI, nucleo,
+      guardarLinks, quitarLinks, guardados: () => guardados, config: () => config })
       .catch((e) => { console.log('FALLA la prueba se cortó: ' + (e.stack || e)); return 1; });
     app.exit(fallas ? 1 : 0);
     return;

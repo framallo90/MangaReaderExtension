@@ -240,6 +240,74 @@ async function usarLinks() {
   }
 }
 
+// ── Links guardados ──
+// Tu lista de direcciones (sitios, catálogos, series). Tocar una la analiza como si la pegaras arriba.
+let guardados = [];
+let quitarTodosArmado = 0;        // "Quitar todos" pide un segundo toque: este es el temporizador que lo desarma
+const sinProtocolo = (u) => String(u).replace(/^https?:\/\/(www\.)?/i, '').replace(/\/$/, '');
+function avisoGuardados(texto, clase = '') {
+  $('guardadosMsg').textContent = texto;
+  $('guardadosMsg').className = 'tenue' + (clase ? ' ' + clase : '');
+}
+function dibujarGuardados() {
+  const q = $('guardadosFiltro').value.trim().toLowerCase();
+  const ver = guardados.filter(s => !q || `${s.nombre} ${s.url} ${s.descripcion || ''}`.toLowerCase().includes(q));
+  $('verGuardados').textContent = guardados.length ? `⭐ Guardados (${guardados.length})` : '⭐ Guardados';
+  $('guardadosCuenta').textContent = !guardados.length ? '' : q ? `${ver.length} de ${guardados.length}` : plural(guardados.length, 'link', 'links');
+  $('guardadosFiltro').hidden = $('quitarTodos').hidden = !guardados.length;
+  if (!guardados.length) $('cargar').hidden = false;                 // sin nada guardado, el cuadro para cargar queda a la vista
+  $('guardadosLista').replaceChildren(...(ver.length ? ver.map(s => {
+    const abrir = el('button', { type: 'button', className: 'g-abrir', title: `Analizar ${s.url}` },
+      el('span', { className: 'g-nombre', textContent: s.nombre }),
+      el('span', { className: 'g-datos', textContent: sinProtocolo(s.url) + (s.descripcion ? ' · ' + s.descripcion : '') }));
+    abrir.addEventListener('click', () => { $('guardados').hidden = true; $('url').value = s.url; ir(s.url, 0, true); });
+    const quitar = el('button', { type: 'button', className: 'g-quitar', textContent: '✕', title: 'Quitar de la lista' });
+    quitar.addEventListener('click', async () => { guardados = await mr.quitarLinks([s.url]); dibujarGuardados(); });
+    return el('div', { className: 'guardado' }, abrir, quitar);
+  }) : [el('div', { className: 'vacio', textContent: guardados.length ? 'Nada coincide con la búsqueda.'
+    : 'Todavía no guardaste ningún link. Guardá la dirección que estés mirando o cargá una lista.' })]));
+}
+// Guarda la dirección de arriba, con el título de la página si ya se analizó
+async function guardarActual() {
+  let url = $('url').value.trim();
+  if (!url) return avisoGuardados('Escribí o pegá una dirección arriba.', 'error');
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(url)) url = 'https://' + url;
+  const nombre = actual && actual.url === url ? (actual.titulo || '') : '';
+  try {
+    const r = await mr.guardarLinks({ sitio: { nombre, url } });
+    guardados = r.lista;
+    dibujarGuardados();
+    avisoGuardados(r.agregados ? 'Guardada.' : 'Esa dirección ya estaba en tu lista.', r.agregados ? 'bien' : '');
+  } catch (e) {
+    avisoGuardados('⚠️ ' + e.message, 'error');
+  }
+}
+// Suma a la lista los links de un texto pegado
+async function agregarLista() {
+  try {
+    const r = await mr.guardarLinks({ texto: $('listaLinks').value });
+    guardados = r.lista;
+    if (r.agregados) { $('listaLinks').value = ''; $('cargar').hidden = true; }
+    dibujarGuardados();
+    avisoGuardados((r.agregados ? `Agregué ${plural(r.agregados, 'link', 'links')}.` : 'No agregué ninguno.') +
+      (r.repetidos ? ` ${plural(r.repetidos, 'ya estaba o venía repetido', 'ya estaban o venían repetidos')}.` : ''), r.agregados ? 'bien' : '');
+  } catch (e) {
+    avisoGuardados('⚠️ ' + e.message, 'error');
+  }
+}
+function quitarTodos() {
+  clearTimeout(quitarTodosArmado);
+  if ($('quitarTodos').dataset.armado) {
+    delete $('quitarTodos').dataset.armado;
+    $('quitarTodos').textContent = 'Quitar todos';
+    mr.quitarLinks('todos').then((l) => { guardados = l; dibujarGuardados(); avisoGuardados('Quité todos los links.'); });
+    return;
+  }
+  $('quitarTodos').dataset.armado = '1';
+  $('quitarTodos').textContent = `¿Quitar los ${guardados.length}? Tocá de nuevo`;
+  quitarTodosArmado = setTimeout(() => { delete $('quitarTodos').dataset.armado; $('quitarTodos').textContent = 'Quitar todos'; }, 4000);
+}
+
 // ── Eventos ──
 $('buscar').addEventListener('submit', (e) => {
   e.preventDefault();
@@ -248,8 +316,19 @@ $('buscar').addEventListener('submit', (e) => {
   if (!/^[a-z][a-z0-9+.-]*:/i.test(url)) url = 'https://' + url;          // "sitio.com/serie" → "https://sitio.com/serie"
   ir(url, 0, true);
 });
-$('verPegar').addEventListener('click', () => { $('pegar').hidden = !$('pegar').hidden; if (!$('pegar').hidden) $('links').focus(); });
+$('verPegar').addEventListener('click', () => { $('pegar').hidden = !$('pegar').hidden; $('guardados').hidden = true; if (!$('pegar').hidden) $('links').focus(); });
 $('usarLinks').addEventListener('click', usarLinks);
+$('verGuardados').addEventListener('click', () => {
+  $('guardados').hidden = !$('guardados').hidden;
+  $('pegar').hidden = true;
+  avisoGuardados('');
+  if (!$('guardados').hidden) (guardados.length ? $('guardadosFiltro') : $('listaLinks')).focus();
+});
+$('guardarActual').addEventListener('click', guardarActual);
+$('verCargar').addEventListener('click', () => { $('cargar').hidden = !$('cargar').hidden; if (!$('cargar').hidden) $('listaLinks').focus(); });
+$('agregarLista').addEventListener('click', agregarLista);
+$('guardadosFiltro').addEventListener('input', dibujarGuardados);
+$('quitarTodos').addEventListener('click', quitarTodos);
 $('filtro').addEventListener('input', dibujar);
 $('todos').addEventListener('click', () => { for (const i of visibles()) marcados.add(i.url); dibujar(); });
 $('ninguno').addEventListener('click', () => { for (const i of visibles()) marcados.delete(i.url); dibujar(); });
@@ -276,4 +355,5 @@ mr.config().then((c) => {
   mostrarCarpeta(c.carpeta);
   refrescar();
 });
+mr.guardados().then((l) => { guardados = l; dibujarGuardados(); });
 $('url').focus();

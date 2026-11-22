@@ -1,6 +1,6 @@
 # Manga Reader — Documentación técnica y de uso
 
-**Versión:** 2.9.1 · **Tipo:** extensión de Chrome (Manifest V3) · **Idioma de la interfaz:** español
+**Versión:** 2.10.0 · **Tipo:** extensión de Chrome (Manifest V3) · **Idioma de la interfaz:** español
 
 ---
 
@@ -39,6 +39,8 @@ Lo que hace, en resumen:
 - Te avisa si ese capítulo ya lo guardaste antes y si faltaron páginas (y cuáles).
 - **Guardar y siguiente:** guarda y abre el capítulo que sigue, con el diálogo ya listo.
 - **Varios capítulos seguidos:** elegís un rango (o los marcás en la lista) y los baja uno tras otro, cada uno con el mismo filtro y los mismos nombres que al guardarlo a mano. Funciona tanto desde la página de un capítulo como desde la portada o el listado de la serie.
+- **Tomos (2.10):** si la página de la serie separa los capítulos con títulos ("Tomo 3", "Volumen 2", "Saga de…"), el diálogo de varios capítulos también los muestra agrupados, y un tomo entero se marca con un clic.
+- **Plantilla de nombres (2.10):** el nombre y las carpetas con que se guarda cada capítulo se pueden cambiar desde opciones, con marcadores como `{serie}`, `{volumen}` o `{numero}`.
 - Lleva un registro de lo guardado que podés ver por serie (con lo que te falta), exportar e importar.
 - **Sitios de manga y cómics:** una lista de accesos directos a sitios legítimos (plataformas oficiales, archivos de dominio público, tiendas sin DRM), con una **i** al lado de cada uno que dice si tiene manga o cómics, idioma, si es gratis, si se puede guardar y qué ofrece. Le podés sumar tus propios sitios.
 - Muestra una burbuja flotante 💾 arrastrable, que se puede apagar en todos lados o solo en un sitio.
@@ -133,6 +135,10 @@ Funciona en Chrome de escritorio (Windows, macOS, Linux). Chrome para Android y 
 
 Cada capítulo se guarda con el mismo nombre y carpetas que al guardarlo de a uno. Al terminar dice cuántos salieron y, de los que no, por qué.
 
+**Pestañas Capítulos / Tomos (desde la 2.10).** Si la página separa los capítulos en tomos, arriba de la lista aparecen dos pestañas. **Capítulos** es la lista de siempre. **Tomos** muestra un renglón por tomo, con su nombre, de qué capítulo a cuál va y cuántos son (y cuántos ya guardaste); los capítulos que no están en ningún tomo van juntos en "Sin volumen". Tildar un tomo marca todos sus capítulos y destildarlo los desmarca; si solo algunos están marcados, la casilla queda a medias. Las dos pestañas muestran lo mismo de dos maneras: se puede tildar un tomo y después, en Capítulos, sacar uno suelto. Si la página no separa en tomos, las pestañas no aparecen.
+
+Dentro de "Dirección y nombre de los capítulos" hay un renglón **Ejemplo:** con la carpeta y el nombre con que se va a guardar el primer capítulo marcado. Si no escribiste la serie y la página es un listado, donde va la serie dice `(serie)`: sale del título de cada capítulo al abrirlo.
+
 ### La burbuja flotante
 
 - **Clic:** abre el diálogo de guardar.
@@ -206,6 +212,25 @@ Marca con un motivo (`flag`) lo que probablemente no es una página del capítul
    - si la serie tiene tabla de sagas, agrega la carpeta de saga con prefijo numérico (para elegir la saga se usa la parte entera: el `1057.5` va a `10 Wano`).
 
 Resultado: `Serie/NN Saga/Serie NNNN` o, sin tabla de sagas, `Serie/Serie NNNN`.
+
+**Plantilla de nombres (desde la 2.10).** Ese resultado es la plantilla predeterminada, `{serie}/{saga}/{serie} {numero}`. En opciones → "Cómo se guardan los archivos" se puede escribir otra. Una `/` crea una carpeta y cada marcador se reemplaza por el dato del capítulo (`contextoPlantilla`):
+
+| Marcador | Qué pone | De dónde sale |
+|---|---|---|
+| `{serie}` | La serie, ya limpia | Del título de la página, o la que escribas en el lote |
+| `{numero}` | El número con 4 cifras (`0005`, `1134.5`) | Del título o la dirección; en un lote, de la lista |
+| `{saga}` | La carpeta de saga (`11 Saga Final`) | De la tabla de sagas de esa serie; vacío si no tiene |
+| `{volumen}` | El tomo del capítulo (`Tomo 3- La huida`) | Del agrupado de la pestaña "Tomos". **Solo en un lote** |
+| `{titulo}` | El nombre del capítulo en la lista | Del texto de su link. **Solo en un lote** |
+| `{anio}` | El año en que se guarda | La fecha de la máquina |
+| `{sitio}` | El sitio (`sitio.com`) | La dirección de la página |
+
+- **Un marcador sin valor no deja rastro** (`sanitizarPlantilla`): no queda la carpeta vacía, ni el separador que lo unía al resto (`-`, `_`, `,` o `·`, con sus espacios), ni los paréntesis o corchetes que lo encerraban. Con `{serie}/{volumen}/{serie} {numero} - {titulo}`, un capítulo de un lote queda `Serie/Tomo 2/Serie 0004 - Capítulo 4` y uno guardado de a uno, `Serie/Serie 0004`.
+- **Limpieza para Windows:** en cada tramo, `\ : * ? " < > |` y los caracteres de control se cambian por `-` (varios seguidos, por uno solo), se quitan los puntos del principio y los puntos y espacios del final, se limita a 100 caracteres y se evitan los nombres reservados. Una `/` o `\` **dentro de un dato** (un título "Ida/Vuelta") se cambia por `-`: solo las barras escritas en la plantilla crean carpetas.
+- **La predeterminada es el nombre de siempre:** si no hay plantilla guardada, o la guardada es igual a la predeterminada, el nombre lo arma `nameFor` como en las versiones anteriores, sin pasar por la plantilla. Con una propia, `nameFor` llama a `nombrePorPlantilla`.
+- **Avisos en opciones:** si la plantilla no tiene `{numero}` ni `{titulo}` (todos los capítulos de una serie se llamarían igual; Chrome los guarda como "nombre (1)") y si tiene un marcador que no existe (`{capitulo}`), que quedaría escrito tal cual.
+- **La vista previa y el guardado usan el mismo código** (`plantilla.js`): lo que muestra opciones es lo que después se guarda. Un cambio de plantilla vale en las pestañas ya abiertas, sin recargarlas.
+- **El registro de guardados** anota la serie y el número de cada capítulo guardado con una plantilla propia, porque ahí la primera carpeta puede ser el sitio o el año y el nombre terminar en el título: con eso la página de guardados sigue agrupando por serie y diciendo qué falta. El `ComicInfo.xml` del CBZ toma la saga de la tabla y no de la carpeta.
 
 **Sagas.** Viene incluida la de One Piece (archivo `sagas.js`):
 
@@ -290,6 +315,15 @@ Vale para los links, para las opciones de un desplegable (el archivo suele venir
 
 **Ceros adelante.** Hay sitios donde el capítulo 5 es `/05`. Para cada número agregado por rango se prueba primero como lo usa el sitio (si ya se sabe), después `5`, `05` y `005`; cuando una forma con ceros funciona, se recuerda para ese sitio (`batchPad`) y ya no se pierde tiempo en las siguientes.
 
+**Tomos (desde la 2.10).** Al armar la lista, `collectChapters` le anota a cada capítulo el título que tiene encima en la página, si nombra un tomo (`seccion`):
+
+- Se recorren en orden los títulos (`<h1>` a `<h6>` y `<summary>`) y los links. Cada título de hasta 80 caracteres pasa a ser el vigente para los links que siguen.
+- El título vale como tomo si dice volumen, vol., tomo, saga, arco, temporada, parte o libro (o sus nombres en inglés): es `SECCION_RE`. Uno que no lo dice ("Comentarios", "Últimos capítulos") corta el tomo anterior y no se anota.
+- Si un capítulo está enlazado dos veces (en un bloque de "Últimos capítulos" y en su tomo), vale donde tenga un tomo encima.
+- En un desplegable, el tomo es el grupo de la opción (`<optgroup label="Volumen 3">`).
+
+Con eso, `tomosDe` arma los grupos de la pestaña "Tomos": hacen falta **al menos dos tomos distintos** en la lista (un solo título arriba de todo no inventa un tomo) y **al menos dos capítulos** por tomo; los demás van a "Sin volumen". Los capítulos agregados por rango o pegados como links no tienen tomo. El tomo de cada capítulo es también su `{volumen}` en la plantilla de nombres. El criterio está en `agrupar.js`, el mismo archivo que usa el programa de escritorio para mostrar los capítulos por volumen.
+
 **Cómo se baja cada capítulo.** La pestaña donde abriste el diálogo maneja el lote y le pide los capítulos de a uno al service worker (`batchChapter`). Para cada uno:
 
 1. Espera 1,5 s (menos en el primero), para no cargar al sitio.
@@ -332,6 +366,7 @@ Página propia de la extensión (`opciones.html`), desde el ícono → **⚙️ 
 - **Exportar / Importar copia:** un archivo `.json` con el registro y las opciones. Al importar, los capítulos se suman (si uno está en los dos lados, queda el más nuevo) y del resto solo se trae lo que acá no estaba configurado.
 - **Sagas:** un cuadro de texto con un bloque por serie, separados por una línea en blanco: el nombre de la serie tal como sale en el nombre del archivo y, debajo, una saga por línea con `desde-hasta Nombre` (`1058- Saga Final` para la última). Las tuyas se suman a las incluidas y, si son de la misma serie, las reemplazan.
 - **Sitios donde la burbuja no aparece:** la lista, con un botón para volver a mostrarla en cada uno.
+- **Cómo se guardan los archivos (2.10):** la plantilla de nombres (sección 4.3). Un campo para escribirla, botones con cuatro armadas (Predeterminada, Sin sagas, Por tomo, Por año) y, debajo, cómo quedaría guardado un capítulo de un lote y uno guardado de a uno. **Guardar plantilla** la deja en `esquemaNombres`; con la predeterminada (o el campo vacío) se borra esa clave. La copia exportada la incluye, y al importar se trae si acá no había una.
 - **Mis sitios de manga y cómics:** un cuadro para pegar la lista entera, y un formulario para agregar, editar y quitar de a uno (nombre, dirección, tipo, idiomas, si se puede descargar y descripción). Ver 4.11.
 
 ### 4.11 Sitios de manga y cómics
@@ -403,6 +438,8 @@ Desde el ícono de la extensión → **📚 Sitios de manga y cómics**. Es **tu
 | Archivo | Rol | Dónde corre |
 |---|---|---|
 | `manifest.json` | Declaración de la extensión, permisos, atajo, scripts | — |
+| `agrupar.js` | Criterio para agrupar capítulos por tomo (`SECCION_RE`, `tomosDe`). Lo comparte el programa de escritorio | En cada pestaña |
+| `plantilla.js` | Plantilla de nombres: reemplazo de marcadores y limpieza de la ruta (`aplicarPlantilla`) | En cada pestaña y en la página de opciones |
 | `sagas.js` | Tabla de sagas incluida | En cada pestaña y en la página de opciones |
 | `content.js` | Detección de páginas, filtro, nombre, diálogos, burbuja, guardado automático de un capítulo del lote | En cada pestaña (content script) |
 | `styles.css` | Estilos de los diálogos y la burbuja | Inyectado en cada pestaña |
@@ -454,9 +491,9 @@ El documento se crea al primer guardado y se cierra solo cuando no quedan trabaj
 | `{target:'background', action:'progress', jobId, done, total}` | offscreen → background | Progreso de la bajada de páginas |
 | `{action:'progress', done, total}` | background → content | Progreso reenviado a la pestaña que pidió el guardado |
 | `{target:'offscreen', action:'revoke', urls}` | background → offscreen | Liberar las `blob:` URL cuando terminó cada descarga |
-| `{action:'batchChapter', url, formats, serie, numero, strict, fixed, visible, pause}` | content (lote) → background | Abrir y guardar un capítulo; responde `{ok, name, pages, complete, lines}` |
+| `{action:'batchChapter', url, formats, serie, numero, strict, fixed, visible, volumen, titulo, pause}` | content (lote) → background | Abrir y guardar un capítulo; responde `{ok, name, pages, complete, lines}` |
 | `{action:'count'}` | background → content (capítulo) | Cuántas imágenes hay en la carpeta más poblada (para saber si ya se armó) |
-| `{action:'autoSave', formats, serie, numero, strict, fixed}` | background → content (capítulo) | Guardarse solo |
+| `{action:'autoSave', formats, serie, numero, strict, fixed, volumen, titulo}` | background → content (capítulo) | Guardarse solo. `volumen` y `titulo` son el tomo y el nombre del capítulo en la lista del lote: solo los usa la plantilla de nombres |
 | `{action:'batchNote', text}` | content (capítulo) → background → content (lote) | Texto de avance ("bajando páginas 9/15") |
 | `{action:'batchCancel'}` | content (lote) → background | Cerrar la pestaña del capítulo en curso |
 
@@ -465,6 +502,7 @@ El campo `target` evita que el documento offscreen procese mensajes de las pesta
 ### 5.5 Aislamiento del content script
 
 - `content.js` está envuelto en una función y **hay una sola copia viva por pestaña**: al arrancar pregunta `window.__mangaReaderAlive()`. Si hay una copia que sigue conectada a la extensión, no hace nada. Si la que hay quedó de antes de actualizar la extensión (ya sin conexión), la limpia con `window.__mangaReaderCleanup()` (saca sus listeners y lo que insertó) y ocupa su lugar. Por eso alcanza con inyectarlo de nuevo y no hace falta F5.
+- `agrupar.js` y `plantilla.js` también van envueltos en una función y dejan lo suyo en `globalThis`: un `const` suelto daría error al cargarlos por segunda vez en la misma pestaña. Cuando el service worker inyecta el script en una pestaña que no lo tiene, inyecta **los mismos archivos y en el mismo orden** que declara `content_scripts` en el manifest (`CONTENT_FILES` en `background.js`); `tests/test_descargas.js` comprueba que las dos listas coincidan.
 - Todo lo que inserta en la página usa los IDs `#mr-save`, `#mr-chapter` y `#mr-fab`, y los estilos están limitados a esos contenedores, para no romper el sitio.
 - Los diálogos detienen la propagación de las teclas (`keydown`, `keyup`, `keypress`), así los atajos del sitio no se disparan mientras escribís.
 
@@ -540,7 +578,7 @@ Todo se guarda en `chrome.storage.local`, solo en tu navegador. No se envía nad
 | `saveCbz` | ¿CBZ tildado? (por defecto no) | `false` |
 | `saveImgs` | ¿Imágenes tildado? (por defecto no) | `false` |
 | `saveFolders` | Última carpeta usada por sitio | `{"one-piece-fans2.com": "One Piece/11 Saga Final"}` |
-| `savedChapters` | Registro de guardados | `{"One Piece/11 Saga Final/One Piece 1134": {ts, pages: 15, url}}` |
+| `savedChapters` | Registro de guardados. Con una plantilla de nombres propia, cada capítulo lleva además `serie` y `numero` | `{"One Piece/11 Saga Final/One Piece 1134": {ts, pages: 15, url}}` |
 | `fabEnabled` | ¿Mostrar la burbuja? (por defecto sí) | `true` |
 | `fabBlockedHosts` | Sitios donde la burbuja no aparece | `["ejemplo.com"]` |
 | `fabPos` | Posición de la burbuja (px desde la derecha y desde abajo) | `{"r": 24, "b": 24}` |
@@ -549,6 +587,7 @@ Todo se guarda en `chrome.storage.local`, solo en tu navegador. No se envía nad
 | `sagasText` | El texto de sagas tal como lo escribiste | `"Naruto\n1-244 Parte 1\n…"` |
 | `batchPad` | Dígitos mínimos del número de capítulo en la dirección, por sitio | `{"one-piece-fans2.com": 2}` |
 | `batchVisible` | ¿"Abrir cada capítulo a la vista" tildado? | `false` |
+| `esquemaNombres` | Plantilla de nombres propia (2.10). No existe mientras se usa la predeterminada | `"{serie}/{volumen}/{serie} {numero}"` |
 | `misSitios` | Tus sitios de manga y cómics (`descargable` desde la 2.8.3) | `[{"nombre": "Mi sitio", "url": "https://…", "tipo": "manga", "idiomas": ["es"], "descripcion": "…", "descargable": true}]` |
 | `sitiosFiltro` | Último filtro de la lista de sitios y secciones plegadas | `{"tipo": "manga", "idioma": "es", "plegadas": ["leer"]}` (en la 2.8: `{"tipo", "soloEs", "soloGuardar"}`) |
 
@@ -607,6 +646,10 @@ Al desinstalar la extensión (o quitar su tarjeta para cargar otra versión), es
 | 4 min | `batchChapter` | Tiempo máximo por capítulo de un lote |
 | 3 páginas | `autoSave` | Mínimo para que un capítulo de un lote se guarde |
 | 3000 | `markRange`, `useLinks` | Tamaño máximo de un rango, y de una lista de links pegados |
+| 80 caracteres | `capturarSeccion` (agrupar) | Largo máximo de un título de la página para tomarlo como encabezado de los links que siguen |
+| 2 tomos · 2 capítulos | `tomosDe` (agrupar) | Tomos distintos que tiene que haber en la lista para agrupar, y capítulos mínimos de un tomo (si no, van a "Sin volumen") |
+| `{serie}/{saga}/{serie} {numero}` | `PLANTILLA_DEFECTO` (plantilla) | Plantilla de nombres predeterminada: da el mismo nombre que `nameFor` |
+| 100 caracteres | `sanitizarPlantilla` (plantilla) | Largo máximo de cada carpeta y del nombre que arma una plantilla |
 
 ---
 
@@ -621,14 +664,16 @@ Corren sobre el código real de la versión, sin dependencias. Sin argumento usa
 | `test_nombres.js` | Serie, saga y número a partir del título y la dirección (también `[#104] Serie`, códigos largos en la dirección y títulos que terminan en otro número); `pageKey` | 51 |
 | `test_capitulos.js` | Partir direcciones en molde + número, ceros adelante, lista de capítulos (links, desplegable, portada sin número, dirección con un código del sitio, título que no coincide con la dirección, listado con código y links, archivo por mes o por día de un blog en links y desplegables, dirección terminada en un archivo), capítulo siguiente, y capítulos a partir de links pegados (número adelante, en el link o por orden; repetidos; texto alrededor) | 94 |
 | `test_filtro.js` | Filtro de publicidad, con webtoon y lector con links al CDN | 9 |
-| `test_descargas.js` | Service worker con `chrome.*` simulado: guardado, descargas cortadas, nombres con acentos, liberación de memoria, inyección del script, un capítulo de un lote y su cancelación | 30 |
+| `test_descargas.js` | Service worker con `chrome.*` simulado: guardado, descargas cortadas, nombres con acentos, liberación de memoria, inyección del script (los mismos archivos que carga el manifest), un capítulo de un lote (con su tomo y su nombre) y su cancelación | 31 |
 | `test_offscreen.js` | Cabeceras JPG, PNG sin recomprimir (los píxeles vuelven idénticos), estructura del PDF y del ZIP, `ComicInfo.xml` | 44 |
-| `test_opciones.js` | Sagas (texto ↔ tabla), capítulos faltantes, agrupado por serie, importar copia (con mis sitios) | 21 |
+| `test_opciones.js` | Sagas (texto ↔ tabla), capítulos faltantes, agrupado por serie, importar copia (con mis sitios y la plantilla), y lo guardado con una plantilla propia agrupado por su serie | 25 |
 | `test_sitios.js` | Que cada sitio incluido esté bien cargado (campos, dirección, tipo, idiomas, descripción, sin repetidos; desde la 2.8.5 no hay ninguno), filtros por tipo, idioma y texto, la división descargables / para leer, sitios del usuario y la lectura de una lista pegada (nombre, dirección, descripción, tipo e idioma detectados; títulos de grupo; repetidos) | 59 |
+| `test_tomos.js` | `agrupar.js`: qué títulos nombran un tomo, encabezado vigente, grupos (`tomosDe`: mínimo de tomos y de capítulos, orden, que devuelva los capítulos de la lista y no copias) y el tomo que `collectChapters` le anota a cada capítulo (títulos de la página, capítulo repetido en "Últimos capítulos", grupos de un desplegable) | 35 |
+| `test_esquema.js` | `plantilla.js`: marcadores, marcadores sin valor (carpeta, guion, paréntesis), limpieza para Windows, avisos; y en `content.js`, los datos de cada capítulo y que sin plantilla o con la predeterminada el nombre sea el de siempre | 42 |
 
 ### Prueba en navegador real (`node tests/e2e.js`)
 
-Carga la extensión en un Chromium sin interfaz (el que instala Playwright) y la usa sobre un sitio de prueba local armado como el sitio real: la página se dibuja con JavaScript, los capítulos no tienen links, los menores a 10 llevan cero adelante y las imágenes dicen `.png` pero son JPG. 140 comprobaciones, todas bien:
+Carga la extensión en un Chromium sin interfaz (el que instala Playwright) y la usa sobre un sitio de prueba local armado como el sitio real: la página se dibuja con JavaScript, los capítulos no tienen links, los menores a 10 llevan cero adelante y las imágenes dicen `.png` pero son JPG. 166 comprobaciones, todas bien:
 
 - **Guardar:** burbuja, un solo diálogo aunque se pida dos veces, nombre, miniaturas con logo y banner marcados, recorrido automático de la página, PDF + CBZ + imágenes en sus carpetas, imágenes con su tipo real e idénticas al original, PDF abierto y dibujado con PyMuPDF (5 JPG + 1 PNG), registro de guardado.
 - **Guardar y siguiente:** abre el capítulo que sigue con el diálogo listo.
@@ -646,6 +691,7 @@ Carga la extensión en un Chromium sin interfaz (el que instala Playwright) y la
 - **Sitio con archivo por mes (2.8.6):** un sitio de prueba armado como un blog, con la tira "enero 2021… junio 2021" en todas las páginas, el mismo archivo en un desplegable y un calendario con links por día; la página de un mes muestra juntos dos capítulos. Desde el inicio la lista trae los 4 capítulos con su nombre y no los meses; "del 1 al 2" baja los capítulos 1 y 2, cada uno con sus 6 páginas, sin abrir ninguna página del archivo; desde un capítulo tampoco aparecen los meses; y desde la página de un mes se ofrecen los capítulos de ese mes.
 - **Dirección terminada en un archivo (2.8.7):** en el mismo sitio de prueba, un capítulo en `…/2021/02/serie-blog-manga-3-espanol.html`, con el número en el medio del nombre y sin links a otros capítulos. Guardar el capítulo abierto anda igual (6 páginas, sin "siguiente" inventado); el diálogo de varios capítulos no supone una dirección, explica por qué no encontró los otros, "del 1 al 5" no marca nada y dice qué falta, y no se abre ninguna pestaña ni se pide ninguna dirección inventada. Escribiendo la dirección con `{n}` a mano, el rango vuelve a marcar.
 - **Pegar los links de los capítulos (2.9):** desde una página donde la lista no se puede armar, se pega un texto con un título, links con el número adelante y sin él, fuera de orden y uno repetido; los capítulos tienen el número en el medio del nombre de su página y la carpeta del mes cambia. Quedan los 4 en orden y marcados, el mensaje dice qué hizo, y con la serie escrita se bajan los 4 con su nombre y sus 6 páginas, anotados como guardados. Al volver a pegarlos figuran guardados y se saltean. Después, tres links de **otro sitio** (el mismo servidor por `localhost`) sin número en ningún lado: "al revés" y en el orden pegado desde el 50, y se bajan como 50, 51 y 52 aunque el título de uno termine en 2026. Sin pestañas colgadas.
+- **Tomos y plantilla de nombres (2.10):** la página de una serie con sus capítulos bajo "Tomo 1" y "Tomo 2", un bloque de "Últimos capítulos" que repite uno y un capítulo suelto debajo de otro título. La lista trae los 6 sin repetir y aparecen las pestañas; Tomos muestra los dos tomos con su rango y "Sin volumen"; tildar un tomo marca sus 3 capítulos, destildar uno lo deja a medias y destildar otro tomo no toca los demás. Con la plantilla `{serie}/{volumen}/{serie} {numero} - {titulo}` el diálogo muestra el ejemplo (con `(serie)` mientras la serie es automática, y con la escrita si se escribe), el tomo se baja a su carpeta con el nombre de cada capítulo (serie automática), queda anotado con su serie y su número, y el capítulo suelto se guarda sin carpeta vacía ni guion colgando. Guardando de a uno, la misma plantilla da el nombre sin esos huecos; otra plantilla (por sitio y año) vale en la pestaña abierta sin recargarla. En opciones se ve la plantilla guardada, la vista previa de los dos casos, los guardados agrupados por serie, los avisos de choque y de marcador desconocido, y volver a la predeterminada borra la clave. Por último, en una página sin tomos el diálogo no muestra las pestañas.
 
 Cuando había lista incluida (2.8.2 a 2.8.4), sus 23 direcciones respondieron bien el 21-11-2026. Además se abrieron en un navegador desde Argentina las dudosas: DC Universe Infinite dice que no está disponible en la región (por eso salió), Marvel carga su lector con el catálogo (`marvelcomicsapp.com`; `marvel.webtoon.com` es solo la página del lanzamiento) y MangaToon, Manta y MANGA MILLION muestran su catálogo para leer en la web.
 
@@ -681,6 +727,7 @@ El 22-11-2026, con la 2.8.4 y con ventana (pestañas en segundo plano como en el
 - **Actualizar la extensión de verdad con pestañas abiertas.** En el navegador de prueba no se puede recargar la extensión (la bloquea), así que se probó marcando la copia vieja como desconectada. El primer uso real después de cargar esta versión lo confirma.
 - **El desplegable de capítulos del sitio real ya cargado.** En el navegador de prueba queda en "Cargando…", así que no se vio qué valores trae. El código acepta número, dirección o número en el texto; si trae otra cosa, el rango "Del … al …" funciona igual.
 - **"Abrir cada capítulo a la vista"** solo se probó con `chrome.*` simulado.
+- **La pestaña "Tomos" y la plantilla de nombres (2.10)** se probaron en el sitio de prueba local, no en un sitio real. Si en un sitio los tomos no aparecen, es porque sus títulos no están en un encabezado (`<h1>`–`<h6>`, `<summary>`) o no nombran un tomo; ahí el lote funciona igual, por la pestaña Capítulos.
 - **Lotes de cientos de capítulos** (se probaron 70 seguidos) y la apertura de los CBZ en una app lectora de tablet.
 
 ---
@@ -751,6 +798,10 @@ En `flagNonPages`: cantidad de páginas finales revisadas (`good.length - 3`), r
 
 Los títulos se interpretan en `detectChapter` y las direcciones de capítulo en `splitChapterUrl`. Sumar el caso en `tests/test_nombres.js` o `tests/test_capitulos.js` antes de tocar la expresión.
 
+### Agregar un archivo que corre en las pestañas
+
+Como `agrupar.js` o `plantilla.js`. Va en tres lugares: `content_scripts` de `manifest.json`, `CONTENT_FILES` de `background.js` (lo que se inyecta en las pestañas abiertas antes de actualizar) y `COMPARTIDOS` de `tests/extraer.js`. Tiene que ir envuelto en una función y dejar lo suyo en `globalThis`. Si el programa de escritorio lo necesita, sumarlo también a `programa/scripts/generar.js`.
+
 ### Después de cualquier cambio
 
 `bash tests/correr.sh` y, si se tocó algo de la interfaz o de los lotes, `node tests/e2e.js`. En Chrome: `chrome://extensions` → 🔄 en la tarjeta. Los errores de `content.js` se ven en la consola de la pestaña (F12); los de `background.js` en el enlace "service worker" de la tarjeta de la extensión; los de `offscreen.js`, en `chrome://extensions` → "Inspeccionar vistas".
@@ -805,6 +856,7 @@ Para probar un sitio nuevo sin dejar archivos: `node tests/probar_sitio.js "<dir
 | 2.4 | Burbuja flotante arrastrable con controles rápidos |
 | 2.5 | Correcciones: nombre de la serie (`Bleach` ya no sale `Blea`), capítulos con decimal, número en `?capitulo=`, "ya guardado" solo si entraron todas las páginas y separando capítulos por `?capitulo=`, fallas reales en imágenes sueltas, y la burbuja vuelve a revisar mientras cargan las páginas |
 | 2.6 | Primer intento de descarga por lotes. **No funcionaba:** el diálogo se rompía al abrir, no tenía estilos y leía el HTML crudo de cada capítulo, que en sitios armados con JavaScript viene vacío. No usar |
+| 2.7 | **Varios capítulos seguidos, rehecho:** cada capítulo se abre en una pestaña en segundo plano y se guarda con el mismo código del guardado normal; funciona desde un capítulo y desde la portada; rango por número con ceros adelante; desplegables; cancelar; saltear guardados. **Una sola bajada por página** para PDF, CBZ e imágenes, con reintentos y aviso de qué páginas faltaron. **PNG sin pérdida** en el PDF. **Imágenes sueltas con su extensión real.** **Recorrido automático** de la página al abrir. **Guardar y siguiente.** **Sin F5** después de actualizar. **Burbuja por sitio.** Página de **guardados, sagas y opciones** con exportar/importar y capítulos faltantes; sagas editables. Correcciones: títulos con el nombre del capítulo o palabras de más, filtro en webtoons y en lectores con links al CDN, dos diálogos al pedirlo dos veces, clics perdidos en miniaturas, teclado en todo el diálogo, la burbuja deja de revisar páginas que no son de manga |
 | 2.8 | **Sitios de manga y cómics:** desde el ícono, una lista de 85 accesos directos a sitios legítimos de manga, manhwa, cómics, tiras e historieta, con etiqueta de tipo e idiomas en cada fila y una **i** que dice qué tiene, si es gratis y si se puede guardar. Filtros (Manga, Cómics, en español, se pueden guardar) y buscador. **Mis sitios:** agregar, editar y quitar los tuyos desde opciones o con "Agregar esta página"; entran en la copia exportada |
 | 2.8.1 | **Correcciones por MANGA Plus.** Una dirección con un código del sitio (`/viewer/2010289`) ya no se toma como capítulo 10289 ni genera direcciones inventadas (`/viewer/2010289/01`, que daban "Page not found"): el diálogo de varios capítulos lo explica y deja la dirección para completar. Títulos `[#104] Serie`. **Páginas protegidas** (imágenes `blob:` o `<canvas>`): el diálogo avisa con 🔒 en vez de ofrecer el logo y los banners como páginas, la burbuja no aparece y el lote para enseguida. **El lote para solo** después de 3 capítulos seguidos sin páginas, en vez de abrir una pestaña por cada capítulo marcado. `probar_sitio.js` informa también el diálogo de guardar |
 | 2.8.2 | **Lista de sitios recortada a 23:** quedan solo plataformas donde los capítulos se leen en el mismo sitio, con el catálogo completo y al día (MANGA Plus, MANGA MILLION, WEBTOON, VIZ, Manga UP!, Lezhin, Manta, Toomics, GlobalComix, Marvel, Panel Syndicate y otras). Salen tiendas, préstamos de biblioteca, archivos de números sueltos, secciones de diarios, sitios sin actualizar, Tapas (cierra en marzo de 2027) y DC Universe Infinite (no anda desde Argentina). Marvel pasa a su lector, `marvelcomicsapp.com` |
@@ -815,4 +867,4 @@ Para probar un sitio nuevo sin dejar archivos: `node tests/probar_sitio.js "<dir
 | 2.8.7 | **No se inventan direcciones sobre un archivo.** Cuando la página del capítulo termina en `.html`, `.php` y parecidos sin el número al final, y no hay links a los capítulos, el diálogo de varios capítulos suponía "esta dirección + /número" (`….html/1`) y el lote abría páginas que no existen. Ahora deja la dirección vacía, explica que no encontró los otros capítulos y no abre nada. El texto de la lista vacía ya no invita a marcar un rango si no hay dirección con `{n}` |
 | 2.9 | **Pegar los links de los capítulos.** En el diálogo de varios capítulos se pega una lista de links, de cualquier sitio y con el texto que traiga alrededor, y la extensión arma la lista con el número de cada uno: el que esté escrito adelante, el que trae el propio link (aunque esté en el medio del nombre) o el orden en que se pegaron, desde el número que se elija y también al revés. Avisa repetidos y números que faltan. Con la serie escrita, cada archivo sale con esa serie y el número de la lista, que manda sobre el título de la página |
 | 2.9.1 | **Se saca el aviso de páginas protegidas.** Ya no están el recuadro 🔒 del diálogo de guardar ni el corte del lote con ese mensaje. Esas páginas siguen sin guardarse: el diálogo dice que no encontró páginas del capítulo, y en un lote salen como "sin páginas" |
-| 2.7 | **Varios capítulos seguidos, rehecho:** cada capítulo se abre en una pestaña en segundo plano y se guarda con el mismo código del guardado normal; funciona desde un capítulo y desde la portada; rango por número con ceros adelante; desplegables; cancelar; saltear guardados. **Una sola bajada por página** para PDF, CBZ e imágenes, con reintentos y aviso de qué páginas faltaron. **PNG sin pérdida** en el PDF. **Imágenes sueltas con su extensión real.** **Recorrido automático** de la página al abrir. **Guardar y siguiente.** **Sin F5** después de actualizar. **Burbuja por sitio.** Página de **guardados, sagas y opciones** con exportar/importar y capítulos faltantes; sagas editables. Correcciones: títulos con el nombre del capítulo o palabras de más, filtro en webtoons y en lectores con links al CDN, dos diálogos al pedirlo dos veces, clics perdidos en miniaturas, teclado en todo el diálogo, la burbuja deja de revisar páginas que no son de manga |
+| 2.10.0 | **Tomos y plantilla de nombres.** (1) **Pestaña "Tomos"** en el diálogo de varios capítulos: cuando la página separa los capítulos con títulos ("Tomo 3", "Volumen 2", "Saga de…") o con grupos en el desplegable, `collectChapters` le anota a cada capítulo el suyo y `tomosDe` los agrupa (al menos 2 tomos distintos y 2 capítulos por tomo; el resto va a "Sin volumen"). Cada tomo se marca entero con un clic, queda tildado a medias si solo algunos están marcados y muestra cuántos ya se guardaron. El criterio está en `agrupar.js`, que también usa el programa de escritorio. (2) **Plantilla de nombres** en opciones → "Cómo se guardan los archivos", con los marcadores `{serie} {saga} {volumen} {numero} {titulo} {anio} {sitio}`, cuatro plantillas armadas, vista previa de un capítulo de un lote y de uno suelto, y avisos si los nombres van a chocar o si un marcador no existe. Un marcador sin valor no deja la carpeta vacía, el guion ni los paréntesis; una barra dentro de un dato no crea carpetas; la predeterminada da exactamente el nombre de siempre. `{volumen}` y `{titulo}` salen de la lista del lote. El armado está en `plantilla.js`, compartido por el guardado y la vista previa. (3) El diálogo muestra un ejemplo de cómo va a quedar guardado el primer capítulo marcado. (4) Con una plantilla propia, el registro anota serie y número de cada capítulo para que la página de guardados siga agrupando bien, y la copia exportada lleva la plantilla. (5) El service worker inyecta los mismos archivos que declara el manifest (antes de publicarla, la versión inyectaba solo `sagas.js` y `content.js`, y en una pestaña abierta de antes el diálogo de varios capítulos se rompía). |

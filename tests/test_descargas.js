@@ -4,6 +4,8 @@
 const fs = require('fs'), vm = require('vm'), path = require('path');
 const { probador } = require('./extraer');
 const src = fs.readFileSync(path.join(process.argv[2], 'background.js'), 'utf8');
+// Los scripts que el manifest carga en cada pestaña: los que se inyectan a mano tienen que ser los mismos
+const SCRIPTS = JSON.parse(fs.readFileSync(path.join(process.argv[2], 'manifest.json'), 'utf8')).content_scripts[0].js;
 const { eq, fin } = probador();
 const ev = () => { const ls = []; return { addListener: f => ls.push(f), removeListener: f => { const i = ls.indexOf(f); if (i >= 0) ls.splice(i, 1); }, emit: (...a) => [...ls].forEach(f => f(...a)), count: () => ls.length }; };
 const wait = (ms) => new Promise(r => setTimeout(r, ms));
@@ -135,7 +137,8 @@ const brief = (r) => `páginas=${r.pages} fallidas=[${r.failed}] archivos=[${r.f
     let n = 0;
     const t = setup({ onTabMessage: () => { if (!n++) throw new Error('Could not establish connection. Receiving end does not exist.'); return { ok: true }; } });
     const r = await t.ctx.tellTab(9, { action: 'save' });
-    eq('pestaña sin el script: se inyecta y se reintenta', t.tabLog.join(' | ') + ' → ' + JSON.stringify(r), 'msg 9 save | css styles.css | js sagas.js+content.js | msg 9 save → {"ok":true}');
+    eq('pestaña sin el script: se inyecta (los mismos archivos que carga el manifest, en su orden) y se reintenta',
+      t.tabLog.join(' | ') + ' → ' + JSON.stringify(r), `msg 9 save | css styles.css | js ${SCRIPTS.join('+')} | msg 9 save → {"ok":true}`);
   }
   {
     const t = setup({ onTabMessage: () => ({ ok: true }) });
@@ -157,6 +160,12 @@ const brief = (r) => `páginas=${r.pages} fallidas=[${r.failed}] archivos=[${r.f
     eq('capítulo bien: abre en segundo plano al lado y cierra', t.tabLog[0] + ' … ' + t.tabLog[t.tabLog.length - 1], 'create https://s.com/manga/es/todos/05 active=false … remove 50');
     eq('capítulo bien: espera a que las páginas dejen de sumarse', t.tabLog.filter(l => l === 'msg 50 count').length >= 3, true);
     eq('capítulo bien: no queda nada anotado', t.ctx.workers.size + t.ctx.owners.size, 0);
+  }
+  if (SCRIPTS.includes('plantilla.js')) {      // 2.10: el tomo y el nombre que el capítulo tiene en la lista llegan a su pestaña
+    let visto = null;
+    const t = setup({ onTabMessage: (id, m) => { if (m.action === 'autoSave') visto = m; return m.action === 'count' ? { ok: true, n: 15 } : { ok: true, complete: true, pages: 15, lines: [] }; } });
+    await t.ctx.batchChapter({ ...CHAP, serie: 'S', fixed: true, volumen: 'Tomo 2', titulo: 'La huida' }, SENDER);
+    eq('lote: a la pestaña del capítulo le llegan su tomo y su nombre (para la plantilla)', `${visto.serie} ${visto.numero} ${visto.fixed} ${visto.volumen} | ${visto.titulo}`, 'S 5 true Tomo 2 | La huida');
   }
   {
     const t = setup({ onTabMessage: (id, m) => m.action === 'count' ? { ok: true, n: 0 } : { ok: false, error: 'Sin páginas (encontré 0)' } });

@@ -4,7 +4,6 @@
   // No sabe nada de ningún sitio en particular: agrupa los links por la forma de su dirección.
 
   const limpio = (s) => String(s || '').replace(/\s+/g, ' ').trim();
-  const SECCION_RE = /\b(vol(?:umen|ume|\.)?|tomo|saga|arco|arc|temporada|season|parte|part|libro|book)\b/i;
   const PAGINACION_RE = /(?:^|[/?&])(?:page|pagina|pag|p)[/=]$/i;
   const NUMERO_TEXTO_RE = /(?:cap[ií]tulo|chapter|episodio|episode|cap\.?|ch\.?|ep\.?|#)\s*(\d{1,5}(?:\.\d+)?)/i;
   const ARCHIVO_RE = /\.(?:x?html?|shtml|php\d?|aspx?|jsp|cgi)$/i;
@@ -45,10 +44,11 @@
     const aqui = noSlash(location.href.split('#')[0]);
     const porUrl = new Map();
     let seccion = '';
+    reiniciarSeccion();
     for (const el of document.querySelectorAll('h1, h2, h3, h4, h5, h6, summary, a[href]')) {
       if (el.tagName !== 'A') {
         const t = limpio(el.textContent);
-        if (t && t.length <= 80) seccion = t;
+        if (t && t.length <= 80) seccion = capturarSeccion(t);
         continue;
       }
       let u;
@@ -85,11 +85,6 @@
   }
 
   const nombreDe = (i) => i.texto || limpio(i.nombre.replace(/[-_+]+/g, ' ')) || i.url;
-  // La sección solo se informa si de verdad separa (volumen, saga…) y hay más de una
-  function conSecciones(items) {
-    const usadas = new Set(items.map(i => i.seccion).filter(s => SECCION_RE.test(s)));
-    return items.map(i => ({ ...i, seccion: usadas.size >= 2 && SECCION_RE.test(i.seccion) ? i.seccion : '' }));
-  }
 
   // `conocidas`: ids de listas que ya se venían juntando de páginas anteriores. Esas valen
   // aunque acá tengan un solo link (la última página de un listado suele quedar corta).

@@ -27,15 +27,22 @@ const BLOQUES = [
 ];
 // Funciones que no están en todas las versiones: se cargan si existen
 const BLOQUES_NUEVOS = [/function isDateArchive\(/,         // 2.8.6
-  /function chaptersFromLinks\(/];                          // 2.9
+  /function chaptersFromLinks\(/,                           // 2.9
+  /function contextoPlantilla\(/, /function nombrePorPlantilla\(/];   // 2.10
 const LINEAS = [/const OURS = /, /const MIN_SIDE = /, /const SAGAS = /, /let userSagas = /, /const noSlash = /];
-const LINEAS_NUEVAS = [/const MONTH_RE = /];                // 2.8.6
+const LINEAS_NUEVAS = [/const MONTH_RE = /,                 // 2.8.6
+  /let esquemaNombres = /];                                 // 2.10
+// Archivos compartidos que van antes que content.js, si la versión los trae (2.10)
+const COMPARTIDOS = ['agrupar.js', 'plantilla.js'];
 
 // Carga esas funciones como si corrieran en una página con ese título, dirección, links
-// ([href, texto]) y opciones de <select> ([value, texto, disabled]).
+// ([href, texto, encabezado]) y opciones de <select> ([value, texto, disabled, grupo]).
+// `encabezado` es el título (<h3>) que la página tiene justo antes de ese link, y `grupo`
+// el <optgroup> de esa opción: los dos son opcionales.
 function pagina(dir, { title = '', url = 'https://sitio.com/', og = '', links = [], options = [], relNext = '' } = {}) {
   const src = fs.readFileSync(path.join(dir, 'content.js'), 'utf8');
   const u = new URL(url);
+  const a = ([href, text]) => ({ tagName: 'A', href: new URL(href, url).href, textContent: text || '', closest: () => null });
   const document = {
     title, baseURI: url,
     querySelector: (sel) => {
@@ -44,19 +51,25 @@ function pagina(dir, { title = '', url = 'https://sitio.com/', og = '', links = 
       return null;
     },
     querySelectorAll: (sel) => {
-      if (sel === 'a[href]') return links.map(([href, text]) => ({ href: new URL(href, url).href, textContent: text || '', closest: () => null }));
-      if (sel === 'select option') return options.map(([value, text, disabled]) => ({ value, textContent: text || '', disabled: !!disabled }));
+      if (sel === 'a[href]') return links.map(a);
+      if (sel === 'select option') return options.map(([value, text, disabled, grupo]) => ({ value, textContent: text || '', disabled: !!disabled,
+        parentElement: grupo ? { tagName: 'OPTGROUP', label: grupo } : null }));
+      // Encabezados y links juntos, en el orden de la página
+      if (/\bh3\b/.test(sel) && sel.includes('a[href]')) return links.flatMap(l =>
+        [...(l[2] != null ? [{ tagName: 'H3', textContent: l[2], closest: () => null }] : []), a(l)]);
       return [];
     },
   };
   const ctx = { URL, URLSearchParams, console, document,
     location: { href: url, origin: u.origin, pathname: u.pathname, search: u.search, hostname: u.hostname } };
   vm.createContext(ctx);
+  for (const f of COMPARTIDOS) if (fs.existsSync(path.join(dir, f))) vm.runInContext(fs.readFileSync(path.join(dir, f), 'utf8'), ctx);
   vm.runInContext(fs.readFileSync(path.join(dir, 'sagas.js'), 'utf8'), ctx);
   vm.runInContext([...LINEAS.map(re => line(src, re)), ...LINEAS_NUEVAS.filter(re => re.test(src)).map(re => line(src, re)),
     ...BLOQUES.map(re => grab(src, re)),
     ...BLOQUES_NUEVOS.filter(re => re.test(src)).map(re => grab(src, re))].join('\n') +
-    '\n;globalThis.setSagas = (s) => { userSagas = s; }; globalThis.noSlashFn = noSlash;', ctx);
+    '\n;globalThis.setSagas = (s) => { userSagas = s; }; globalThis.noSlashFn = noSlash;' +
+    (/let esquemaNombres = /.test(src) ? '\nglobalThis.setEsquema = (t) => { esquemaNombres = t || null; };' : ''), ctx);
   return ctx;
 }
 

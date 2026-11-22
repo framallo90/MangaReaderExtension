@@ -14,7 +14,23 @@
              placeholder="Pegá la dirección de una página: un catálogo, una serie o un capítulo">
       <button class="main" id="analizar" type="submit">Analizar</button>
       <button id="verPegar" type="button" title="Pegar una lista de links de capítulos">Pegar links</button>
+      <button id="verGuardados" type="button" title="Tu lista de links guardados: sitios, catálogos y series">⭐ Guardados</button>
     </form>
+    <div id="guardados" hidden>
+      <div class="barra">
+        <button id="guardarActual" type="button" title="Guarda en tu lista la dirección que está arriba">＋ Guardar esta dirección</button>
+        <button id="verCargar" type="button" title="Pegar muchos links juntos, como en la extensión">Cargar una lista</button>
+        <input id="guardadosFiltro" type="text" spellcheck="false" autocomplete="off" placeholder="Buscar en tus links…">
+        <span id="guardadosCuenta" class="tenue"></span>
+        <button id="quitarTodos" type="button">Quitar todos</button>
+      </div>
+      <div id="guardadosMsg" class="tenue"></div>
+      <div id="cargar" hidden>
+        <textarea id="listaLinks" spellcheck="false" placeholder="Pegá tu lista como la tengas, un link por renglón. Por ejemplo:&#10;Mi sitio: https://sitio.com/ — lo que quieras anotar&#10;https://otro.com/catalogo&#10;También sirve el archivo de sitios que exporta la extensión."></textarea>
+        <div class="barra"><button class="main" id="agregarLista" type="button">Agregar a mis links</button></div>
+      </div>
+      <div id="guardadosLista"></div>
+    </div>
     <div id="pegar" hidden>
       <textarea id="links" spellcheck="false" placeholder="Pegá los links, uno por renglón o todos juntos. Lo que no sea un link se ignora."></textarea>
       <div class="barra">

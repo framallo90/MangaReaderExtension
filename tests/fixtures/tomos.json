@@ -1,0 +1,9 @@
+[
+  { "numero": 1, "title": "Capítulo 1", "seccion": "" },
+  { "numero": 2, "title": "Capítulo 2", "seccion": "Tomo 1: El comienzo" },
+  { "numero": 3, "title": "Capítulo 3", "seccion": "Tomo 1: El comienzo" },
+  { "numero": 4, "title": "Capítulo 4", "seccion": "Tomo 2: La huida" },
+  { "numero": 5, "title": "Capítulo 5", "seccion": "Tomo 2: La huida" },
+  { "numero": 6, "title": "Capítulo 6", "seccion": "" },
+  { "numero": 7, "title": "Capítulo 7", "seccion": "Tomo 2: La huida" }
+]

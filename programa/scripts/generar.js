@@ -9,6 +9,7 @@
 //                         las funciones de content.js + src/pagina/explorar.js
 //   generado/nucleo.js    las funciones que no necesitan una página (links pegados, nombres)
 //   generado/offscreen.js el armado de PDF, CBZ e imágenes, tal cual
+//   generado/sitios.js    la lectura de una lista de links pegada (para los links guardados), tal cual
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const raiz = path.join(__dirname, '..', '..');
 const { grab, line } = require(path.join(raiz, 'tests', 'extraer'));
@@ -18,6 +19,8 @@ const version = ultimaVersion();
 const ext = path.join(raiz, version, 'manga-reader-ext');
 const src = fs.readFileSync(path.join(ext, 'content.js'), 'utf8');
 const sagas = fs.readFileSync(path.join(ext, 'sagas.js'), 'utf8');
+const agrupar = fs.readFileSync(path.join(ext, 'agrupar.js'), 'utf8');       // tomos: lo usan collectChapters y explorar.js
+const plantilla = fs.readFileSync(path.join(ext, 'plantilla.js'), 'utf8');   // plantilla de nombres: la usa nameFor
 const salida = path.join(__dirname, '..', 'generado');
 fs.mkdirSync(salida, { recursive: true });
 
@@ -28,15 +31,19 @@ const bloques = (nombres) => nombres.map(n => bloque(n, ASINC.has(n))).join('\n\
 
 // ── Para una página abierta (necesitan document y location) ──
 const LINEAS_PAGINA = [/const OURS = /, /const MIN_SIDE = /, /const PROBE_CONCURRENCY = /, /const sleep = /,
-  /const SAGAS = /, /let userSagas = /, /const noSlash = /, /const MONTH_RE = /];
+  /const SAGAS = /, /let userSagas = /, /let esquemaNombres = /, /const noSlash = /, /const MONTH_RE = /];
 const FUNCIONES_PAGINA = ['absUrl', 'srcsetBest', 'lazyUrl', 'imgUrl', 'probeSize', 'urlDir', 'collectPages', 'flagNonPages',
   'countCandidates', 'sanitizeSegment', 'sanitizePath', 'chapterParam', 'cleanSerie', 'detectChapter', 'fmtNum', 'nameFor',
   'suggestName', 'pageKey', 'splitChapterUrl', 'numForms', 'isDateArchive', 'collectChapters', 'nextChapterUrl',
-  'chaptersFromLinks', 'scrollThrough', 'looksLikeChapter'];
+  'chaptersFromLinks', 'scrollThrough', 'looksLikeChapter', 'contextoPlantilla', 'nombrePorPlantilla'];
 
 const aviso = `// GENERADO por scripts/generar.js a partir de ${version}. No editar: los cambios van en la extensión\n// o en src/pagina/explorar.js.\n`;
 const pagina = `${aviso}(function () {
 ${sagas}
+
+${agrupar}
+
+${plantilla}
 
 ${LINEAS_PAGINA.map(una).join('\n')}
 
@@ -59,7 +66,7 @@ ${fs.readFileSync(path.join(__dirname, '..', 'src', 'pagina', 'explorar.js'), 'u
 const FUNCIONES_NUCLEO = ['sanitizeSegment', 'sanitizePath', 'fmtNum', 'nameFor', 'splitChapterUrl', 'numForms', 'chaptersFromLinks'];
 const nucleo = `${aviso}${sagas}
 
-${[/const SAGAS = /, /let userSagas = /, /const noSlash = /].map(una).join('\n')}
+${[/const SAGAS = /, /let userSagas = /, /let esquemaNombres = /, /const noSlash = /].map(una).join('\n')}
 
 ${bloques(FUNCIONES_NUCLEO)}
 
@@ -82,4 +89,5 @@ for (const [nombre, codigo] of [['pagina.js', pagina], ['nucleo.js', nucleo]]) {
 fs.writeFileSync(path.join(salida, 'pagina.js'), pagina);
 fs.writeFileSync(path.join(salida, 'nucleo.js'), nucleo);
 fs.copyFileSync(path.join(ext, 'offscreen.js'), path.join(salida, 'offscreen.js'));
-console.log(`Generado a partir de ${version}: pagina.js (${FUNCIONES_PAGINA.length} funciones), nucleo.js, offscreen.js`);
+fs.copyFileSync(path.join(ext, 'sitios.js'), path.join(salida, 'sitios.js'));
+console.log(`Generado a partir de ${version}: pagina.js (${FUNCIONES_PAGINA.length} funciones), nucleo.js, offscreen.js, sitios.js`);

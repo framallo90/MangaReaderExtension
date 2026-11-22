@@ -4,7 +4,7 @@ Explora una página web por niveles (títulos → capítulos → páginas) y gua
 
 Todo corre en tu máquina: no hay servidor ni cuenta. Es independiente de la extensión de Chrome y usa su mismo código para detectar páginas, armar nombres y generar los archivos.
 
-**Estado: versión 0.2.0.** Funciona de punta a punta sobre los sitios de prueba. Todavía no tiene instalador: se abre con `npm start`. Los cambios de cada versión están en las [Actualizaciones](../README.md#actualizaciones) del README principal.
+**Estado: versión 0.3.0.** Funciona de punta a punta sobre los sitios de prueba. Todavía no tiene instalador: se abre con `npm start`. Los cambios de cada versión están en las [Actualizaciones](../README.md#actualizaciones) del README principal.
 
 ## Cómo abrirlo
 
@@ -33,6 +33,23 @@ Otras formas de cargar capítulos:
 - **Si la página es un capítulo**, aparece una tarjeta con **Descargar este capítulo**.
 - **Pegar links:** el botón de arriba abre un cuadro para pegar una lista de links como la tengas. Cada uno queda con su número, igual que en la extensión.
 
+### Links guardados
+
+El botón **⭐ Guardados** abre tu lista de direcciones: sitios, catálogos o series a los que volvés seguido. Queda guardada en tu máquina entre una sesión y otra.
+
+- **Tocá un link** y lo analiza, igual que si lo pegaras arriba.
+- **＋ Guardar esta dirección** suma la que está en el cuadro de arriba. Si ya la analizaste, queda con el título de la página; si no, con el nombre del sitio.
+- **Cargar una lista** abre un cuadro para pegar muchos links juntos, como en "Mis sitios" de la extensión. Un link por renglón, escrito como lo tengas:
+  - `Mi sitio: https://sitio.com/ — lo que quieras anotar`
+  - `- [Mi sitio](https://sitio.com/) una nota`
+  - `https://sitio.com/catalogo` o `sitio.com/catalogo` (el nombre sale de la dirección)
+  - Los renglones sin link (títulos como "Manga en español:") no se guardan.
+  - También se puede pegar el contenido del archivo de sitios que exporta la extensión.
+- **Los repetidos no entran:** la misma dirección con o sin `www.` o barra final cuenta como una sola. El aviso dice cuántos se agregaron y cuántos ya estaban.
+- **Buscar** filtra por nombre, dirección o nota. La **✕** de cada renglón lo quita, y **Quitar todos** pide un segundo toque para confirmar.
+
+La lista vive en `links.json`, dentro de la carpeta de datos del programa (en Windows, `%APPDATA%\manga-reader-programa`). No se sube a ningún lado.
+
 ### Nombres y carpetas
 
 - Los archivos salen como `Serie/Saga/Serie 0012.pdf`, igual que en la extensión.
@@ -48,7 +65,8 @@ Baja de a un capítulo, con una pausa entre uno y otro. Cada renglón dice en qu
 
 - **No tiene instalador** ni ícono propio.
 - **No deja elegir páginas sueltas** dentro de un capítulo: usa el filtro de publicidad automático.
-- **No comparte las sagas** que cargaste en la extensión: usa solo las incluidas.
+- **No comparte las sagas** que cargaste en la extensión: usa solo las incluidas. Tampoco la plantilla de nombres: guarda siempre como `Serie/Saga/Serie 0012`.
+- **Los links guardados no se sincronizan** con "Mis sitios" de la extensión: son dos listas. Se pasan de una a otra pegando la lista o el archivo exportado.
 - **No lleva un registro de guardados** aparte: para saltear, mira el disco.
 - **No recorre un sitio entero** de un saque: va nivel por nivel, y "Traer más páginas" suma de a 10 páginas por vez.
 - **Encuentra el catálogo por el nombre del link.** Si el sitio lo llama de otra forma, hay que entrar a mano con la flecha ›.
@@ -69,7 +87,7 @@ Baja de a un capítulo, con una pausa entre uno y otro. Cada renglón dice en qu
 | `generado/` | Se crea solo al abrir. No se edita ni se sube al repositorio |
 | `tests/` | El sitio de prueba y las pruebas |
 
-- **El código compartido no se copia a mano.** `generar.js` saca de la extensión las funciones de detección, nombres y capítulos (`content.js`) y el armado de archivos (`offscreen.js`). Un arreglo en la extensión llega al programa la próxima vez que se abre.
+- **El código compartido no se copia a mano.** `generar.js` saca de la extensión las funciones de detección, nombres y capítulos (`content.js`), el agrupado por tomos (`agrupar.js`), la plantilla de nombres (`plantilla.js`), el armado de archivos (`offscreen.js`) y la lectura de una lista de links pegada (`sitios.js`). Un arreglo en la extensión llega al programa la próxima vez que se abre.
 - **Las páginas web corren aisladas:** sin acceso a Node ni al disco, sin poder abrir ventanas, bajar archivos por su cuenta ni pedir permisos.
 - **Las imágenes se piden con el Referer del capítulo,** como lo haría el navegador. Hay servidores que sin eso contestan 403.
 
@@ -79,6 +97,6 @@ Baja de a un capítulo, con una pausa entre uno y otro. Cada renglón dice en qu
 npm run prueba
 ```
 
-Corren dentro de Electron contra un sitio de prueba servido en la máquina: exploran portada, catálogo paginado, directorio que carga al bajar, serie y capítulo; bajan capítulos en los tres formatos a una carpeta temporal; y manejan la interfaz. Son 38 comprobaciones.
+Corren dentro de Electron contra un sitio de prueba servido en la máquina: exploran portada, catálogo paginado, directorio que carga al bajar, serie y capítulo; bajan capítulos en los tres formatos a una carpeta temporal; cargan, buscan y quitan links guardados; y manejan la interfaz. Son 58 comprobaciones. Durante las pruebas la lista de links arranca vacía y no se escribe en el disco, así que no tocan la tuya.
 
 Con `CAPTURAS=<carpeta>` guardan además una captura de la interfaz.

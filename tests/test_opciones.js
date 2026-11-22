@@ -72,5 +72,23 @@ eq('un solo capítulo', op.missingRanges([7]).length, 0);
   } else {
     eq('importar: mis sitios (versión sin esta función)', 'no aplica', 'no aplica');
   }
+
+  // Plantilla de nombres (2.10): lo guardado con una plantilla propia trae anotados la serie y el
+  // número, porque ahí la primera carpeta puede ser el sitio y el nombre terminar en el título
+  if (fs.existsSync(path.join(dir, 'plantilla.js'))) {
+    const conPlantilla = op.groupSaved({
+      'sitio.com/2026/Naruto 0300 - El final': { ts: 1, pages: 9, url: 'https://s.com/300', serie: 'Naruto', numero: 300 },
+      'sitio.com/2026/Naruto 0302 - Otro': { ts: 2, pages: 9, url: 'https://s.com/302', serie: 'Naruto', numero: 302 },
+      'Naruto/Naruto 0299': { ts: 3, pages: 9, url: 'https://s.com/299' },
+    });
+    eq('guardado con plantilla propia: se agrupa por la serie anotada, junto a lo de antes',
+      conPlantilla.map(x => `${x.serie} (${x.items.map(i => i.numero).join(',')})`).join(' | '), 'Naruto (299,300,302)');
+    eq('  y dice lo que falta', op.rangesText(conPlantilla[0].missing), '301');
+    const r = op.mergeBackup({ savedChapters: {} }, { esquemaNombres: '{serie}/{numero}', savedChapters: { 'a/b': { ts: 1, pages: 2, url: 'u', serie: 'A', numero: 7 } } });
+    eq('importar: trae la plantilla y lo anotado en cada capítulo', r.out.esquemaNombres + ' · ' + JSON.stringify(r.out.savedChapters['a/b']),
+      '{serie}/{numero} · {"ts":1,"pages":2,"url":"u","serie":"A","numero":7}');
+    eq('importar: no pisa la plantilla que ya había',
+      op.mergeBackup({ savedChapters: {}, esquemaNombres: '{serie}' }, { savedChapters: {}, esquemaNombres: '{numero}' }).out.esquemaNombres, undefined);
+  }
 }
 fin();

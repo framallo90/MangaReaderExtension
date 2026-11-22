@@ -88,6 +88,26 @@ module.exports = async function probar(api) {
     api.limpiar();
     eq('sin formato elegido: lo dice', (() => { try { api.encolar(caps.items, { carpeta: tmp, formatos: { pdf: false, cbz: false, imgs: false } }); return 'sin error'; } catch (e) { return e.message; } })(), 'Elegí al menos un formato');
 
+    console.log('\n── Links guardados');
+    const nombres = (l) => l.map(s => s.nombre).join(', ');
+    const pegada = api.guardarLinks({ texto: ['Manga en español:', `Sitio de prueba: ${S}/ — el catálogo de prueba`, `- [Alfa](${S}/serie/alfa/) la serie con volúmenes`,
+      'otro-sitio.example/catalogo', `${S}/serie/alfa`, 'un renglón sin link'].join('\n') });
+    eq('cargar una lista pegada: un link por renglón, con nombre, sin nombre o en Markdown', `${pegada.agregados} agregados, ${pegada.repetidos} repetido · ${nombres(pegada.lista)}`,
+      '3 agregados, 1 repetido · Sitio de prueba, Alfa, otro-sitio.example');
+    eq('  cada uno con su dirección completa y lo que tenía anotado', pegada.lista.map(s => `${s.url.replace(S, '')} [${s.descripcion}]`).join(' | '),
+      '/ [el catálogo de prueba] | /serie/alfa/ [la serie con volúmenes] | https://otro-sitio.example/catalogo []');
+    const otra = api.guardarLinks({ texto: `${S}/\nBeta ${S}/serie/beta/` });
+    eq('cargar otra lista: los que ya estaban no se repiten', `${otra.agregados} agregado, ${otra.repetidos} repetido · ${otra.lista.length} en total`, '1 agregado, 1 repetido · 4 en total');
+    eq('guardar una dirección suelta: el nombre sale de la dirección', nombres(api.guardarLinks({ sitio: { nombre: '', url: 'www.suelto.example/manga' } }).lista.slice(-1)), 'suelto.example');
+    eq('  una que no es una página web: lo dice', (() => { try { api.guardarLinks({ sitio: { url: 'file:///c:/x' } }); return 'sin error'; } catch (e) { return e.message; } })(),
+      'La dirección tiene que empezar con http:// o https://');
+    eq('  un texto sin links: lo dice', (() => { try { api.guardarLinks({ texto: 'nada por acá' }); return 'sin error'; } catch (e) { return e.message; } })(), 'No encontré ningún link en lo que pegaste.');
+    const exportado = JSON.stringify({ misSitios: [{ nombre: 'De la extensión', url: 'https://extension.example/', tipo: 'manga', idiomas: ['es'], descripcion: 'exportado' }, { nombre: 'Roto', url: 'javascript:x' }] });
+    eq('cargar el archivo que exporta la extensión', nombres(api.guardarLinks({ texto: exportado }).lista.slice(-1)) + ' · ' + api.guardados().length, 'De la extensión · 6');
+    eq('quitar uno (la misma dirección, con o sin barra final)', nombres(api.quitarLinks([`${S}/serie/alfa`])), 'Sitio de prueba, otro-sitio.example, Beta, suelto.example, De la extensión');
+    api.quitarLinks(['https://otro-sitio.example/catalogo', 'https://www.suelto.example/manga', 'https://extension.example']);
+    eq('quitar varios', nombres(api.guardados()), 'Sitio de prueba, Beta');
+
     console.log('\n── Interfaz');
     api.guardarConfig({ carpeta: tmp, formatos: { pdf: true, cbz: false, imgs: false } });
     const ui = await api.abrirUI(false);
@@ -144,6 +164,43 @@ module.exports = async function probar(api) {
     await hasta(`document.querySelectorAll('#lista .fila').length === 2`, 'los links pegados');
     eq('pegar links: quedan numerados y marcados', await en(`[...document.querySelectorAll('#lista .fila')].map(f => f.querySelector('.num').textContent + (f.querySelector('input').checked ? '*' : '')).join(' ') + ' · ' + document.querySelector('#estado').textContent`),
       '1* 2* · Tomé 2 links: capítulos 1 a 2, con el número que trae cada link. Escribí el nombre de la serie a la derecha.');
+
+    // Links guardados: quedaron dos de las pruebas de arriba
+    const filasG = async () => (await en(`[...document.querySelectorAll('#guardadosLista .guardado')].map(g => g.querySelector('.g-nombre').textContent + ' (' + g.querySelector('.g-datos').textContent + ')').join(' | ')`)).split(S.replace('http://', '')).join('');
+    const avisoG = () => en(`document.querySelector('#guardadosMsg').textContent + ' · ' + document.querySelector('#verGuardados').textContent`);
+    eq('links guardados: el botón dice cuántos hay y el panel arranca cerrado', await en(`document.querySelector('#verGuardados').textContent + ' ' + document.querySelector('#guardados').hidden`), '⭐ Guardados (2) true');
+    await en(`document.querySelector('#verGuardados').click()`);
+    eq('  al abrirlo muestra la lista, con la dirección y lo anotado; "Pegar links" se cierra', await filasG() + ' · ' + await en(`document.querySelector('#pegar').hidden`),
+      'Sitio de prueba ( · el catálogo de prueba) | Beta (/serie/beta) · true');
+    await en(`document.querySelector('#verCargar').click(); document.querySelector('#listaLinks').value = ${JSON.stringify(`Mis series:\nAlfa: ${S}/serie/alfa/ — con volúmenes\n${S}/serie/beta/`)}; document.querySelector('#agregarLista').click()`);
+    await hasta(`document.querySelectorAll('#guardadosLista .guardado').length === 3`, 'la lista cargada');
+    eq('  cargar una lista pegada: suma los nuevos y avisa los que ya estaban', await avisoG() + ' · ' + await en(`document.querySelector('#cargar').hidden + ' ' + JSON.stringify(document.querySelector('#listaLinks').value)`),
+      'Agregué 1 link. 1 ya estaba o venía repetido. · ⭐ Guardados (3) · true ""');
+    await en(`(() => { const f = document.querySelector('#guardadosFiltro'); f.value = 'volúmenes'; f.dispatchEvent(new Event('input')); })()`);
+    eq('  buscar en la lista', await filasG() + ' · ' + await en(`document.querySelector('#guardadosCuenta').textContent`), 'Alfa (/serie/alfa · con volúmenes) · 1 de 3');
+    if (process.env.CAPTURAS) fs.writeFileSync(path.join(process.env.CAPTURAS, 'programa-guardados.png'), (await ui.webContents.capturePage()).toPNG());
+    await en(`document.querySelector('#guardadosLista .g-abrir').click()`);
+    await hasta(`document.querySelectorAll('#lista .seccion').length === 2 && document.querySelector('#guardados').hidden`, 'la serie guardada');
+    eq('  tocar un link guardado lo analiza', await rutaEnPantalla() + ' · ' + (await en(`document.querySelector('#url').value`)).replace(S, ''), 'Alfa – Todos los capítulos · /serie/alfa/');
+    await en(`document.querySelector('#verGuardados').click(); document.querySelector('#guardadosFiltro').value = ''; document.querySelector('#guardarActual').click()`);
+    await hasta(`document.querySelector('#guardadosMsg').textContent.length > 0`, 'el aviso');
+    eq('  guardar la dirección que se está mirando: si ya está, lo dice', await avisoG(), 'Esa dirección ya estaba en tu lista. · ⭐ Guardados (3)');
+    await en(`document.querySelector('#lista .fila .entrar').click()`);
+    await hasta(`!document.querySelector('#capitulo').hidden`, 'un capítulo');
+    await en(`document.querySelector('#guardarActual').click()`);
+    await hasta(`document.querySelectorAll('#guardadosLista .guardado').length === 4`, 'la dirección guardada');
+    eq('  y si no, la guarda con el título de la página', await avisoG() + ' · ' + (await filasG()).split(' | Alfa (/serie/alfa · con volúmenes) | ').pop(),
+      'Guardada. · ⭐ Guardados (4) · Alfa Capítulo 1 | Sitio de prueba (/leer/alfa-1)');
+    await en(`document.querySelectorAll('#guardadosLista .g-quitar')[3].click()`);
+    await hasta(`document.querySelectorAll('#guardadosLista .guardado').length === 3`, 'el link quitado');
+    eq('  quitar uno', await filasG(), 'Sitio de prueba ( · el catálogo de prueba) | Beta (/serie/beta) | Alfa (/serie/alfa · con volúmenes)');
+    await en(`document.querySelector('#quitarTodos').click()`);
+    eq('  "Quitar todos" pide confirmar con otro toque', await en(`document.querySelector('#quitarTodos').textContent + ' · ' + document.querySelectorAll('#guardadosLista .guardado').length`), '¿Quitar los 3? Tocá de nuevo · 3');
+    await en(`document.querySelector('#quitarTodos').click()`);
+    await hasta(`document.querySelectorAll('#guardadosLista .guardado').length === 0`, 'la lista vacía');
+    eq('  y con el segundo la vacía: queda a la vista el cuadro para cargar otra', await avisoG() + ' · ' + await en(`document.querySelector('#guardadosLista').textContent + ' ' + document.querySelector('#cargar').hidden`) + ' · ' + api.guardados().length,
+      'Quité todos los links. · ⭐ Guardados · Todavía no guardaste ningún link. Guardá la dirección que estés mirando o cargá una lista. false · 0');
+    eq('sin errores en la consola de la interfaz', consola.join(' | '), '');
   } finally {
     await sitio.cerrar();
     try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}

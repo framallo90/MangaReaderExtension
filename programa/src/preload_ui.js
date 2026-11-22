@@ -17,6 +17,10 @@ contextBridge.exposeInMainWorld('mr', {
   config: () => pedir('config:leer'),
   guardarConfig: (c) => pedir('config:guardar', c),
   saga: (serie, numero) => pedir('saga', { serie, numero }),
+  // Links guardados: la lista, sumar uno ({ sitio: {nombre, url} }) o una lista pegada ({ texto }), y quitar
+  guardados: () => pedir('guardados:leer'),
+  guardarLinks: (dato) => pedir('guardados:agregar', dato),
+  quitarLinks: (urls) => pedir('guardados:quitar', urls),
   elegirCarpeta: () => pedir('carpeta'),
   abrirCarpeta: () => pedir('abrir-carpeta'),
   // (entre llaves: no devuelve nada. Lo que devuelve ipcRenderer.on no se puede pasar a la página)

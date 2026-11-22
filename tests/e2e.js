@@ -135,6 +135,17 @@ const SUELTOS = { 'la-llegada': 'Serie Suelta – La llegada', 'el-torneo': 'Ser
 const sueltoCap = (slug) => `<!doctype html><html><head><meta charset="UTF-8"><title>${SUELTOS[slug]}</title></head><body style="margin:0">
 ${[1, 2, 3, 4, 5, 6].map(k => `<img style="display:block" width="420" height="640" src="/sueltos/img/${slug}/${k}.jpg">`).join('\n')}</body></html>`;
 
+// Serie cuya página separa los capítulos en tomos, cada uno con su título. Arriba hay un bloque
+// de "Últimos capítulos" que repite uno, y al final un capítulo suelto debajo de otro título.
+const tomosLista = `<!doctype html><html><head><meta charset="UTF-8"><title>Serie Tomos - Todos los capítulos</title></head><body>
+<h1>Serie Tomos</h1>
+<h3>Últimos capítulos</h3><a href="/tomos/leer/5">Capítulo 5</a>
+<h3>Tomo 1: El comienzo</h3><a href="/tomos/leer/1">Capítulo 1</a> <a href="/tomos/leer/2">Capítulo 2</a>
+<h3>Tomo 2: La huida</h3><a href="/tomos/leer/3">Capítulo 3</a> <a href="/tomos/leer/4">Capítulo 4</a> <a href="/tomos/leer/5">Capítulo 5</a>
+<h3>Especiales</h3><a href="/tomos/leer/6">Capítulo 6</a></body></html>`;
+const tomosCap = (n) => `<!doctype html><html><head><meta charset="UTF-8"><title>Serie Tomos Capítulo ${n} | Sitio</title></head><body style="margin:0">
+${[1, 2, 3, 4, 5, 6].map(k => `<img style="display:block" width="420" height="640" src="/tomos/img/${n}/${k}.jpg">`).join('\n')}</body></html>`;
+
 const hits = {};                                        // pedidos de la extensión por dirección (los que mandan Accept: image/*)
 function serve(req, res) {
   const u = req.url.split('?')[0];
@@ -176,6 +187,10 @@ function serve(req, res) {
   m = u.match(/^\/blog\/leer\/serie-blog-manga-(\d+)\/$/);
   if (m) return +m[1] >= 1 && +m[1] <= 4 ? send('text/html; charset=utf-8', blogCap(+m[1])) : send('text/plain', 'no', 404);
   if (/^\/blog\/img\/\d+\/\d\.jpg$/.test(u)) return send('image/jpeg', JPG);
+  if (u === '/tomos/') return send('text/html; charset=utf-8', tomosLista);
+  m = u.match(/^\/tomos\/leer\/(\d+)$/);
+  if (m) return +m[1] >= 1 && +m[1] <= 6 ? send('text/html; charset=utf-8', tomosCap(+m[1])) : send('text/plain', 'no', 404);
+  if (/^\/tomos\/img\/\d+\/\d\.jpg$/.test(u)) return send('image/jpeg', JPG);
   send('text/plain', 'no', 404);
 }
 
@@ -810,6 +825,116 @@ function serve(req, res) {
       eq('  6 páginas', pdfPages(file('Serie Suelta/Serie Suelta 0051.pdf')), '6 × 420x640');
       eq('  no quedan pestañas abiertas', await b.tabCount(), tabsL + 1);
       await pl.close();
+    }
+
+    // ═══ 14. Tomos y plantilla de nombres (2.10) ═══
+    if (vA > 2 || (vA === 2 && vB >= 10)) {
+      console.log('\n── Tomos y plantilla de nombres');
+      const tabsT = await b.tabCount();
+      const tm = await cdp.open(`${SITE}/tomos/`);
+      await tm.waitFor(`document.readyState === 'complete'`, 'el listado');
+      await b.command(`${SITE}/tomos/`, 'batch');
+      await tm.waitFor(`!!document.querySelector('#mr-chapter-go')`, 'el diálogo');
+      const vista = () => tm.eval(`(() => { const q = (s) => document.querySelector(s); return (q('#mr-chapter-tabs').hidden ? 'sin pestañas' : 'pestañas') + ' · ' +
+        (q('#mr-tab-tomos').classList.contains('on') ? 'Tomos' : 'Capítulos') + ' · lista ' + (getComputedStyle(q('#mr-chapter-list')).display === 'none' ? 'oculta' : 'a la vista') +
+        ' · tomos ' + (getComputedStyle(q('#mr-tomos-list')).display === 'none' ? 'ocultos' : 'a la vista'); })()`);
+      const tomosFilas = () => tm.eval(`[...document.querySelectorAll('#mr-tomos-list .mr-tomo-item')].map(r => { const i = r.querySelector('input');
+        return r.querySelector('.mr-chapter-t').textContent + ' [' + r.querySelector('.mr-chapter-r').textContent + '] ' + r.querySelector('.mr-chapter-s').textContent + (i.checked ? ' *' : i.indeterminate ? ' ~' : ''); }).join(' | ')`);
+      const boton = () => tm.eval(`document.querySelector('#mr-chapter-go').textContent`);
+      eq('capítulos de la página, sin repetir el de "Últimos capítulos"', await lote.filas(tm), '1 | 2 | 3 | 4 | 5 | 6');
+      eq('la página separa en tomos: aparecen las pestañas, con Capítulos a la vista', await vista(), 'pestañas · Capítulos · lista a la vista · tomos ocultos');
+      await tm.eval(`document.querySelector('#mr-tab-tomos').click()`);
+      eq('pestaña Tomos', await vista(), 'pestañas · Tomos · lista oculta · tomos a la vista');
+      eq('  agrupa por el título que cada capítulo tiene encima; el suelto va aparte', await tomosFilas(),
+        'Tomo 1: El comienzo [1 a 2] 2 capítulos | Tomo 2: La huida [3 a 5] 3 capítulos | Sin volumen [6] 1 capítulo');
+      await tm.eval(`document.querySelectorAll('#mr-tomos-list input')[1].click()`);
+      eq('tildar un tomo marca sus capítulos', await lote.filas(tm) + ' · ' + await boton(), '1 | 2 | 3* | 4* | 5* | 6 · Descargar 3 capítulos');
+      eq('  y queda tildado', await tomosFilas(), 'Tomo 1: El comienzo [1 a 2] 2 capítulos | Tomo 2: La huida [3 a 5] 3 capítulos * | Sin volumen [6] 1 capítulo');
+      await tm.eval(`document.querySelector('#mr-tab-cap').click()`);
+      await tm.eval(`document.querySelectorAll('#mr-chapter-list .mr-chapter-item input')[3].click()`);       // se destilda el 4
+      await tm.eval(`document.querySelector('#mr-tab-tomos').click()`);
+      eq('destildar un capítulo deja su tomo tildado a medias', await tomosFilas() + ' · ' + await boton(),
+        'Tomo 1: El comienzo [1 a 2] 2 capítulos | Tomo 2: La huida [3 a 5] 3 capítulos ~ | Sin volumen [6] 1 capítulo · Descargar 2 capítulos');
+      await tm.eval(`document.querySelectorAll('#mr-tomos-list input')[1].click()`);                           // a medias → tildado entero
+      await tm.eval(`document.querySelectorAll('#mr-tomos-list input')[0].click()`);
+      await tm.eval(`document.querySelectorAll('#mr-tomos-list input')[0].click()`);                           // y el tomo 1, ida y vuelta
+      eq('destildar un tomo desmarca los suyos y no toca los demás', await lote.filas(tm), '1 | 2 | 3* | 4* | 5* | 6');
+      await shot(tm, '14-tomos');
+
+      // Plantilla de nombres con tomo y título. La serie queda automática (sale del título de cada capítulo).
+      const TPL = '{serie}/{volumen}/{serie} {numero} - {titulo}';
+      await b.setStorage({ esquemaNombres: TPL });
+      await tm.waitFor(`/Tomo 2/.test(document.querySelector('#mr-chapter-ruta').textContent)`, 'el ejemplo con la plantilla nueva');
+      eq('el diálogo muestra cómo va a quedar el primero marcado', await tm.eval(`document.querySelector('#mr-chapter-ruta').textContent`),
+        'Ejemplo: Descargas/MangaReader/(serie)/Tomo 2- La huida/(serie) 0003 - Capítulo 3 · la serie sale del título de cada capítulo');
+      await tm.eval(`(() => { const i = document.querySelector('#mr-chapter-serie'); i.value = 'Mi Serie'; i.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+      eq('  y con la serie escrita, el ejemplo la usa', await tm.eval(`document.querySelector('#mr-chapter-ruta').textContent`),
+        'Ejemplo: Descargas/MangaReader/Mi Serie/Tomo 2- La huida/Mi Serie 0003 - Capítulo 3');
+      await tm.eval(`(() => { const i = document.querySelector('#mr-chapter-serie'); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+      await tm.eval(`document.querySelector('#mr-chapter-go').click()`);
+      eq('descarga el tomo', (await lote.fin(tm)).split('\n')[0], '✅ Listo: 3 capítulos guardados');
+      eq('  cada capítulo en la carpeta de su tomo, con su nombre de la lista', (b.ls('Serie Tomos/Tomo 2- La huida').match(/Serie Tomos \d+ - Capítulo \d\.pdf/g) || []).join(' | '),
+        'Serie Tomos 0003 - Capítulo 3.pdf | Serie Tomos 0004 - Capítulo 4.pdf | Serie Tomos 0005 - Capítulo 5.pdf');
+      eq('  con sus 6 páginas', pdfPages(file('Serie Tomos/Tomo 2- La huida/Serie Tomos 0004 - Capítulo 4.pdf')), '6 × 420x640');
+      const reg = (await b.storage('savedChapters'))['Serie Tomos/Tomo 2- La huida/Serie Tomos 0003 - Capítulo 3'] || {};
+      eq('  anotado con su serie y su número (el nombre ya no los dice)', `${reg.serie} ${reg.numero} · ${reg.pages} páginas`, 'Serie Tomos 3 · 6 páginas');
+      eq('  el tomo muestra cuántos tiene guardados', await tomosFilas(),
+        'Tomo 1: El comienzo [1 a 2] 2 capítulos | Tomo 2: La huida [3 a 5] 3 capítulos · 3 ✔ | Sin volumen [6] 1 capítulo');
+      eq('  no quedan pestañas abiertas', await b.tabCount(), tabsT + 1);
+
+      // El capítulo suelto: sin tomo no queda una carpeta vacía ni un guion colgando
+      await tm.eval(`document.querySelectorAll('#mr-tomos-list input')[2].click(); document.querySelector('#mr-chapter-go').click()`);
+      eq('capítulo sin tomo', (await lote.fin(tm)).split('\n')[0] + ' · ' + b.existe('Serie Tomos/Serie Tomos 0006 - Capítulo 6.pdf'), '✅ Listo: 1 capítulo guardado · true');
+      await tm.close();
+
+      // Guardando de a uno no hay tomo ni título: la misma plantilla da el nombre sin esos huecos
+      const t1 = await cdp.open(`${SITE}/tomos/leer/1`);
+      await t1.waitFor(`document.readyState === 'complete'`, 'el capítulo');
+      await b.command(`${SITE}/tomos/leer/1`, 'save');
+      await t1.waitFor(`!!document.querySelector('#mr-save-name') && document.querySelector('#mr-save-name').value`, 'el diálogo de guardar');
+      eq('guardar de a uno con la plantilla', await t1.eval(`document.querySelector('#mr-save-name').value`), 'Serie Tomos/Serie Tomos 0001');
+      // Cambiar la plantilla vale en las pestañas ya abiertas, sin recargarlas
+      const reabrir = async () => {
+        await t1.eval(`document.querySelector('#mr-save-close').click()`);
+        await t1.waitFor(`!document.querySelector('#mr-save')`, 'el diálogo cerrado');
+        await b.command(`${SITE}/tomos/leer/1`, 'save');
+        await t1.waitFor(`!!document.querySelector('#mr-save-name') && document.querySelector('#mr-save-name').value`, 'el diálogo de guardar');
+        return t1.eval(`document.querySelector('#mr-save-name').value`);
+      };
+      await b.setStorage({ esquemaNombres: '{sitio}/{anio}/{serie} {numero}' });
+      await sleep(300);
+      eq('otra plantilla, por sitio y año: vale sin recargar la pestaña', await reabrir(), `${HOST}/${new Date().getFullYear()}/Serie Tomos 0001`);
+      await b.setStorage({ esquemaNombres: TPL });
+
+      // Opciones: la plantilla guardada, la vista previa y los avisos
+      await b.ext.eval('location.reload()');
+      await b.ext.waitFor(`document.readyState === 'complete' && !!document.querySelector('#tplVista') && document.querySelector('#tplVista').textContent.length > 10`, 'la plantilla en opciones');
+      const escribir = (t) => b.ext.eval(`(() => { const i = document.querySelector('#tplNombre'); i.value = ${JSON.stringify(t)}; i.dispatchEvent(new Event('input')); })()`);
+      eq('opciones: muestra la plantilla guardada', await b.ext.eval(`document.querySelector('#tplNombre').value`), TPL);
+      eq('  y cómo quedaría un capítulo de un lote y uno suelto', await b.ext.eval(`document.querySelector('#tplVista').textContent`),
+        'En un lote: Descargas/MangaReader/One Piece/Tomo 1/One Piece 0005 - Capítulo 5.pdf\nDe a uno: Descargas/MangaReader/Naruto/Naruto 0300.pdf');
+      eq('  la vista de guardados agrupa por la serie aunque el nombre termine en el título',
+        await b.ext.eval(`[...document.querySelectorAll('details.serie summary')].map(s => s.textContent.replace(/\\s+/g, ' ').trim()).filter(t => t.startsWith('Serie Tomos')).join('')`),
+        'Serie Tomos4 capítulos · del 3 al 6');
+      await escribir('{serie}/{capitulo}');
+      eq('  avisa si los nombres van a chocar y si un marcador no existe', await b.ext.eval(`document.querySelector('#tplAviso').textContent`),
+        '⚠️ Sin {numero} ni {titulo}, todos los capítulos de una serie se llamarían igual.\n⚠️ No conozco {capitulo}: va a quedar escrito tal cual en el nombre.');
+      await b.ext.eval(`document.querySelector('#nombres').scrollIntoView()`);
+      await shot(b.ext, '15-plantilla');
+      await b.ext.eval(`document.querySelector('#tplDefault').click(); document.querySelector('#tplGuardar').click()`);
+      await b.ext.waitFor(`/predeterminada/.test(document.querySelector('#tplMsg').textContent)`, 'la plantilla predeterminada');
+      eq('  volver a la predeterminada la quita de lo guardado', (await b.storage('esquemaNombres')) == null, true);
+      await b.setStorage({ esquemaNombres: '{sitio}/{serie} {numero}' });
+      await sleep(300);
+      await b.ext.eval(`chrome.storage.local.remove('esquemaNombres')`);
+      await sleep(300);
+      eq('  y sin plantilla la pestaña vuelve al nombre de siempre', await reabrir(), 'Serie Tomos/Serie Tomos 0001');
+      // En una página que no separa en tomos, el diálogo de varios capítulos es el de siempre
+      await b.command(`${SITE}/tomos/leer/1`, 'batch');
+      await t1.waitFor(`!!document.querySelector('#mr-chapter-go')`, 'el diálogo de varios capítulos');
+      eq('sin tomos en la página no aparecen las pestañas', await t1.eval(`getComputedStyle(document.querySelector('#mr-chapter-tabs')).display + ' · ' + getComputedStyle(document.querySelector('#mr-chapter-list')).display + ' · ' + document.querySelector('#mr-chapter-ruta').textContent`),
+        'none · block · Ejemplo: Descargas/MangaReader/Serie Tomos/Serie Tomos 0001');
+      await t1.close();
     }
   } catch (e) {
     fails++;
