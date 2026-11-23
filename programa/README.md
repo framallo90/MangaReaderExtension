@@ -4,7 +4,7 @@ Explora una página web por niveles (títulos → capítulos → páginas) y gua
 
 Todo corre en tu máquina: no hay servidor ni cuenta. Es independiente de la extensión de Chrome y usa su mismo código para detectar páginas, armar nombres y generar los archivos.
 
-**Estado: versión 0.7.1.** Funciona de punta a punta sobre los sitios de prueba. Los cambios de cada versión están en las [Actualizaciones](../README.md#actualizaciones) del README principal.
+**Estado: versión 0.8.0.** Funciona de punta a punta sobre los sitios de prueba. Los cambios de cada versión están en las [Actualizaciones](../README.md#actualizaciones) del README principal.
 
 ## Cómo abrirlo
 
@@ -68,6 +68,16 @@ Cuando la lista es de capítulos y se sabe de qué serie son (el cuadro **Serie*
 
 Con **Saltear lo que ya está en la carpeta**, al descargar se usa el mismo criterio: lo que ya está con otro nombre no se baja de nuevo.
 
+### Seguir una serie y buscar lo nuevo
+
+En la lista de capítulos de una serie, **📌 Seguir esta serie** la suma a **Siguiendo** (arriba). Desde ese panel:
+
+- **Buscar lo nuevo** abre la página de cada serie seguida, de a una y con una pausa, y dice qué capítulos hay que no tenés: "One Piece: 3 nuevos: 1200–1202". "Nuevos" son los posteriores al último que tenés; si faltan otros más atrás, los nombra aparte.
+- **Bajar N** pone en la cola lo nuevo de esa serie, con su nombre. **Bajar todo lo nuevo** hace lo mismo con todas.
+- Tocar una serie la abre, y la ✕ la deja de seguir.
+
+Siempre arranca con un toque tuyo: el programa no revisa nada por su cuenta ni en segundo plano.
+
 ### El registro: lo que ya bajaste, aunque ya no esté
 
 El programa anota cada capítulo que termina de bajar. Ese registro no depende de los archivos: sigue ahí aunque los muevas, los subas a otro lado o los borres.
@@ -87,6 +97,8 @@ En **Tu colección** (a la derecha) se agregan otras carpetas donde mirar lo que
 - **Los capítulos se reconocen** si el archivo dice "Capítulo 12" o "#12", o lleva el número con tres cifras o más (`One Piece 0012`, `Avengers 012`). No cuentan un año entre paréntesis ("(2018)") ni el número de un tomo: "Tomo 12" no es el capítulo 12.
 - **Aunque no reconozca los capítulos**, en un catálogo el título aparece con **✔ en tu colección** y dice en qué carpeta está.
 - Lo que está en tu colección también se saltea al descargar.
+- **Si una carpeta no está a la vista** (Google Drive cerrado, un disco sin conectar), aparece un aviso arriba: mientras tanto, lo que tengas ahí no figura como tenido y podrías bajarlo de nuevo. Tampoco deja descargar a una carpeta que no está.
+- **Atar una carpeta a una serie:** cuando la carpeta se llama distinto que la serie ("Una Pieza" con capítulos de One Piece), en la lista de capítulos está **Elegir su carpeta…**: la elegís una vez y de ahí en más cuenta para esa serie. Si el programa encontró una de nombre parecido, ofrece directamente **Es «…»**. **Quitar el vínculo** la suelta; nunca se borra nada.
 - **Nombres parecidos:** si no hay una carpeta con el nombre de la serie pero sí una que empieza igual ("Dragon Ball Super" y "Dragon Ball Super Manga Color"), el programa lo avisa con **≈ parecido** en el catálogo y con una línea en la lista de capítulos. Es solo una pista para que mires: no marca nada como tenido ni saltea nada.
 
 **Con Google Drive.** El programa no entra a tu cuenta de Google: usa la carpeta que Google Drive deja en tu máquina.
@@ -206,7 +218,7 @@ Baja de a un capítulo, con una pausa entre uno y otro. Cada renglón dice en qu
 npm run prueba
 ```
 
-Corren dentro de Electron contra un sitio de prueba servido en la máquina. Son 136 comprobaciones:
+Corren dentro de Electron contra un sitio de prueba servido en la máquina. Son 148 comprobaciones:
 
 - **Explorar:** portada, catálogo paginado, directorio que carga al bajar, serie y capítulo.
 - **Portada con tapas:** que no pase por capítulo (y que un capítulo con tapas al final lo siga siendo), que cada título traiga su tapa y que la miniatura se pida con el Referer del sitio.
@@ -215,6 +227,7 @@ Corren dentro de Electron contra un sitio de prueba servido en la máquina. Son 
 - **Plantilla y sagas:** el tomo y el nombre del capítulo en el nombre del archivo, y la carpeta por saga.
 - **Reintentar:** un capítulo que queda incompleto sale entero al reintentar, sin archivo repetido.
 - **Revisar páginas:** todas las imágenes con el motivo de las descartadas, y la bajada con las elegidas a mano.
+- **Carpetas y series seguidas:** el aviso cuando una carpeta no está, atar a una serie una carpeta de otro nombre, y buscar y bajar lo nuevo de las series seguidas.
 - **El registro y tu colección:** lo que se bajó sigue marcado aunque se borre el archivo; una carpeta de colección con otra organización; los títulos de un catálogo de los que ya hay algo.
 - **Favoritos:** pegar, buscar, filtrar por tipo e idioma y quitar.
 - **La interfaz:** todo lo anterior manejado desde la pantalla, más "Traer todas", las direcciones recientes y la serie puesta sola.

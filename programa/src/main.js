@@ -30,13 +30,18 @@ app.setAppUserModelId('ar.mangareader.programa');     // para que Windows muestr
 // se escriben · recientes: las últimas direcciones analizadas a mano · tapas: lista en mosaico ·
 // bibliotecas: las carpetas de tu colección, donde también se mira lo que ya tenés
 let config = { carpeta: '', formatos: { pdf: true, cbz: false, imgs: false }, saltear: true, tapas: true,
-               plantilla: '', sagasTexto: '', recientes: [], bibliotecas: [] };
+               plantilla: '', sagasTexto: '', recientes: [], bibliotecas: [],
+               // vinculos: carpetas que el usuario ató a una serie ({ clave de la serie: [carpetas] }), para
+               // cuando se llaman distinto · seguidas: las series que sigue ([{ url, serie }])
+               vinculos: {}, seguidas: [] };
 const archivoConfig = () => path.join(app.getPath('userData'), 'config.json');
 function leerConfig() {
   if (!PRUEBA) { try { config = { ...config, ...JSON.parse(fs.readFileSync(archivoConfig(), 'utf8')) }; } catch {} }      // las pruebas arrancan con todo de fábrica
   if (!config.carpeta) config.carpeta = path.join(app.getPath('downloads'), 'MangaReader');
   if (!Array.isArray(config.recientes)) config.recientes = [];
   if (!Array.isArray(config.bibliotecas)) config.bibliotecas = [];
+  if (!config.vinculos || typeof config.vinculos !== 'object' || Array.isArray(config.vinculos)) config.vinculos = {};
+  if (!Array.isArray(config.seguidas)) config.seguidas = [];
   aplicarNombres();
 }
 // Pasa al núcleo (el que arma los nombres) la plantilla y las sagas guardadas
@@ -380,20 +385,44 @@ function carpetasDeSerie(carpeta, clave, mapas = mapasDe(carpeta)) {
       lista.push({ dir, nombre: propia && !rel.includes('/') ? rel : `${path.basename(raiz) || raiz}/${rel}` });
     }
   }
+  // Las que ataste a esta serie a mano, aunque se llamen de otra forma ("Una Pieza" es One Piece)
+  for (const dir of config.vinculos[clave] || []) {
+    if (!lista.some(c => c.dir === dir) && existe(dir)) lista.push({ dir, nombre: `${path.basename(path.dirname(dir))}/${path.basename(dir)}` });
+  }
   return lista;
+}
+// Carpetas donde se tendría que mirar y hoy no están (un disco sin conectar, Google Drive
+// cerrado): con eso a medias, lo que ya tenés no aparece marcado y se puede bajar dos veces.
+function sinMirar(carpeta) {
+  const faltan = (config.bibliotecas || []).filter(c => !existe(c));
+  if (carpeta && !existe(carpeta) && !existe(path.dirname(path.resolve(carpeta)))) faltan.unshift(carpeta);
+  return faltan;
+}
+function vincular(serie, carpeta) {
+  const clave = claveSerie(serie);
+  if (!clave || !carpeta || !existe(carpeta)) throw new Error('Hace falta el nombre de la serie y una carpeta que exista');
+  const v = { ...config.vinculos, [clave]: [...new Set([...(config.vinculos[clave] || []), path.resolve(carpeta)])] };
+  return guardarConfig({ vinculos: v }).vinculos[clave];
+}
+function desvincular(serie) {
+  const v = { ...config.vinculos };
+  delete v[claveSerie(serie)];
+  guardarConfig({ vinculos: v });
+  return [];
 }
 // Carpetas de nombre parecido al de una serie: uno empieza con el otro ("Dragon Ball Super" y
 // "Dragon Ball Super Manga Color"). No quiere decir que ya la tengas: es una pista para mirar.
 // Nunca se usa para saltear nada.
 function parecidas(carpeta, clave, mapas = mapasDe(carpeta)) {
   if (clave.length < 5) return [];
-  const nombres = new Set();
+  const nombres = new Map();
   for (const { porClave } of mapas) {
     for (const [k, dirs] of porClave) {
-      if (k !== clave && k.length >= 5 && (k.startsWith(clave) || clave.startsWith(k))) nombres.add(path.basename(dirs[0]));
+      if (k !== clave && k.length >= 5 && (k.startsWith(clave) || clave.startsWith(k)) && !nombres.has(path.basename(dirs[0]))) nombres.set(path.basename(dirs[0]), dirs[0]);
     }
   }
-  return [...nombres].slice(0, 3);
+  const atadas = new Set(config.vinculos[clave] || []);          // las que ya ataste no son "parecidas": son de la serie
+  return [...nombres].filter(([, dir]) => !atadas.has(dir)).slice(0, 3).map(([nombre, dir]) => ({ nombre, dir }));
 }
 
 // Capítulos de una serie que ya están en el disco: número → qué hay ('pdf', 'cbz', 'imgs').
@@ -511,7 +540,8 @@ function revisarDisco({ serie, numeros, carpeta, formatos } = {}) {
   const faltan = lista.filter(n => !porNumero.has(n) && !anotados.has(n));
   // Si no hay una carpeta de esta serie, las de nombre parecido (por si es la misma con otro nombre)
   const cerca = carpetas.length || !clave ? [] : parecidas(carpeta || config.carpeta, clave);
-  return { tengo, enOtro, bajados, faltan: enRangos(faltan), cuantosFaltan: faltan.length, carpetas, parecidas: cerca };
+  return { tengo, enOtro, bajados, faltan: enRangos(faltan), cuantosFaltan: faltan.length, carpetas, parecidas: cerca,
+           vinculadas: (config.vinculos[clave] || []).length, sinMirar: sinMirar(carpeta || config.carpeta) };
 }
 // Para una lista de títulos (un catálogo): de cuáles ya tenés algo. Devuelve, en el mismo
 // orden, null o { bajados: capítulos en el registro, carpeta: dónde está en tu colección }
@@ -525,7 +555,7 @@ function revisarTitulos({ nombres, carpeta } = {}) {
     const bajados = cuantos.get(clave) || 0, dirs = carpetasDeSerie(donde, clave, mapas);
     if (bajados || dirs.length) return { bajados, carpeta: dirs.length ? dirs[0].nombre : '' };
     const cerca = parecidas(donde, clave, mapas);                           // nada con ese nombre: ¿algo parecido?
-    return cerca.length ? { bajados: 0, carpeta: '', parecida: cerca[0] } : null;
+    return cerca.length ? { bajados: 0, carpeta: '', parecida: cerca[0].nombre } : null;
   });
 }
 
@@ -551,6 +581,9 @@ function encolar(items, opciones) {
   const o = { serie: String(opciones?.serie || '').trim(), carpeta: opciones?.carpeta || config.carpeta,
               formatos: { ...config.formatos, ...(opciones?.formatos || {}) }, saltear: opciones?.saltear ?? config.saltear };
   if (!o.formatos.pdf && !o.formatos.cbz && !o.formatos.imgs) throw new Error('Elegí al menos un formato');
+  if (!existe(o.carpeta) && !existe(path.dirname(path.resolve(o.carpeta)))) {
+    throw new Error(`La carpeta donde se guarda no está a la vista: ${o.carpeta}. Si está en Google Drive o en otro disco, abrilo o conectalo y probá de nuevo.`);
+  }
   for (const i of items || []) {
     if (!esWeb(i?.url)) continue;
     // `paginas` (con `info`): el capítulo ya se revisó a mano y estas son las páginas elegidas
@@ -703,6 +736,63 @@ async function colaVacia(ms = 180000) {
   return cola.map(publico);
 }
 
+// ── Series que seguís ────────────────────────────────
+// Cada una es la dirección de la página con sus capítulos y el nombre de la serie. "Buscar lo
+// nuevo" abre esas páginas (de a una, con una pausa) y dice qué capítulos hay que no tenés.
+// Siempre arranca con un toque tuyo: el programa no revisa nada por su cuenta.
+const novedades = new Map();        // dirección → lo que encontró la última búsqueda
+const verSeguidas = () => config.seguidas.map(x => ({ ...x, ...(novedades.get(x.url) || {}), items: undefined }));
+function seguirSerie({ url, serie } = {}) {
+  serie = String(serie || '').trim();
+  if (!esWeb(url) || !serie) throw new Error('Para seguir una serie hace falta su dirección y su nombre (el cuadro "Serie")');
+  const clave = claveDe(url);
+  guardarConfig({ seguidas: [...config.seguidas.filter(x => claveDe(x.url) !== clave), { url: String(url), serie }] });
+  return verSeguidas();
+}
+function dejarDeSeguir(url) {
+  novedades.delete(url);
+  guardarConfig({ seguidas: config.seguidas.filter(x => x.url !== url) });
+  return verSeguidas();
+}
+// Qué hay de nuevo en una serie seguida: los capítulos de su página que no están en el disco,
+// en tu colección ni en el registro. "nuevos" son los posteriores al último que tenés;
+// "huecos", los que faltan más atrás.
+async function novedadesDe(x) {
+  const r = await analizar(x.url);
+  const lista = r.listas.filter(l => l.tipo === 'capitulos').sort((a, b) => b.items.length - a.items.length)[0];
+  if (!lista) throw new Error('No encontré la lista de capítulos en esa página');
+  const items = lista.items.filter(i => Number.isFinite(i.numero));
+  const d = revisarDisco({ serie: x.serie, numeros: items.map(i => i.numero) });
+  const mios = new Set([...d.tengo, ...d.bajados.map(b => b.numero)]);
+  const ultimo = mios.size ? Math.max(...mios) : -Infinity;
+  const faltan = items.filter(i => !mios.has(i.numero));
+  const nuevos = faltan.filter(i => i.numero > ultimo);
+  return { cuantos: items.length, tengo: mios.size, nuevos: nuevos.length, rango: enRangos(nuevos.map(i => i.numero)),
+           huecos: enRangos(faltan.filter(i => i.numero < ultimo).map(i => i.numero)), sinMirar: d.sinMirar.length,
+           items: nuevos.map(i => ({ url: i.url, texto: i.texto, numero: i.numero, volumen: i.seccion || '', titulo: i.texto })) };
+}
+async function buscarNovedades() {
+  for (const [k, x] of config.seguidas.entries()) {
+    if (k) await espera(PRUEBA ? 50 : 1500);
+    avance(`Buscando lo nuevo de ${x.serie} (${k + 1} de ${config.seguidas.length})…`);
+    try { novedades.set(x.url, { ...(await novedadesDe(x)), error: '', revisada: new Date().toISOString() }); }
+    catch (e) { novedades.set(x.url, { error: String(e.message || e), nuevos: 0, items: [], revisada: new Date().toISOString() }); }
+  }
+  return verSeguidas();
+}
+// Pone en la cola lo nuevo de una serie seguida (o de todas, sin dirección)
+function bajarNovedades(url) {
+  let n = 0;
+  for (const x of config.seguidas) {
+    const nov = novedades.get(x.url);
+    if ((url && x.url !== url) || !nov || !nov.items.length) continue;
+    encolar(nov.items, { serie: x.serie });
+    n += nov.items.length;
+    novedades.set(x.url, { ...nov, nuevos: 0, rango: '', items: [], enCola: nov.items.length });
+  }
+  return { encolados: n, seguidas: verSeguidas() };
+}
+
 // Las páginas de un capítulo, todas, con lo que el filtro marcó como publicidad: para
 // revisarlas a mano antes de bajarlo
 async function paginasDe(url) {
@@ -784,6 +874,21 @@ atender('biblioteca:agregar', async () => {
   if (r.canceled || !r.filePaths[0]) return config.bibliotecas;
   return guardarConfig({ bibliotecas: [...new Set([...config.bibliotecas, r.filePaths[0]])] }).bibliotecas;
 });
+atender('carpetas', () => ({ sinMirar: sinMirar(config.carpeta) }));
+atender('vincular', async ({ serie, carpeta } = {}) => {
+  if (!carpeta) {                    // sin carpeta: se elige con el diálogo
+    const r = await dialog.showOpenDialog(ui, { title: `La carpeta donde tenés ${serie}`, properties: ['openDirectory'] });
+    if (r.canceled || !r.filePaths[0]) return config.vinculos[claveSerie(serie)] || [];
+    carpeta = r.filePaths[0];
+  }
+  return vincular(serie, carpeta);
+});
+atender('desvincular', (serie) => desvincular(String(serie || '')));
+atender('seguidas:leer', () => verSeguidas());
+atender('seguidas:seguir', (dato) => seguirSerie(dato || {}));
+atender('seguidas:dejar', (url) => dejarDeSeguir(String(url || '')));
+atender('seguidas:buscar', () => buscarNovedades());
+atender('seguidas:bajar', (url) => bajarNovedades(url ? String(url) : ''));
 atender('biblioteca:quitar', (carpeta) => guardarConfig({ bibliotecas: config.bibliotecas.filter(c => c !== carpeta) }).bibliotecas);
 atender('tapa', ({ url, pagina }) => tapa(String(url || ''), String(pagina || '')));
 atender('carpeta', async () => {
@@ -823,7 +928,7 @@ app.whenReady().then(async () => {
     // "electron . --prueba": corre las pruebas del programa contra un sitio de prueba local
     const fallas = await require('../tests/prueba.js')({ analizar, seguir, encolar, colaVacia, cancelar, limpiar, guardarConfig, abrirUI, nucleo,
       guardarLinks, quitarLinks, guardados: () => guardados, tapa, reintentar, paginasDe, revisarDisco, vistaDePlantilla, agregarReciente,
-      revisarTitulos, verRegistro, quitarDelRegistro, ultimoAviso: () => ultimoAviso, config: () => config })
+      revisarTitulos, verRegistro, quitarDelRegistro, vincular, desvincular, sinMirar, seguirSerie, dejarDeSeguir, buscarNovedades, bajarNovedades, ultimoAviso: () => ultimoAviso, config: () => config })
       .catch((e) => { console.log('FALLA la prueba se cortó: ' + (e.stack || e)); return 1; });
     app.exit(fallas ? 1 : 0);
     return;

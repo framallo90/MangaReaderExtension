@@ -5,7 +5,7 @@ Dos herramientas para guardar capítulos de manga y cómics como **PDF**, **CBZ*
 | | Qué es | Versión | Dónde está |
 |---|---|---|---|
 | 🧩 **La extensión** | Se usa desde Chrome, sobre la página que tenés abierta | 2.10.0 | `manga-reader-ext(ver 22-11-2026-7)/manga-reader-ext` |
-| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.7.1 | `programa/` |
+| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.8.0 | `programa/` |
 
 Funcionan por separado y comparten el mismo código para detectar páginas, armar nombres y generar los archivos. Son de uso personal, están en español y todo corre en tu máquina, sin servidor.
 
@@ -192,7 +192,8 @@ Aplicación de escritorio para Windows, hecha con Electron y JavaScript plano. H
 | 🧹 **Revisar páginas** | En un capítulo, muestra todas sus imágenes con lo que tomó por publicidad apagado y el motivo. Un toque pone o saca cada una |
 | ✔ **Lo que ya tenés** | Marca en la lista los capítulos que ya están en la carpeta, dice cuáles faltan y los tilda. Los reconoce aunque estén con otro nombre |
 | 🗂 **Registro e historial** | Anota todo lo que baja. Lo que ya bajaste queda marcado aunque muevas o borres los archivos, y en un catálogo se ve qué títulos ya tenés empezados |
-| 💽 **Tu colección** | Otras carpetas donde mirar lo que ya tenés, como la de Google Drive de tu máquina |
+| 💽 **Tu colección** | Otras carpetas donde mirar lo que ya tenés, como la de Google Drive de tu máquina. Avisa si alguna no está a la vista, y deja atar a una serie una carpeta que se llama distinto |
+| 📌 **Siguiendo** | Las series que seguís: "Buscar lo nuevo" dice qué capítulos hay que no tenés y los baja de un toque |
 | 📦 **Cola de descargas** | Baja de a un capítulo y muestra en qué anda cada uno. Se cancela, y se reintenta todo lo que falló. Avisa al terminar y muestra el avance en la barra de tareas |
 | 📁 **Carpeta a elección** | Guarda donde quieras, y saltea lo que ya está mirando el disco |
 | 🗂 **Nombres y sagas** | `Serie/Saga/Serie 0012` por defecto. Se cambia con una plantilla (`{serie}/{volumen}/{serie} {numero} - {titulo}`) y se cargan sagas propias |
@@ -245,6 +246,12 @@ Lo que todavía le falta y cómo está armado: [programa/README.md](programa/REA
 # Actualizaciones
 
 Lo más nuevo arriba. El historial completo de la extensión está en la sección 15 de [DOCUMENTACION.md](DOCUMENTACION.md).
+
+### 23-11-2026 · Programa 0.8.0
+
+- **Siguiendo:** se marca una serie como seguida desde su lista de capítulos, y "Buscar lo nuevo" revisa todas y dice qué hay que no tenés ("3 nuevos: 1200–1202"). Se baja lo nuevo de una o de todas con un toque. Siempre arranca con un clic.
+- **Aviso si una carpeta no está a la vista.** Con Google Drive cerrado o un disco sin conectar, antes no marcaba nada como tenido y no decía por qué. Ahora lo avisa arriba, y no deja descargar a una carpeta que no está.
+- **Atar una carpeta a una serie** cuando se llaman distinto: "Elegir su carpeta…" o, si encontró una parecida, "Es «…»".
 
 ### 23-11-2026 · Programa 0.7.1
 

@@ -17,8 +17,18 @@
       <button class="main" id="analizar" type="submit">Analizar</button>
       <button id="verPegar" type="button" title="Pegar una lista de links de capítulos">Pegar links</button>
       <button id="verGuardados" type="button" title="Tus favoritos: sitios, catálogos y series guardados">⭐ Favoritos</button>
+      <button id="verSiguiendo" type="button" title="Las series que seguís: buscar lo nuevo y bajarlo">📌 Siguiendo</button>
       <button id="verHistorial" type="button" title="El registro de todo lo que bajaste con el programa">🗂 Historial</button>
     </form>
+    <!-- Siguiendo: las series que seguís. "Buscar lo nuevo" mira sus páginas y dice qué no tenés -->
+    <div id="siguiendo" hidden>
+      <div class="barra">
+        <button class="main" id="buscarNuevo" type="button" title="Abre la página de cada serie, de a una, y dice qué capítulos hay que no tenés">Buscar lo nuevo</button>
+        <button id="bajarNuevo" type="button" hidden>Bajar todo lo nuevo</button>
+        <span id="siguiendoMsg" class="tenue"></span>
+      </div>
+      <div id="siguiendoLista"></div>
+    </div>
     <!-- Historial: lo que se bajó, por serie, aunque ya no esté en la carpeta -->
     <div id="historial" hidden>
       <div class="barra">
@@ -70,6 +80,8 @@
 
   <main>
     <section id="explorador">
+      <!-- Si una carpeta donde mirar no está (Google Drive cerrado, un disco sin conectar) -->
+      <div id="avisoCarpetas" hidden></div>
       <div id="estado" class="estado">Pegá una dirección arriba y tocá Analizar.</div>
       <!-- Antes de analizar nada: las últimas direcciones que se usaron -->
       <div id="inicio" hidden>
@@ -103,6 +115,7 @@
       <div id="enDisco" class="barra" hidden>
         <span id="enDiscoTexto"></span>
         <button id="marcarFaltan" type="button">Marcar los que faltan</button>
+        <span id="enDiscoBotones" class="barra"></span>
       </div>
       <div id="herramientas" class="barra" hidden>
         <input id="filtro" type="text" spellcheck="false" autocomplete="off" placeholder="Filtrar…">

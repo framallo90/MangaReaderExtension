@@ -196,3 +196,12 @@ aside .barra button { padding: 6px 9px; font-size: 12px; }
 #agregarBiblioteca { align-self: flex-start; padding: 5px 9px; font-size: 12px; }
 
 .fila .esta.parecida { color: #f1c40f; }
+
+/* ── Siguiendo, aviso de carpetas y botones de la serie ── */
+#siguiendo { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+#siguiendo .barra button { padding: 6px 10px; font-size: 12px; }
+#siguiendoLista { max-height: 300px; overflow-y: auto; background: #0f1a33; border: 1px solid #2a3a5e; border-radius: 8px; }
+.guardado .g-datos.nuevo { color: #7ee2a8; font-weight: 600; }
+.guardado .g-bajar { flex: none; align-self: center; margin: 0 4px; padding: 4px 10px; font-size: 12px; border-color: #2ecc71; color: #7ee2a8; }
+#avisoCarpetas { padding: 8px 10px; border: 1px solid rgba(243, 156, 18, .45); border-radius: 8px; background: rgba(243, 156, 18, .1); color: #f39c12; font-size: 12px; line-height: 1.45; word-break: break-word; }
+#enDiscoBotones { gap: 6px; }

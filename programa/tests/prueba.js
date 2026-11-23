@@ -178,11 +178,48 @@ module.exports = async function probar(api) {
     const cerca = api.revisarTitulos({ nombres: ['Gama Dos Color', 'Gam'], carpeta: tmp });
     eq('una carpeta de nombre parecido se avisa como pista, sin darla por tenida', cerca.map(t => (t ? `${t.bajados} bajados · parecida: ${t.parecida}` : '-')).join(' | '), '0 bajados · parecida: Gama Dos | -');
     const sinCarpeta = api.revisarDisco({ serie: 'Gama Dos Color', numeros: [5], carpeta: tmp, formatos: soloPdf });
-    eq('  y en la lista de capítulos de esa serie no marca nada: solo deja la pista', `tengo ${sinCarpeta.tengo.length} · faltan ${sinCarpeta.faltan} · parecidas: ${sinCarpeta.parecidas}`, 'tengo 0 · faltan 5 · parecidas: Gama Dos');
+    eq('  y en la lista de capítulos de esa serie no marca nada: solo deja la pista', `tengo ${sinCarpeta.tengo.length} · faltan ${sinCarpeta.faltan} · parecidas: ${sinCarpeta.parecidas.map(p => p.nombre)}`, 'tengo 0 · faltan 5 · parecidas: Gama Dos');
     api.encolar([{ url: S + '/leer/alfa-2/', texto: 'x', numero: 7 }], { carpeta: tmp, serie: 'Gama', formatos: soloPdf });
     eq('al bajar, lo que ya está en tu colección también se saltea', estados(await api.colaVacia()), 'Gama/Gama 0007: ya estaba (ya está en la carpeta)');
     api.limpiar();
     eq('quitar una serie del registro', api.quitarDelRegistro('conplantilla').some(s => s.serie === 'Con Plantilla') + ' · ' + api.revisarDisco({ serie: 'Con Plantilla', numeros: [3], carpeta: tmp, formatos: soloPdf }).bajados.length, 'false · 0');
+
+    console.log('\n── Carpetas que no están, carpetas atadas a una serie y series seguidas');
+    const noEsta = path.join(tmp, 'no-esta');
+    api.guardarConfig({ bibliotecas: [coleccion, noEsta] });
+    eq('una carpeta de la colección que no está a la vista se avisa', api.revisarDisco({ serie: 'Gama', numeros: [1], carpeta: tmp, formatos: soloPdf }).sinMirar.map(c => path.basename(c)).join(','), 'no-esta');
+    eq('  y no se descarga a una carpeta que no está', (() => { try { api.encolar([{ url: S + '/leer/alfa-1/' }], { carpeta: path.join(noEsta, 'adentro'), formatos: soloPdf }); return 'sin error'; } catch (e) { return e.message.split(':')[0]; } })(),
+      'La carpeta donde se guarda no está a la vista');
+    api.guardarConfig({ bibliotecas: [coleccion] });
+    // Una carpeta que se llama de otra forma, con los capítulos como carpetas de imágenes
+    const otroNombre = path.join(tmp, 'Una Gama');
+    for (const rel of ['Gama_Manga_0011_-_Sitio/pagina_001.jpg', 'Leido/Gama_Manga_0012_-_Sitio/pagina_001.jpg']) {
+      const f = path.join(otroNombre, ...rel.split('/'));
+      fs.mkdirSync(path.dirname(f), { recursive: true });
+      fs.writeFileSync(f, 'x');
+    }
+    const antesDeAtar = api.revisarDisco({ serie: 'Gama', numeros: [11, 12], carpeta: tmp, formatos: soloPdf }).tengo.length;
+    api.vincular('Gama', otroNombre);
+    const atada = api.revisarDisco({ serie: 'Gama', numeros: [11, 12], carpeta: tmp, formatos: soloPdf });
+    eq('atar a una serie una carpeta que se llama distinto: desde ahí cuentan sus capítulos', `antes ${antesDeAtar} · después ${atada.tengo} · ${atada.vinculadas} atada · ${atada.carpetas.filter(c => /Una Gama/.test(c)).length} en la lista`,
+      'antes 0 · después 11,12 · 1 atada · 1 en la lista');
+    api.desvincular('Gama');
+    eq('  y el vínculo se puede quitar', api.revisarDisco({ serie: 'Gama', numeros: [11, 12], carpeta: tmp, formatos: soloPdf }).tengo.length, 0);
+
+    api.guardarConfig({ carpeta: tmp });
+    eq('seguir una serie pide su dirección y su nombre', (() => { try { api.seguirSerie({ url: S + '/serie/beta/', serie: '' }); return 'sin error'; } catch (e) { return e.message.slice(0, 26); } })(), 'Para seguir una serie hace');
+    api.seguirSerie({ url: S + '/serie/alfa/', serie: 'Alfa' });
+    api.seguirSerie({ url: S + '/serie/beta/', serie: 'Beta' });
+    eq('  dos series seguidas, sin repetir', api.seguirSerie({ url: S + '/serie/beta/', serie: 'Beta' }).map(x => x.serie).join(', '), 'Alfa, Beta');
+    const nov = await api.buscarNovedades();
+    eq('buscar lo nuevo: de cada serie, lo que hay en su página y no tenés', nov.map(x => `${x.serie}: ${x.nuevos} (${x.rango}), tengo ${x.tengo} de ${x.cuantos}`).join(' | '),
+      'Alfa: 2 (3–4), tengo 2 de 4 | Beta: 1 (3), tengo 2 de 3');
+    eq('bajar lo nuevo de una serie: va a la cola con su nombre', api.bajarNovedades(S + '/serie/beta/').encolados + ' · ' + estados(await api.colaVacia()) + ' · ' + ls('Beta').includes('Beta 0003.pdf'),
+      '1 · Beta/Beta 0003: listo (6 páginas) · true');
+    api.limpiar();
+    eq('  y después ya no figura como nuevo', (await api.buscarNovedades()).map(x => `${x.serie} ${x.nuevos}`).join(', '), 'Alfa 2, Beta 0');
+    api.dejarDeSeguir(S + '/serie/alfa/');
+    eq('dejar de seguir', api.dejarDeSeguir(S + '/serie/beta/').length, 0);
     // La portada de un sitio suele ser una grilla de tapas: imágenes grandes, como las páginas
     // de un capítulo, pero cada una lleva a otra página. No es un capítulo.
     console.log('\n── Portada con tapas');
@@ -262,7 +299,7 @@ module.exports = async function probar(api) {
 
     await hasta(`document.querySelectorAll('#lista .fila .esta').length === 3`, 'las marcas de lo que ya tenés');
     eq('  en el catálogo quedan marcados los títulos de los que ya bajaste algo y los que están en tu colección', await en(`[...document.querySelectorAll('#lista .fila')].filter(f => f.querySelector('.esta')).map(f => f.querySelector('.txt').textContent + ' ' + f.querySelector('.esta').textContent).join(' | ')`),
-      'Alfa ✔ 2 bajados | Beta ✔ 2 bajados | Zeta ✔ en tu colección');
+      'Alfa ✔ 2 bajados | Beta ✔ 3 bajados | Zeta ✔ en tu colección');
     await hasta(`document.querySelectorAll('#recientes option').length === 1`, 'la dirección anotada como reciente');
     eq('  la dirección que se pegó queda entre las recientes (la portada, no el catálogo al que entró)', api.config().recientes.map(r => `${r.titulo} → ${r.url.replace(S, '')}`).join(' | '), 'Sitio de prueba – Catálogo → /');
     // Volver a la portada por la ruta: muestra lo que tiene, la pista del catálogo y deja traer más páginas
@@ -299,6 +336,16 @@ module.exports = async function probar(api) {
     await en(`document.querySelector('#marcarFaltan').click()`);
     eq('  "Marcar los que faltan" tilda justo esos', await en(`[...document.querySelectorAll('#lista .fila')].map(f => f.querySelector('input').checked ? f.querySelector('.num').textContent : '').join('') + ' · ' + document.querySelector('#descargar').textContent`), '34 · Descargar 2 capítulos');
     await en(`document.querySelector('#ninguno').click()`);
+    // Seguir la serie desde su lista, y buscar lo nuevo desde "Siguiendo"
+    await en(`[...document.querySelectorAll('#enDiscoBotones button')].find(b => /Seguir esta serie/.test(b.textContent)).click()`);
+    await hasta(`document.querySelector('#verSiguiendo').textContent === '📌 Siguiendo (1)'`, 'la serie seguida');
+    await en(`document.querySelector('#verSiguiendo').click(); document.querySelector('#buscarNuevo').click()`);
+    await hasta(`/nuevo/.test(document.querySelector('#siguiendoMsg').textContent)`, 'la búsqueda de lo nuevo', 60000);
+    eq('  seguir la serie y "Buscar lo nuevo": dice qué capítulos hay que no tenés', await en(`document.querySelector('#siguiendoMsg').textContent + ' · ' + [...document.querySelectorAll('#siguiendoLista .guardado')].map(g => g.querySelector('.g-nombre').textContent + ': ' + g.querySelector('.g-datos').textContent + ' [' + (g.querySelector('.g-bajar')?.textContent || '') + ']').join(' | ')`),
+      'Hay 2 capítulos nuevos. · Alfa: 2 nuevos: 3–4 [Bajar 2]');
+    await en(`document.querySelector('#siguiendoLista .g-quitar').click()`);
+    await hasta(`document.querySelector('#verSiguiendo').textContent === '📌 Siguiendo'`, 'la serie dejada de seguir');
+    await en(`document.querySelector('#verSiguiendo').click()`);
     await en(`document.querySelectorAll('#lista .seccion input')[1].click()`);
     eq('  tildar un volumen marca sus capítulos', await en(`[...document.querySelectorAll('#lista .fila')].map(f => f.querySelector('input').checked ? f.querySelector('.num').textContent : '').join('') + ' · ' + document.querySelector('#descargar').textContent`), '34 · Descargar 2 capítulos');
     await en(`document.querySelector('#descargar').click()`);
@@ -481,7 +528,7 @@ module.exports = async function probar(api) {
     await hasta(`document.querySelectorAll('#historialLista .guardado').length === 6`, 'el historial');
     const historialEnPantalla = () => en(`document.querySelector('#verHistorial').textContent + ' · ' + document.querySelector('#historialCuenta').textContent + ' · ' + [...document.querySelectorAll('#historialLista .guardado')].map(g => g.querySelector('.g-nombre').textContent + ': ' + g.querySelector('.g-datos').textContent.replace(/ · el último, el .*/, '')).sort().join(' | ')`);
     eq('historial: lo que bajaste, por serie, con cuántos y de cuál a cuál', await historialEnPantalla(),
-      '🗂 Historial (6) · 6 series · 10 capítulos · Alfa: 4 capítulos · del 1 al 4 | Avisos: 1 capítulo · el 1 | Beta: 2 capítulos · del 1 al 2 | Con Sagas: 1 capítulo · el 3 | Inestable: 1 capítulo · el 1 | Revisado: 1 capítulo · el 1');
+      '🗂 Historial (6) · 6 series · 11 capítulos · Alfa: 4 capítulos · del 1 al 4 | Avisos: 1 capítulo · el 1 | Beta: 3 capítulos · del 1 al 3 | Con Sagas: 1 capítulo · el 3 | Inestable: 1 capítulo · el 1 | Revisado: 1 capítulo · el 1');
     await en(`(() => { const f = document.querySelector('#historialFiltro'); f.value = 'alf'; f.dispatchEvent(new Event('input')); })()`);
     eq('  se busca por serie', (await historialEnPantalla()).split(' · ').slice(1).join(' · '), '1 de 6 series · Alfa: 4 capítulos · del 1 al 4');
     await en(`document.querySelector('#historialLista .g-quitar').click()`);
@@ -493,6 +540,15 @@ module.exports = async function probar(api) {
     await en(`document.querySelector('#bibliotecas .g-quitar').click()`);
     await hasta(`document.querySelectorAll('#bibliotecas .biblioteca').length === 0`, 'la carpeta quitada de la colección');
     eq('  y se pueden quitar', api.config().bibliotecas.length, 0);
+
+    // Si una carpeta de la colección no está a la vista (Google Drive cerrado), se avisa
+    api.guardarConfig({ bibliotecas: [path.join(tmp, 'no-esta')] });
+    await en(`window.dispatchEvent(new Event('focus'))`);
+    await hasta(`!document.querySelector('#avisoCarpetas').hidden`, 'el aviso de la carpeta que no está');
+    eq('una carpeta que no está a la vista: aviso arriba de todo', (await en(`document.querySelector('#avisoCarpetas').textContent`)).replace(/: .*no-esta. /, ': (…)no-esta. ').startsWith('⚠️ No puedo ver esta carpeta: (…)no-esta. Si están en Google Drive o en otro disco'), true);
+    api.guardarConfig({ bibliotecas: [] });
+    await en(`window.dispatchEvent(new Event('focus'))`);
+    await hasta(`document.querySelector('#avisoCarpetas').hidden`, 'el aviso quitado');
     eq('sin errores en la consola de la interfaz', consola.join(' | '), '');
   } finally {
     await sitio.cerrar();

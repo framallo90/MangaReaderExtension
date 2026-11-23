@@ -247,8 +247,19 @@ function dibujar() {
       : !antes.size ? (enDisco.cuantosFaltan ? `Ya tenés ${tengo.size} de ${total}.${falta}` : `Ya tenés los ${total}.`)
       : `Ya tenés ${tengo.size} de ${total} en la carpeta, y ${antes.size === 1 ? 'otro ya lo bajaste antes (no está ahí)' : `otros ${antes.size} ya los bajaste antes (no están ahí)`}.${falta || ' No te falta ninguno.'}`) +
       (otra.length ? ` (Los encontré en «${otra.join('», «')}».)` : '') +
-      (enDisco.parecidas.length ? ` En tu colección hay algo de nombre parecido: «${enDisco.parecidas.join('», «')}».` : '');
+      (enDisco.vinculadas ? ' (Con una carpeta atada a mano.)' : '') +
+      (enDisco.parecidas.length ? ` En tu colección hay algo de nombre parecido: «${enDisco.parecidas.map(p => p.nombre).join('», «')}».` : '');
     $('marcarFaltan').hidden = !enDisco.cuantosFaltan || (!tengo.size && !antes.size);
+    // Atar una carpeta a esta serie (cuando se llama distinto) y seguirla
+    const serie = $('serie').value.trim(), boton = (texto, title, alTocar) => { const b = el('button', { type: 'button', textContent: texto, title }); b.addEventListener('click', alTocar); return b; };
+    const atar = async (carpeta) => { try { await mr.vincular(serie, carpeta); mirarDisco(); mirarTitulos(true); } catch (e) { estado('⚠️ ' + e.message, 'error'); } };
+    const seguida = siguiendo.some(x => x.url === actual.url);
+    $('enDiscoBotones').replaceChildren(
+      ...enDisco.parecidas.map(p => boton(`Es «${p.nombre}»`, `Esa carpeta es ${serie}: de ahora en más se mira ahí lo que ya tenés`, () => atar(p.dir))),
+      boton('Elegir su carpeta…', `Si ${serie} está en una carpeta que se llama de otra forma, elegila y queda atada a esta serie`, () => atar('')),
+      enDisco.vinculadas ? boton('Quitar el vínculo', 'Dejar de mirar la carpeta atada a mano (no borra nada)', async () => { await mr.desvincular(serie); mirarDisco(); mirarTitulos(true); }) : null,
+      actual.url ? boton(seguida ? '📌 Siguiendo' : '📌 Seguir esta serie', seguida ? 'Ya la seguís: tocá para dejar de seguirla' : 'La suma a "Siguiendo", para buscar lo nuevo de un toque',
+        async () => { siguiendo = seguida ? await mr.dejarDeSeguir(actual.url) : await mr.seguirSerie({ url: actual.url, serie }); dibujarSiguiendo(); dibujar(); }) : null);
   }
   // En una lista de títulos: de cuáles ya tenés algo
   const tuyos = marcas && l && marcas.clave === claveTitulos() ? marcas.por : null;
@@ -352,8 +363,9 @@ function mirarDisco(pausa = 0) {
     if (!serie || !numeros.length) { if (enDisco) { enDisco = null; dibujar(); } return; }
     try {
       const r = await mr.disco({ serie, numeros, formatos: opciones().formatos });
+      avisarCarpetas(r.sinMirar);
       if (clave !== claveDisco()) return;            // mientras tanto cambió la lista o la serie
-      enDisco = { clave, tengo: new Set(r.tengo), enOtro: new Map(r.enOtro.map(o => [o.numero, o.formato])), bajados: new Map(r.bajados.map(b => [b.numero, b.fecha])), parecidas: r.parecidas || [], faltan: r.faltan, cuantosFaltan: r.cuantosFaltan, carpetas: r.carpetas };
+      enDisco = { clave, tengo: new Set(r.tengo), enOtro: new Map(r.enOtro.map(o => [o.numero, o.formato])), bajados: new Map(r.bajados.map(b => [b.numero, b.fecha])), parecidas: r.parecidas || [], vinculadas: r.vinculadas || 0, faltan: r.faltan, cuantosFaltan: r.cuantosFaltan, carpetas: r.carpetas };
       dibujar();
     } catch {}
   }, pausa);
@@ -623,6 +635,65 @@ async function cargarHistorial() {
   dibujarHistorial();
 }
 
+// ── Siguiendo ──
+// Las series que seguís. "Buscar lo nuevo" abre la página de cada una (de a una, con una pausa)
+// y dice qué capítulos hay que no tenés; desde ahí se bajan de un toque.
+let siguiendo = [];
+let buscandoNuevo = false;
+function dibujarSiguiendo() {
+  const conNuevos = siguiendo.filter(x => x.nuevos > 0);
+  $('verSiguiendo').textContent = siguiendo.length ? `📌 Siguiendo (${siguiendo.length})` : '📌 Siguiendo';
+  $('buscarNuevo').disabled = buscandoNuevo || !siguiendo.length;
+  $('bajarNuevo').hidden = conNuevos.length < 2;
+  $('siguiendoLista').replaceChildren(...(siguiendo.length ? siguiendo.map(x => {
+    const datos = x.error ? '⚠️ ' + x.error : !x.revisada ? 'Todavía no se buscó'
+      : x.enCola ? `${plural(x.enCola, 'capítulo', 'capítulos')} en la cola`
+      : x.nuevos ? `${plural(x.nuevos, 'nuevo', 'nuevos')}: ${x.rango}` + (x.huecos ? ` · más atrás faltan: ${x.huecos}` : '')
+      : `Al día (tenés ${x.tengo} de ${x.cuantos})` + (x.huecos ? ` · más atrás faltan: ${x.huecos}` : '');
+    const abrir = el('button', { type: 'button', className: 'g-abrir', title: `Abrir ${x.url}` },
+      el('span', { className: 'g-nombre', textContent: x.serie }), el('span', { className: 'g-datos' + (x.nuevos ? ' nuevo' : ''), textContent: datos }));
+    abrir.addEventListener('click', () => { $('siguiendo').hidden = true; $('url').value = x.url; ir(x.url, 0, false, x.serie); });
+    const bajar = x.nuevos ? el('button', { type: 'button', className: 'g-bajar', textContent: `Bajar ${x.nuevos}` }) : null;
+    if (bajar) bajar.addEventListener('click', () => bajarLoNuevo(x.url));
+    const quitar = el('button', { type: 'button', className: 'g-quitar', textContent: '✕', title: 'Dejar de seguirla' });
+    quitar.addEventListener('click', async () => { siguiendo = await mr.dejarDeSeguir(x.url); dibujarSiguiendo(); if (actual) dibujar(); });
+    return el('div', { className: 'guardado' }, abrir, bajar, quitar);
+  }) : [el('div', { className: 'vacio', textContent: 'Todavía no seguís ninguna serie. Abrí la página de una serie y tocá "Seguir esta serie".' })]));
+}
+async function buscarLoNuevo() {
+  if (buscandoNuevo || ocupado || !siguiendo.length) return;
+  buscandoNuevo = ocupado = true;
+  $('siguiendoMsg').textContent = 'Buscando…';
+  dibujarSiguiendo();
+  try {
+    siguiendo = await mr.buscarNovedades();
+    const n = siguiendo.reduce((t, x) => t + (x.nuevos || 0), 0), mal = siguiendo.filter(x => x.error).length;
+    $('siguiendoMsg').textContent = (n ? `Hay ${plural(n, 'capítulo nuevo', 'capítulos nuevos')}.` : 'No hay nada nuevo.') + (mal ? ` ${plural(mal, 'serie no se pudo mirar', 'series no se pudieron mirar')}.` : '');
+  } catch (e) {
+    $('siguiendoMsg').textContent = '⚠️ ' + e.message;
+  }
+  buscandoNuevo = ocupado = false;
+  dibujarSiguiendo();
+}
+async function bajarLoNuevo(url) {
+  try {
+    const r = await mr.bajarNovedades(url || '');
+    siguiendo = r.seguidas;
+    $('siguiendoMsg').textContent = `${plural(r.encolados, 'capítulo agregado', 'capítulos agregados')} a la cola.`;
+  } catch (e) {
+    $('siguiendoMsg').textContent = '⚠️ ' + e.message;
+  }
+  dibujarSiguiendo();
+}
+
+// Aviso de carpetas que no están a la vista: sin ellas, lo que ya tenés no aparece marcado
+function avisarCarpetas(lista) {
+  const faltan = lista || [];
+  $('avisoCarpetas').hidden = !faltan.length;
+  $('avisoCarpetas').textContent = !faltan.length ? '' : `⚠️ No puedo ver ${faltan.length === 1 ? 'esta carpeta' : 'estas carpetas'}: ${faltan.join(' · ')}. ` +
+    'Si están en Google Drive o en otro disco, abrilo o conectalo. Mientras tanto, lo que tengas ahí no aparece marcado y podrías bajarlo de nuevo.';
+}
+
 // ── Tu colección ──
 // Otras carpetas donde mirar lo que ya tenés, además de la de descargas: donde guardás tus
 // mangas, cómics o libros (por ejemplo, la carpeta de Google Drive de tu máquina).
@@ -683,10 +754,18 @@ $('verGuardados').addEventListener('click', () => {
 });
 $('verHistorial').addEventListener('click', () => {
   $('historial').hidden = !$('historial').hidden;
-  $('pegar').hidden = $('guardados').hidden = true;
+  $('pegar').hidden = $('guardados').hidden = $('siguiendo').hidden = true;
   if (!$('historial').hidden) { cargarHistorial(); $('historialFiltro').focus(); }
 });
 $('historialFiltro').addEventListener('input', dibujarHistorial);
+$('verSiguiendo').addEventListener('click', () => {
+  $('siguiendo').hidden = !$('siguiendo').hidden;
+  $('pegar').hidden = $('guardados').hidden = $('historial').hidden = true;
+});
+$('buscarNuevo').addEventListener('click', buscarLoNuevo);
+$('bajarNuevo').addEventListener('click', () => bajarLoNuevo(''));
+// Al volver al programa se mira de nuevo si las carpetas están (por si se abrió Google Drive)
+addEventListener('focus', () => mr.carpetas().then(c => avisarCarpetas(c.sinMirar)).catch(() => {}));
 $('agregarBiblioteca').addEventListener('click', async () => { dibujarBibliotecas(await mr.agregarBiblioteca()); mirarDisco(); mirarTitulos(true); });
 $('guardarActual').addEventListener('click', guardarActual);
 $('agregarLista').addEventListener('click', agregarLista);
@@ -764,4 +843,6 @@ mr.config().then((c) => {
 });
 mr.guardados().then((l) => { guardados = l; dibujarGuardados(); });
 cargarHistorial();
+mr.seguidas().then((l) => { siguiendo = l; dibujarSiguiendo(); });
+mr.carpetas().then(c => avisarCarpetas(c.sinMirar)).catch(() => {});
 $('url').focus();
