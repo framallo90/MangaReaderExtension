@@ -4,7 +4,7 @@ Explora una página web por niveles (títulos → capítulos → páginas) y gua
 
 Todo corre en tu máquina: no hay servidor ni cuenta. Es independiente de la extensión de Chrome y usa su mismo código para detectar páginas, armar nombres y generar los archivos.
 
-**Estado: versión 0.4.0.** Funciona de punta a punta sobre los sitios de prueba. Todavía no tiene instalador: se abre con `npm start`. Los cambios de cada versión están en las [Actualizaciones](../README.md#actualizaciones) del README principal.
+**Estado: versión 0.5.0.** Funciona de punta a punta sobre los sitios de prueba. Todavía no tiene instalador: se abre con `npm start`. Los cambios de cada versión están en las [Actualizaciones](../README.md#actualizaciones) del README principal.
 
 ## Cómo abrirlo
 
@@ -25,6 +25,7 @@ npm start
 2. **Mirá lo que encontró.** Antes de leer los links, baja hasta el final de la página, para que aparezca lo que carga de a poco. Cada pestaña es una lista de links de esa página:
    - **Capítulos:** links numerados, en orden. Si la página los separa en volúmenes o sagas, aparecen agrupados y se puede tildar el grupo entero.
    - **Títulos y links:** los demás links, agrupados por la carpeta de su dirección. Acá suelen estar las series de un catálogo.
+   - **Con tapas:** si la página trae una imagen para sus títulos (la tapa de cada serie), la lista se muestra como un mosaico, con la tapa arriba y el nombre abajo. Tocar una tapa entra a ese título; la casilla de la esquina lo tilda. El botón **🖼 Tapas** vuelve a la lista de renglones, y el programa recuerda cómo la dejaste.
 3. **Bajá un nivel** con la flecha **›** de cualquier renglón: abre esa página y la analiza. La ruta de arriba recuerda por dónde entraste y sirve para volver.
 4. **Si el listado sigue en más páginas**, aparece **Traer más páginas**: lee las 10 siguientes, con una pausa entre cada una, y suma lo que encuentra a la lista, sin repetir. Se puede tocar de nuevo hasta llegar al final.
 5. **Tildá lo que querés**, elegí formatos y carpeta a la derecha, y tocá **Descargar**. Va a la cola.
@@ -69,6 +70,7 @@ Baja de a un capítulo, con una pausa entre uno y otro. Cada renglón dice en qu
 
 - **No tiene instalador** ni ícono propio.
 - **No deja elegir páginas sueltas** dentro de un capítulo: usa el filtro de publicidad automático.
+- **Las tapas son las que la página muestra.** Si una página no pone una imagen junto a cada título, no hay mosaico. Las miniaturas se piden a medida que quedan a la vista, de a 4, y no se guardan en el disco: al cerrar el programa se olvidan.
 - **No comparte las sagas** que cargaste en la extensión: usa solo las incluidas. Tampoco la plantilla de nombres: guarda siempre como `Serie/Saga/Serie 0012`.
 - **Los favoritos no se sincronizan** con "Mis sitios" de la extensión: son dos listas. Se pasan de una a otra pegando la lista o el archivo exportado.
 - **No lleva un registro de guardados** aparte: para saltear, mira el disco.
@@ -95,6 +97,7 @@ Baja de a un capítulo, con una pausa entre uno y otro. Cada renglón dice en qu
 - **El código compartido no se copia a mano.** `generar.js` saca de la extensión las funciones de detección, nombres y capítulos (`content.js`), el agrupado por tomos (`agrupar.js`), la plantilla de nombres (`plantilla.js`), el armado de archivos (`offscreen.js`) y la lectura de una lista de links pegada (`sitios.js`). Un arreglo en la extensión llega al programa la próxima vez que se abre.
 - **Las páginas web corren aisladas:** sin acceso a Node ni al disco, sin poder abrir ventanas, bajar archivos por su cuenta ni pedir permisos.
 - **Las imágenes se piden con el Referer del capítulo,** como lo haría el navegador. Hay servidores que sin eso contestan 403.
+- **La interfaz no carga nada de internet por su cuenta.** Las tapas las pide el programa con la sesión de las páginas (y su Referer), las achica a 240 px de ancho y se las pasa a la interfaz ya como imagen incrustada.
 
 ## Pruebas
 
@@ -102,6 +105,6 @@ Baja de a un capítulo, con una pausa entre uno y otro. Cada renglón dice en qu
 npm run prueba
 ```
 
-Corren dentro de Electron contra un sitio de prueba servido en la máquina: exploran portada, catálogo paginado, directorio que carga al bajar, serie y capítulo; revisan que una portada llena de tapas no pase por capítulo (y que un capítulo con tapas al final lo siga siendo); bajan capítulos en los tres formatos a una carpeta temporal; pegan, buscan y quitan favoritos; y manejan la interfaz. Son 69 comprobaciones. Durante las pruebas la lista de favoritos arranca vacía y no se escribe en el disco, así que no tocan la tuya.
+Corren dentro de Electron contra un sitio de prueba servido en la máquina: exploran portada, catálogo paginado, directorio que carga al bajar, serie y capítulo; revisan que una portada llena de tapas no pase por capítulo (y que un capítulo con tapas al final lo siga siendo), que cada título traiga su tapa y que la miniatura se pida con el Referer del sitio; bajan capítulos en los tres formatos a una carpeta temporal; pegan, buscan y quitan favoritos; y manejan la interfaz. Son 79 comprobaciones. Durante las pruebas la lista de favoritos arranca vacía y no se escribe en el disco, así que no tocan la tuya.
 
 Con `CAPTURAS=<carpeta>` guardan además una captura de la interfaz.

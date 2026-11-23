@@ -15,6 +15,8 @@ let listaId = '';           // la lista que se está mirando
 let marcados = new Set();   // direcciones tildadas
 let ocupado = false;
 let tareas = [];
+let verTapas = true;        // mostrar la lista como un mosaico de tapas, cuando la página las tiene
+const miniaturas = new Map();   // dirección de una tapa → su miniatura (data:), '' si no se pudo, o el pedido en curso
 
 function estado(texto, clase = '') {
   $('estado').textContent = texto;
@@ -146,6 +148,16 @@ function dibujar() {
   $('herramientas').hidden = !listaActual();
   $('siguiente').hidden = !actual?.siguiente;
 
+  // Con tapas: si la página trae una imagen para buena parte de los renglones, la lista se
+  // puede ver como un mosaico. El botón "Tapas" lo prende y lo apaga.
+  const l = listaActual();
+  const conImagen = l ? l.items.filter(i => i.imagen).length : 0;
+  const hayTapas = conImagen >= 3 && conImagen >= l.items.length * 0.3;
+  const mosaico = hayTapas && verTapas;
+  $('verTapas').hidden = !hayTapas;
+  $('verTapas').classList.toggle('on', mosaico);
+  $('lista').classList.toggle('tapas', mosaico);
+
   // Renglones, con un encabezado por volumen o saga cuando la página los separa
   const items = visibles(), filas = [];
   let seccion = null;
@@ -162,12 +174,42 @@ function dibujar() {
     caja.addEventListener('change', () => { caja.checked ? marcados.add(i.url) : marcados.delete(i.url); refrescar(); });
     const entrar = el('button', { type: 'button', className: 'entrar', textContent: '›', title: 'Abrir esta página' });
     entrar.addEventListener('click', (e) => { e.preventDefault(); ir(i.url); });
-    filas.push(el('label', { className: 'fila', title: i.url }, caja,
+    let tapa = null;
+    if (mosaico) {
+      // La tapa. En una lista de títulos, tocarla entra a ese título (la casilla queda para tildar)
+      tapa = el('img', { className: 'tapa', alt: '' });
+      const lista = miniaturas.get(i.imagen);
+      if (typeof lista === 'string' && lista) tapa.src = lista;
+      else if (i.imagen && lista !== '') tapa.dataset.tapa = i.imagen;        // se pide cuando el renglón queda a la vista
+      if (l.tipo === 'titulos') tapa.addEventListener('click', (e) => { e.preventDefault(); ir(i.url); });
+    }
+    filas.push(el('label', { className: 'fila', title: mosaico ? i.texto : i.url }, caja, tapa,
       i.numero !== undefined && i.numero !== null ? el('span', { className: 'num', textContent: String(i.numero) }) : null,
       el('span', { className: 'txt', textContent: i.texto }), entrar));
   }
   $('lista').replaceChildren(...filas);
   refrescar();
+  pedirTapas();
+}
+
+// Pide las miniaturas de los renglones que están a la vista (y un poco más allá). Las demás
+// se piden al llegar a ellas: un catálogo puede tener cientos.
+let avisoTapas = 0;
+function pedirTapas() {
+  const caja = $('lista').getBoundingClientRect(), pagina = actual?.url || '';
+  for (const img of $('lista').querySelectorAll('img.tapa[data-tapa]')) {
+    const r = img.getBoundingClientRect();
+    if (r.bottom < caja.top - 400 || r.top > caja.bottom + 400) continue;
+    const de = img.dataset.tapa;
+    delete img.dataset.tapa;
+    let pedido = miniaturas.get(de);
+    if (pedido === undefined) miniaturas.set(de, pedido = mr.tapa(de, pagina).catch(() => '').then((d) => { miniaturas.set(de, d); return d; }));
+    Promise.resolve(pedido).then((d) => { if (d) img.src = d; });
+  }
+}
+function alMoverLista() {
+  clearTimeout(avisoTapas);
+  avisoTapas = setTimeout(pedirTapas, 120);
 }
 
 function refrescar() {
@@ -338,6 +380,9 @@ $('listaLinks').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e
 $('guardadosFiltro').addEventListener('input', dibujarGuardados);
 $('quitarTodos').addEventListener('click', quitarTodos);
 $('filtro').addEventListener('input', dibujar);
+$('verTapas').addEventListener('click', () => { verTapas = !verTapas; mr.guardarConfig({ tapas: verTapas }); dibujar(); });
+$('lista').addEventListener('scroll', alMoverLista);
+addEventListener('resize', alMoverLista);
 $('todos').addEventListener('click', () => { for (const i of visibles()) marcados.add(i.url); dibujar(); });
 $('ninguno').addEventListener('click', () => { for (const i of visibles()) marcados.delete(i.url); dibujar(); });
 $('siguiente').addEventListener('click', traerMas);
@@ -360,8 +405,9 @@ mr.alAvanzar((texto) => { if (ocupado) estado(texto, 'trabajando'); });
 mr.config().then((c) => {
   $('fPdf').checked = c.formatos.pdf; $('fCbz').checked = c.formatos.cbz; $('fImgs').checked = c.formatos.imgs;
   $('saltear').checked = c.saltear !== false;
+  verTapas = c.tapas !== false;
   mostrarCarpeta(c.carpeta);
-  refrescar();
+  if (actual) dibujar(); else refrescar();
 });
 mr.guardados().then((l) => { guardados = l; dibujarGuardados(); });
 $('url').focus();

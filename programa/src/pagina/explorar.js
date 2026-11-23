@@ -43,11 +43,41 @@
              nums: sinExt.match(/(?<![\d.])\d{1,5}(?:\.\d+)?(?![\d.])/g) || [] };
   }
 
+  // El link de una imagen: el que la envuelve o, si no, el de su tarjeta (el bloque más chico
+  // que tiene un link y ninguna otra de las imágenes `candidatas`)
+  function linkDeImagen(img, candidatas) {
+    let a = img.closest('a[href]');
+    for (let el = img.parentElement, k = 0; !a && el && k < 4; el = el.parentElement, k++) {
+      if ([...el.querySelectorAll('img')].filter(i => candidatas.has(i)).length > 1) break;
+      a = el.querySelector('a[href]');
+    }
+    return a;
+  }
+
+  // La imagen que acompaña a cada link (la tapa de un título, la miniatura de un capítulo):
+  // dirección del link → dirección de la imagen. No cuentan los íconos (menos de 80 px).
+  function imagenesDeLinks() {
+    const imgs = [...document.querySelectorAll('img')].filter(img =>
+      imgUrl(img) && !(img.complete && img.naturalWidth && (img.naturalWidth < 80 || img.naturalHeight < 80)));
+    const candidatas = new Set(imgs), de = new Map();
+    for (const img of imgs) {
+      const a = linkDeImagen(img, candidatas);
+      if (!a) continue;
+      let u;
+      try { u = new URL(a.getAttribute('href'), document.baseURI); } catch { continue; }
+      const clave = noSlash(u.href.split('#')[0]);
+      if (!de.has(clave)) de.set(clave, imgUrl(img));
+    }
+    return de;
+  }
+
   // Links de la página, sin repetir, en el orden del documento. Cada uno recuerda el título
-  // (h1…h6) que tenía arriba: de ahí salen los volúmenes y las sagas cuando la página los separa.
+  // (h1…h6) que tenía arriba: de ahí salen los volúmenes y las sagas cuando la página los
+  // separa. Y la imagen que lo acompaña, si tiene.
   function juntarLinks() {
     const aqui = noSlash(location.href.split('#')[0]);
     const porUrl = new Map();
+    const imagenes = imagenesDeLinks();
     let seccion = '';
     reiniciarSeccion();
     for (const el of document.querySelectorAll('h1, h2, h3, h4, h5, h6, summary, a[href]')) {
@@ -70,7 +100,7 @@
       const p = partes(u);
       if (/^(?:19|20)\d{2}$/.test(p.nombre) && (!texto || texto.includes(p.nombre))) continue;   // archivo por año
       if (!p.nums.length && s && !u.pathname.endsWith(s.num)) p.nums = [s.num];        // ?capitulo=12
-      porUrl.set(clave, { url, texto, seccion, ...p });
+      porUrl.set(clave, { url, texto, seccion, imagen: imagenes.get(clave) || '', ...p });
     }
     return [...porUrl.values()];
   }
@@ -109,7 +139,7 @@
       const n = numerar(grupo);
       if (!n) continue;
       grupo.forEach(l => usados.add(l.url));
-      const items = conSecciones(grupo).map((l, i) => ({ url: l.url, texto: nombreDe(l), numero: n[i], seccion: l.seccion }))
+      const items = conSecciones(grupo).map((l, i) => ({ url: l.url, texto: nombreDe(l), numero: n[i], seccion: l.seccion, imagen: l.imagen }))
         .sort((a, b) => a.numero - b.numero);
       listas.push({ tipo: 'capitulos', id: 'c:' + k, nombre: k.split('|')[1], items });
     }
@@ -128,12 +158,12 @@
       const porTexto = nums.every(Boolean) && new Set(nums.map(parseFloat)).size === nums.length;
       const base = conSecciones(grupo);
       if (porTexto) {
-        const items = base.map((l, i) => ({ url: l.url, texto: nombreDe(l), numero: parseFloat(nums[i]), seccion: l.seccion }))
+        const items = base.map((l, i) => ({ url: l.url, texto: nombreDe(l), numero: parseFloat(nums[i]), seccion: l.seccion, imagen: l.imagen }))
           .sort((a, b) => a.numero - b.numero);
         listas.push({ tipo: 'capitulos', id: 't:' + k, nombre: new URL(k).pathname || '/', items });
       } else {
         listas.push({ tipo: 'titulos', id: 'g:' + k, nombre: new URL(k).pathname || '/',
-                      items: base.map(l => ({ url: l.url, texto: nombreDe(l), seccion: l.seccion })) });
+                      items: base.map(l => ({ url: l.url, texto: nombreDe(l), seccion: l.seccion, imagen: l.imagen })) });
       }
     }
 
@@ -176,20 +206,10 @@
       imgUrl(img) && !(img.complete && img.naturalWidth && (img.naturalWidth < MIN_SIDE || img.naturalHeight < MIN_SIDE)));
     if (grandes.length < 3) return false;
     const esGrande = new Set(grandes);
-    // El link de una imagen: el que la envuelve o, si no, el de su tarjeta (el bloque más
-    // chico que tiene un link y ninguna otra imagen grande)
-    const linkDe = (img) => {
-      let a = img.closest('a[href]');
-      for (let el = img.parentElement, k = 0; !a && el && k < 4; el = el.parentElement, k++) {
-        if ([...el.querySelectorAll('img')].filter(i => esGrande.has(i)).length > 1) break;
-        a = el.querySelector('a[href]');
-      }
-      return a;
-    };
     const aca = noSlash(location.href.split('#')[0]);
     const destinoDe = new Map(), imagenesDe = new Map();      // imagen → destino · destino → imágenes distintas que llevan ahí
     for (const img of grandes) {
-      const a = linkDe(img);
+      const a = linkDeImagen(img, esGrande);
       if (!a) continue;
       let u;
       try { u = new URL(a.getAttribute('href'), document.baseURI); } catch { continue; }

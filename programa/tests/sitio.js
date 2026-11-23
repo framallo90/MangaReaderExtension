@@ -56,8 +56,9 @@ const serieBeta = pagina('Beta – Capítulos', `${menu}<h1>Beta</h1>
 // Con iniciar({ tapas: true }). Cada tapa es una imagen grande que lleva a su obra: en la
 // mitad de las tarjetas el link envuelve a la imagen y en la otra mitad va al lado, como
 // título. El link al listado completo tiene un ícono adelante, y hay otro sin texto.
-//   /                portada: 8 tapas
+//   /                portada: 8 tapas (su servidor exige el Referer del sitio)
 //   /biblioteca      el listado completo: 12 obras (/directorio muestra lo mismo)
+//   /obra/N/nombre   la página de una obra, con dos capítulos
 //   /lector/5        capítulo donde cada página es un link al capítulo siguiente, con tapas
 //                    de otras obras al final
 //   /lector/7        capítulo donde cada página es un link a su vista de a una
@@ -85,6 +86,16 @@ function iniciar({ tapas = false } = {}) {
       if (u === '/') return html(portadaTapas);
       if (u === '/biblioteca' || u === '/directorio') return html(bibliotecaTapas);
       if (u === '/lector/5' || u === '/lector/7') return html(lectorTapas(+u.slice(-1)));
+      const obra = u.match(/^\/obra\/(\d+)\/\w+$/);
+      if (obra && OBRAS[obra[1] - 1]) {
+        return html(pagina(`Obra ${OBRAS[obra[1] - 1]} — capítulos`, `${menuTapas}<h1>${OBRAS[obra[1] - 1]}</h1><a href="/lector/5">Capítulo 5</a> <a href="/lector/7">Capítulo 7</a>`));
+      }
+      if (/^\/tapas\/\d+\.jpg$/.test(u)) {
+        // Las tapas solo se entregan si el pedido viene del sitio, como hacen muchos servidores de imágenes
+        if (!String(req.headers.referer || '').startsWith(`http://${req.headers.host}/`)) { pedidos.sinReferer++; return enviar('text/plain', 'no', 403); }
+        pedidos.tapas = (pedidos.tapas || 0) + 1;
+        return enviar('image/jpeg', JPG);
+      }
       if (/^\/tapas\/(?:\w+\.jpg|paginas\/\d\/\d\.jpg)$/.test(u)) return enviar('image/jpeg', JPG);
       return enviar('text/plain', 'no', 404);
     }

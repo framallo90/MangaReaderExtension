@@ -98,6 +98,16 @@ module.exports = async function probar(api) {
       'null · Uno, Dos, Tres, Cuatro, Cinco, Seis, Siete, Ocho');
     eq('  encuentra el listado completo por el texto del link (con un ícono adelante) y por su dirección', pt.catalogos.map(c => `${c.texto} → ${c.url.replace(T, '')}`).join(' | '),
       '📚 Biblioteca → /biblioteca | Explorar todo → /directorio');
+    const imgs = lista(pt, 'titulos').items.map(i => i.imagen.replace(T, ''));
+    eq('  cada título trae su tapa, la envuelva el link o esté al lado en su tarjeta', imgs.join(' '),
+      '/tapas/1.jpg /tapas/2.jpg /tapas/3.jpg /tapas/4.jpg /tapas/5.jpg /tapas/6.jpg /tapas/7.jpg /tapas/8.jpg');
+    const mini = await api.tapa(T + imgs[0], T + '/');
+    const original = fs.readFileSync(path.join(__dirname, '..', '..', 'tests', 'fixtures', 'pagina.jpg')).length;
+    eq('  la miniatura de una tapa: una imagen chica, pedida con el Referer del sitio', `${mini.slice(0, 23)} · más chica que la original: ${Buffer.from(mini.slice(23), 'base64').length < original} · sin Referer: ${tapas.pedidos.sinReferer}`,
+      'data:image/jpeg;base64, · más chica que la original: true · sin Referer: 0');
+    eq('  pedir dos veces la misma no la baja de nuevo', await api.tapa(T + imgs[0], T + '/') === mini, true);
+    eq('  lo que no es una imagen no pasa', await api.tapa(T + '/biblioteca', T + '/').then(() => 'pasó', e => e.message), 'No es una imagen');
+    eq('  ni una dirección que no es de la web', await api.tapa('file:///c:/windows/win.ini', T + '/').then(() => 'pasó', e => e.message), 'La dirección de la imagen no es válida');
     const bib = await api.analizar(T + '/biblioteca');
     eq('el listado completo, con una tapa por obra, tampoco es un capítulo', `${bib.capitulo} · ${lista(bib, 'titulos').items.length} títulos`, 'null · 12 títulos');
     const l5 = await api.analizar(T + '/lector/5'), l7 = await api.analizar(T + '/lector/7');
@@ -136,6 +146,15 @@ module.exports = async function probar(api) {
       const como = await en(`JSON.stringify({ estado: document.readyState, mr: typeof window.mr, carpeta: document.querySelector('#carpeta')?.textContent, aviso: document.querySelector('#estado')?.textContent })`).catch(e => e.message);
       throw new Error(`No llegó: ${que} · ${como}` + (consola.length ? ' · consola: ' + consola.slice(0, 3).join(' | ') : ''));
     };
+    // Con CAPTURAS=<carpeta> guarda una captura de la interfaz. La ventana está oculta y dibuja con
+    // atraso: se saca dos veces, y vale la segunda.
+    const capturar = async (nombre) => {
+      if (!process.env.CAPTURAS) return;
+      fs.mkdirSync(process.env.CAPTURAS, { recursive: true });
+      await ui.webContents.capturePage();
+      await new Promise(r => setTimeout(r, 500));
+      fs.writeFileSync(path.join(process.env.CAPTURAS, nombre + '.png'), (await ui.webContents.capturePage()).toPNG());
+    };
     await hasta(`document.readyState === 'complete' && !!document.querySelector('#url') && document.querySelector('#carpeta').textContent.length > 0`, 'la interfaz');
     const titulos = () => en(`[...document.querySelectorAll('#lista .fila .txt')].map(e => e.textContent).join(', ')`);
     const rutaEnPantalla = () => en(`[...document.querySelectorAll('#ruta button')].map(e => e.textContent).join(' › ')`);
@@ -172,10 +191,7 @@ module.exports = async function probar(api) {
     await hasta(`document.querySelectorAll('#cola .tarea.listo').length === 2`, 'la cola en pantalla');
     eq('  la cola muestra el resultado', await en(`[...document.querySelectorAll('#cola .tarea')].map(t => t.querySelector('.t-nombre').textContent + ' ' + t.querySelector('.t-estado').textContent).join(' ; ')`),
       'Alfa/Alfa 0003 ✅ 6 páginas ; Alfa/Alfa 0004 ✅ 6 páginas');
-    if (process.env.CAPTURAS) {
-      fs.mkdirSync(process.env.CAPTURAS, { recursive: true });
-      fs.writeFileSync(path.join(process.env.CAPTURAS, 'programa.png'), (await ui.webContents.capturePage()).toPNG());
-    }
+    await capturar('programa');
 
     await en(`document.querySelector('#verPegar').click(); document.querySelector('#links').value = ${JSON.stringify(`Capítulos\n02: ${S}/leer/alfa-2/\n${S}/leer/alfa-1/`)}; document.querySelector('#usarLinks').click()`);
     await hasta(`document.querySelectorAll('#lista .fila').length === 2`, 'los links pegados');
@@ -187,10 +203,27 @@ module.exports = async function probar(api) {
     await hasta(`document.querySelectorAll('#lista .fila').length === 12`, 'el listado completo del sitio de tapas');
     eq('pegar una portada llena de tapas: entra a su listado completo, sin ofrecerla como capítulo', await titulos() + ' · ' + await en(`document.querySelector('#capitulo').hidden`) + ' · ' + (await avisoEnPantalla()).split('.')[0],
       'Uno, Dos, Tres, Cuatro, Cinco, Seis, Siete, Ocho, Nueve, Diez, Once, Doce · true · Entré al catálogo que encontré en la portada ("📚 Biblioteca")');
+
+    // Las tapas: la lista se muestra como un mosaico, con la miniatura de cada título
+    const conMiniatura = `[...document.querySelectorAll('#lista .fila img.tapa')].filter(i => i.src.startsWith('data:image/')).length`;
+    const mosaico = () => en(`document.querySelector('#lista').classList.contains('tapas') + ' ' + getComputedStyle(document.querySelector('#lista')).display + ' ' + document.querySelectorAll('#lista .fila img.tapa').length + ' ' + ${conMiniatura} + ' ' + (document.querySelector('#verTapas').hidden ? 'sin botón' : document.querySelector('#verTapas').classList.contains('on') ? 'botón prendido' : 'botón apagado')`);
+    await hasta(`${conMiniatura} === 12`, 'las tapas del listado');
+    eq('  la lista se ve como un mosaico, con la tapa de cada título', await mosaico(), 'true grid 12 12 botón prendido');
+    await capturar('programa-tapas');
+    await en(`document.querySelector('#lista .fila img.tapa').click()`);
+    await hasta(`document.querySelectorAll('#lista .fila .num').length === 2`, 'la obra de la tapa');
+    eq('  tocar una tapa entra a ese título; ahí, sin tapas, vuelve la lista de siempre', await rutaEnPantalla() + ' · ' + await mosaico(),
+      'Sitio de tapas — Leer online › Sitio de tapas — Biblioteca › Obra Uno — capítulos · false block 0 0 sin botón');
     await en(`document.querySelector('#ruta button').click()`);
     await hasta(`document.querySelectorAll('#lista .fila').length === 8`, 'la portada de tapas');
     eq('  la portada muestra sus títulos y las pistas del listado completo', await titulos() + ' · ' + await en(`[...document.querySelectorAll('#pistas button')].map(e => e.textContent).join(', ') + ' · ' + document.querySelector('#capitulo').hidden`),
       'Uno, Dos, Tres, Cuatro, Cinco, Seis, Siete, Ocho · 📚 Biblioteca ›, Explorar todo › · true');
+    await hasta(`${conMiniatura} === 8`, 'las tapas de la portada');
+    await en(`document.querySelector('#verTapas').click()`);
+    eq('  el botón "Tapas" las apaga: queda la lista de siempre, y se recuerda', await mosaico() + ' · ' + api.config().tapas, 'false block 0 0 botón apagado · false');
+    await en(`document.querySelector('#verTapas').click()`);
+    eq('  y las vuelve a prender, con las miniaturas que ya tenía', await mosaico() + ' · ' + api.config().tapas, 'true grid 8 8 botón prendido · true');
+    eq('  las tapas se pidieron una sola vez cada una, con el Referer del sitio', `${tapas.pedidos.sinReferer} sin Referer`, '0 sin Referer');
 
     // Favoritos: quedaron dos de las pruebas de arriba
     const filasG = async () => (await en(`[...document.querySelectorAll('#guardadosLista .guardado')].map(g => g.querySelector('.g-nombre').textContent + ' (' + g.querySelector('.g-datos').textContent + ')').join(' | ')`)).split(S.replace('http://', '')).join('');
@@ -220,10 +253,7 @@ module.exports = async function probar(api) {
     eq('  uno solo, escrito a mano y con el botón', await avisoG() + ' · ' + await ultimaG(), 'Guardé 1 link en favoritos. · ⭐ Favoritos (5) · otro.example (otro.example/serie)');
     await en(`(() => { const f = document.querySelector('#guardadosFiltro'); f.value = 'volúmenes'; f.dispatchEvent(new Event('input')); })()`);
     eq('  buscar en la lista', await filasG() + ' · ' + await en(`document.querySelector('#guardadosCuenta').textContent`), 'Alfa (/serie/alfa · con volúmenes) · 1 de 5');
-    if (process.env.CAPTURAS) {
-      await new Promise(r => setTimeout(r, 600));           // que la ventana (oculta) termine de dibujarse
-      fs.writeFileSync(path.join(process.env.CAPTURAS, 'programa-favoritos.png'), (await ui.webContents.capturePage()).toPNG());
-    }
+    await capturar('programa-favoritos');
     await en(`document.querySelector('#guardadosLista .g-abrir').click()`);
     await hasta(`document.querySelectorAll('#lista .seccion').length === 2 && document.querySelector('#guardados').hidden`, 'la serie guardada');
     eq('  tocar un favorito lo analiza', await rutaEnPantalla() + ' · ' + (await en(`document.querySelector('#url').value`)).replace(S, ''), 'Alfa – Todos los capítulos · /serie/alfa/');

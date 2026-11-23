@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld('mr', {
   guardados: () => pedir('guardados:leer'),
   guardarLinks: (dato) => pedir('guardados:agregar', dato),
   quitarLinks: (urls) => pedir('guardados:quitar', urls),
+  // La miniatura (data:) de la imagen que acompaña a un título; `pagina` es de dónde salió
+  tapa: (url, pagina) => pedir('tapa', { url, pagina }),
   elegirCarpeta: () => pedir('carpeta'),
   abrirCarpeta: () => pedir('abrir-carpeta'),
   // (entre llaves: no devuelve nada. Lo que devuelve ipcRenderer.on no se puede pasar a la página)

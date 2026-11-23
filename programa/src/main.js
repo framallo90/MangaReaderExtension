@@ -8,7 +8,7 @@
  * - Los archivos los arma una ventana oculta propia ("armador") con el mismo código que
  *   usa la extensión (generado/offscreen.js), y este proceso los escribe en el disco.
  */
-const { app, BrowserWindow, ipcMain, dialog, session, shell, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, session, shell, Menu, nativeImage } = require('electron');
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
 const nucleo = require('../generado/nucleo.js');
 const sitios = require('../generado/sitios.js');     // leer una lista de links pegada, igual que la extensión
@@ -100,6 +100,49 @@ function prepararSesion() {
     }
     cb({ requestHeaders: d.requestHeaders });
   });
+}
+
+// ── Tapas ────────────────────────────────────────────
+// La miniatura de la imagen que acompaña a un título, para mostrarla en la lista. Se pide
+// con la sesión de las páginas (sus cookies y su caché: la página ya la bajó al abrirse) y
+// con el Referer que mandaría el navegador. Vuelve como una dirección data: chica, que es
+// lo único que la interfaz puede mostrar: no carga nada de internet por su cuenta.
+const TAPA_ANCHO = 240, TAPA_MAX = 6 * 1024 * 1024, TAPAS_A_LA_VEZ = 4, TAPAS_EN_MEMORIA = 3000;
+const tapas = new Map();          // dirección de la imagen → promesa de su miniatura
+let tapasEnCurso = 0;
+const tapasEnEspera = [];
+async function bajarTapa(url, pagina) {
+  let referer = '';
+  try { const p = new URL(pagina); referer = new URL(url).origin === p.origin ? p.href : p.origin + '/'; } catch {}
+  const r = await session.fromPartition(PARTICION).fetch(url, { headers: referer ? { Referer: referer } : {}, signal: AbortSignal.timeout(20000) });
+  if (!r.ok) throw new Error(`La imagen respondió HTTP ${r.status}`);
+  const tipo = String(r.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  if (!/^image\/(?:jpeg|png|webp|gif|avif|bmp)$/.test(tipo)) throw new Error('No es una imagen');
+  const datos = Buffer.from(await r.arrayBuffer());
+  if (datos.length > TAPA_MAX) throw new Error('La imagen es demasiado grande');
+  const img = nativeImage.createFromBuffer(datos);          // sabe leer JPG y PNG
+  if (!img.isEmpty()) {
+    const chica = img.getSize().width > TAPA_ANCHO ? img.resize({ width: TAPA_ANCHO, quality: 'good' }) : img;
+    return 'data:image/jpeg;base64,' + chica.toJPEG(82).toString('base64');
+  }
+  if (datos.length > 1024 * 1024) throw new Error('La imagen es demasiado grande');
+  return `data:${tipo};base64,` + datos.toString('base64');   // WebP y demás: van como vienen
+}
+function tapa(url, pagina) {
+  if (!/^https?:\/\//i.test(url || '')) return Promise.reject(new Error('La dirección de la imagen no es válida'));
+  if (tapas.has(url)) return tapas.get(url);
+  // De a pocas por vez, para no cargar al sitio
+  const p = new Promise((res, rej) => {
+    const correr = () => {
+      tapasEnCurso++;
+      bajarTapa(url, pagina).then(res, rej).finally(() => { tapasEnCurso--; tapasEnEspera.shift()?.(); });
+    };
+    tapasEnCurso < TAPAS_A_LA_VEZ ? correr() : tapasEnEspera.push(correr);
+  });
+  p.catch(() => tapas.delete(url));                           // la que falló se puede volver a pedir
+  if (tapas.size >= TAPAS_EN_MEMORIA) tapas.delete(tapas.keys().next().value);
+  tapas.set(url, p);
+  return p;
 }
 
 // ── Páginas en ventanas ocultas ──────────────────────
@@ -397,6 +440,7 @@ atender('saga', ({ serie, numero }) => nucleo.sagaDe(serie, numero));
 atender('guardados:leer', () => guardados);
 atender('guardados:agregar', (dato) => guardarLinks(dato || {}));
 atender('guardados:quitar', (urls) => quitarLinks(urls));
+atender('tapa', ({ url, pagina }) => tapa(String(url || ''), String(pagina || '')));
 atender('carpeta', async () => {
   const r = await dialog.showOpenDialog(ui, { title: 'Carpeta donde guardar', defaultPath: config.carpeta, properties: ['openDirectory', 'createDirectory'] });
   return r.canceled || !r.filePaths[0] ? config.carpeta : guardarConfig({ carpeta: r.filePaths[0] }).carpeta;
@@ -419,7 +463,7 @@ app.whenReady().then(async () => {
   if (PRUEBA) {
     // "electron . --prueba": corre las pruebas del programa contra un sitio de prueba local
     const fallas = await require('../tests/prueba.js')({ analizar, seguir, encolar, colaVacia, cancelar, limpiar, guardarConfig, abrirUI, nucleo,
-      guardarLinks, quitarLinks, guardados: () => guardados, config: () => config })
+      guardarLinks, quitarLinks, guardados: () => guardados, tapa, config: () => config })
       .catch((e) => { console.log('FALLA la prueba se cortó: ' + (e.stack || e)); return 1; });
     app.exit(fallas ? 1 : 0);
     return;
