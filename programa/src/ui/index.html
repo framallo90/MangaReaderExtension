@@ -10,8 +10,10 @@
   <header>
     <form id="buscar">
       <span class="logo">📖</span>
-      <input id="url" type="text" spellcheck="false" autocomplete="off"
+      <!-- Al escribir, ofrece las últimas direcciones analizadas a mano -->
+      <input id="url" type="text" spellcheck="false" autocomplete="off" list="recientes"
              placeholder="Pegá la dirección de una página: un catálogo, una serie o un capítulo">
+      <datalist id="recientes"></datalist>
       <button class="main" id="analizar" type="submit">Analizar</button>
       <button id="verPegar" type="button" title="Pegar una lista de links de capítulos">Pegar links</button>
       <button id="verGuardados" type="button" title="Tus favoritos: sitios, catálogos y series guardados">⭐ Favoritos</button>
@@ -26,6 +28,17 @@
       </div>
       <div class="barra" id="guardadosBarra">
         <input id="guardadosFiltro" type="text" spellcheck="false" autocomplete="off" placeholder="Buscar en tus favoritos…">
+        <select id="guardadosTipo" title="Mostrar solo los de un tipo">
+          <option value="">Tipo: todos</option>
+          <option value="manga">Manga</option>
+          <option value="comics">Cómics</option>
+        </select>
+        <select id="guardadosIdioma" title="Mostrar solo los de un idioma">
+          <option value="">Idioma: todos</option>
+          <option value="es">Español</option>
+          <option value="en">Inglés</option>
+          <option value="otro">Sin idioma anotado</option>
+        </select>
         <span id="guardadosCuenta" class="tenue"></span>
         <button id="quitarTodos" type="button">Quitar todos</button>
       </div>
@@ -49,12 +62,39 @@
   <main>
     <section id="explorador">
       <div id="estado" class="estado">Pegá una dirección arriba y tocá Analizar.</div>
+      <!-- Antes de analizar nada: las últimas direcciones que se usaron -->
+      <div id="inicio" hidden>
+        <div class="tenue">Las últimas que analizaste</div>
+        <div id="inicioLista"></div>
+      </div>
       <div id="pistas" class="barra" hidden></div>
       <div id="capitulo" class="tarjeta" hidden>
         <div><b id="capNombre"></b><span id="capDatos"></span></div>
-        <button class="main" id="capBajar" type="button">Descargar este capítulo</button>
+        <div class="barra">
+          <button id="capRevisar" type="button" title="Ver todas las imágenes del capítulo, con lo que se descarta como publicidad, y elegir cuáles van">Revisar páginas</button>
+          <button class="main" id="capBajar" type="button">Descargar este capítulo</button>
+        </div>
+      </div>
+      <!-- Revisar las páginas de un capítulo: todas sus imágenes, tildadas o no. Un toque las cambia -->
+      <div id="revision" hidden>
+        <div class="barra">
+          <b id="revCuenta"></b>
+          <button id="revTodas" type="button">Todas</button>
+          <button id="revNinguna" type="button">Ninguna</button>
+          <button id="revDetectadas" type="button" title="Volver a lo que eligió el filtro de publicidad">Como las detectó</button>
+          <span class="tenue">Tocá una imagen para sacarla o ponerla.</span>
+          <span class="estira"></span>
+          <button id="revCerrar" type="button">Cerrar</button>
+          <button class="main" id="revBajar" type="button">Descargar</button>
+        </div>
+        <div id="revLista"></div>
       </div>
       <div id="tabs"></div>
+      <!-- De la serie que se está mirando: qué capítulos ya están en la carpeta -->
+      <div id="enDisco" class="barra" hidden>
+        <span id="enDiscoTexto"></span>
+        <button id="marcarFaltan" type="button">Marcar los que faltan</button>
+      </div>
       <div id="herramientas" class="barra" hidden>
         <input id="filtro" type="text" spellcheck="false" autocomplete="off" placeholder="Filtrar…">
         <button id="todos" type="button">Todos</button>
@@ -63,7 +103,10 @@
         <span id="cuenta" class="tenue"></span>
       </div>
       <div id="lista"></div>
-      <button id="siguiente" type="button" hidden title="Lee las páginas siguientes de este listado y suma lo que encuentre">Traer más páginas</button>
+      <div class="barra">
+        <button id="siguiente" type="button" hidden title="Lee las 10 páginas siguientes de este listado y suma lo que encuentre">Traer más páginas</button>
+        <button id="todasLasPaginas" type="button" hidden title="Sigue leyendo páginas hasta el final del listado (de a una, con una pausa; para a las 50)">Traer todas</button>
+      </div>
     </section>
 
     <aside>
@@ -80,12 +123,35 @@
       <div class="campo">Carpeta
         <div class="carpeta"><span id="carpeta" title=""></span><button id="cambiarCarpeta" type="button">Cambiar</button></div>
       </div>
+      <details id="nombres">
+        <summary>Nombres y sagas</summary>
+        <label class="campo">Plantilla del nombre
+          <input id="plantilla" type="text" spellcheck="false" autocomplete="off" placeholder="{serie}/{saga}/{serie} {numero}">
+        </label>
+        <div class="barra" id="plantillas">
+          <button type="button" data-tpl="{serie}/{saga}/{serie} {numero}">De siempre</button>
+          <button type="button" data-tpl="{serie}/{volumen}/{serie} {numero}">Por tomo</button>
+          <button type="button" data-tpl="{serie}/{volumen}/{serie} {numero} - {titulo}">Con título</button>
+          <button type="button" data-tpl="{sitio}/{serie}/{serie} {numero}">Por sitio</button>
+        </div>
+        <div class="tenue">Una / crea una carpeta. Marcadores: {serie} {numero} {saga} {volumen} {titulo} {anio} {sitio}</div>
+        <div id="plantillaVista"></div>
+        <div id="plantillaAviso"></div>
+        <label class="campo">Sagas propias
+          <textarea id="sagas" spellcheck="false" placeholder="El nombre de la serie y, debajo, una saga por renglón:&#10;Naruto&#10;1-244 Parte 1&#10;245- Shippuden"></textarea>
+        </label>
+        <div class="barra">
+          <button id="guardarSagas" type="button">Guardar sagas</button>
+          <span id="sagasMsg" class="tenue"></span>
+        </div>
+      </details>
       <button class="main grande" id="descargar" type="button" disabled>Descargar</button>
 
       <h2>Cola <span id="colaCuenta" class="tenue"></span></h2>
       <div id="cola"><div class="vacio">Todavía no hay nada en la cola.</div></div>
       <div class="barra">
         <button id="cancelar" type="button" disabled>Cancelar</button>
+        <button id="reintentar" type="button" disabled title="Vuelve a intentar todo lo que falló, quedó incompleto o se canceló">Reintentar lo que falló</button>
         <button id="limpiar" type="button" disabled>Limpiar terminados</button>
         <button id="abrirCarpeta" type="button">Abrir carpeta</button>
       </div>

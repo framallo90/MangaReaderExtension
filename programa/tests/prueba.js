@@ -90,6 +90,66 @@ module.exports = async function probar(api) {
     api.limpiar();
     eq('sin formato elegido: lo dice', (() => { try { api.encolar(caps.items, { carpeta: tmp, formatos: { pdf: false, cbz: false, imgs: false } }); return 'sin error'; } catch (e) { return e.message; } })(), 'Elegí al menos un formato');
 
+
+    console.log('\n── Lo que ya está en la carpeta');
+    // Una serie "Gama" bajada a medias y de varias maneras: en su carpeta, en otra que se llama
+    // casi igual, con una plantilla (en la carpeta de su tomo) y como imágenes sueltas
+    const poner = (rel) => { const f = path.join(tmp, ...rel.split('/')); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, 'x'); };
+    for (const rel of ['Gama/Gama 0001.pdf', 'Gama Manga/Gama Manga 0002.pdf', 'Gama/Tomo 2/Gama 0003 - Capítulo 3.cbz', 'Gama/Gama 0004/pagina_001.jpg', 'Gama Dos/Gama Dos 0005.pdf']) poner(rel);
+    const soloPdf = { pdf: true, cbz: false, imgs: false };
+    const enPdf = api.revisarDisco({ serie: 'Gama', numeros: [1, 2, 3, 4, 5, 6], carpeta: tmp, formatos: soloPdf });
+    eq('lo que ya está de una serie: por número, con cualquier nombre de archivo y en carpetas que se llaman casi igual',
+      `tengo ${enPdf.tengo} · faltan ${enPdf.faltan} (${enPdf.cuantosFaltan}) · ${enPdf.carpetas.join(', ')}`, 'tengo 1,2 · faltan 3–6 (4) · Gama, Gama Manga');
+    eq('  otra serie que empieza igual no cuenta ("Gama Dos")', enPdf.tengo.includes(5), false);
+    eq('  cada formato por separado: en CBZ está el 3 (guardado con plantilla, en la carpeta de su tomo) y en imágenes el 4',
+      `${api.revisarDisco({ serie: 'gama', numeros: [1, 2, 3, 4], carpeta: tmp, formatos: { pdf: false, cbz: true, imgs: false } }).tengo} · ${api.revisarDisco({ serie: 'Gama', numeros: [1, 2, 3, 4], carpeta: tmp, formatos: { pdf: false, cbz: false, imgs: true } }).tengo}`, '3 · 4');
+    eq('  sin saber la serie no se marca nada', api.revisarDisco({ serie: '', numeros: [1, 2], carpeta: tmp, formatos: soloPdf }).tengo.length, 0);
+    api.encolar([{ url: S + '/leer/alfa-2/', texto: 'Capítulo 2', numero: 2 }], { carpeta: tmp, serie: 'Gama', formatos: soloPdf });
+    eq('al bajar, lo que ya está con otro nombre se saltea en vez de duplicarse', estados(await api.colaVacia()) + ' · ' + ls('Gama'),
+      'Gama/Gama 0002: ya estaba (ya está en la carpeta) · Gama 0001.pdf | Gama 0004 | Tomo 2');
+    api.limpiar();
+
+    console.log('\n── Plantilla de nombres y sagas propias');
+    api.guardarConfig({ plantilla: '{serie}/{volumen}/{serie} {numero} - {titulo}' });
+    api.encolar([{ url: S + '/leer/alfa-3/', texto: 'Capítulo 3', numero: 3, volumen: 'Volumen 2', titulo: 'Capítulo 3' }, { url: S + '/leer/alfa-4/', texto: 'x', numero: 4 }],
+      { carpeta: tmp, serie: 'Con Plantilla', formatos: soloPdf });
+    eq('con una plantilla propia, el tomo y el nombre del capítulo van al nombre; si no los hay, no queda el hueco', estados(await api.colaVacia()),
+      'Con Plantilla/Volumen 2/Con Plantilla 0003 - Capítulo 3: listo (6 páginas) ; Con Plantilla/Con Plantilla 0004: listo (6 páginas)');
+    eq('  el archivo queda en la carpeta de su tomo', ls('Con Plantilla/Volumen 2'), 'Con Plantilla 0003 - Capítulo 3.pdf');
+    api.limpiar();
+    const vista = api.vistaDePlantilla('{serie}/{capitulo}');
+    eq('vista previa de una plantilla, con sus avisos', `${vista.lista} · ${vista.suelto} · choca ${vista.choca} · ${vista.raros}`, 'One Piece/{capitulo} · Naruto/{capitulo} · choca true · {capitulo}');
+    api.guardarConfig({ plantilla: '', sagasTexto: 'Con Sagas\n1-2 El comienzo\n3- El final' });
+    api.encolar([{ url: S + '/leer/alfa-3/', texto: 'x', numero: 3 }], { carpeta: tmp, serie: 'Con Sagas', formatos: soloPdf });
+    eq('con sagas propias, cada capítulo va a la carpeta de su saga', estados(await api.colaVacia()), 'Con Sagas/02 El final/Con Sagas 0003: listo (6 páginas)');
+    api.guardarConfig({ sagasTexto: '' });
+    api.limpiar();
+
+    console.log('\n── Reintentar lo que falló');
+    api.encolar([{ url: S + '/leer/inestable-1/', texto: 'Capítulo 1', numero: 1 }, { url: S + '/leer/alfa-9/', texto: 'No existe', numero: 9 }], { carpeta: tmp, serie: 'Inestable', formatos: soloPdf });
+    eq('un capítulo al que no le baja una página y otro que no existe', estados(await api.colaVacia()),
+      'Inestable/Inestable 0001: incompleto (5 páginas · no bajó la página 3) ; No existe: falló (La página respondió HTTP 404)');
+    eq('  el aviso de fin de cola lo cuenta', api.ultimoAviso(), '2 con problemas');
+    eq('reintentar: vuelve a la cola todo lo que no terminó bien', api.reintentar(), 2);
+    eq('  el incompleto sale entero y no queda un archivo repetido al lado', estados(await api.colaVacia()) + ' · ' + ls('Inestable') + ' · ' + pdfPages(path.join(tmp, 'Inestable', 'Inestable 0001.pdf')),
+      'Inestable/Inestable 0001: listo (6 páginas) ; No existe: falló (La página respondió HTTP 404) · Inestable 0001.pdf · 6 × 420x640');
+    eq('  y el aviso de fin de cola', api.ultimoAviso(), '1 guardado · 1 con problemas');
+    api.limpiar();
+
+    console.log('\n── Revisar las páginas de un capítulo');
+    const rev = await api.paginasDe(S + '/leer/avisos-1/');
+    eq('todas las imágenes del capítulo, con lo que el filtro toma por publicidad y por qué', rev.paginas.map(p => p.url.split('/').pop().replace('.jpg', '') + (p.motivo ? ` [${p.motivo}]` : '')).join(' '),
+      '1 2 3 aviso [enlace a otro sitio] 4 5 6');
+    eq('  y los datos para guardarlo', `${rev.capitulo.serie} ${rev.capitulo.numero} · ${rev.nombre}`, 'Avisos 1 · Avisos/Avisos 0001');
+    const abiertas = sitio.pedidos.avisos;
+    // A mano: se pone el "aviso" (como si fuera una página mal detectada) y se saca la página 2
+    api.encolar([{ url: S + '/leer/avisos-1/', texto: rev.nombre, numero: 1, paginas: rev.paginas.filter(p => !/\/2\.jpg$/.test(p.url)).map(p => p.url),
+      info: { capitulo: rev.capitulo, nombre: rev.nombre, clave: rev.clave, titulo: rev.titulo, faltantes: rev.faltantes } }], { carpeta: tmp, formatos: soloPdf });
+    eq('bajar con las páginas elegidas a mano: van esas, sin abrir el capítulo otra vez', estados(await api.colaVacia()) + ' · ' + pdfPages(path.join(tmp, 'Avisos', 'Avisos 0001.pdf')) + ' · ' + (sitio.pedidos.avisos - abiertas),
+      'Avisos/Avisos 0001: listo (6 páginas) · 6 × 420x640 · 0');
+    api.encolar([{ url: S + '/leer/avisos-1/', texto: 'x' }], { carpeta: tmp, saltear: false, formatos: soloPdf });
+    eq('sin revisar, el filtro saca el aviso y la cola dice cuántas descartó', estados(await api.colaVacia()).split(' ; ').pop(), 'Avisos/Avisos 0001: listo (6 páginas (1 descartada como publicidad))');
+    api.limpiar();
     // La portada de un sitio suele ser una grilla de tapas: imágenes grandes, como las páginas
     // de un capítulo, pero cada una lleva a otra página. No es un capítulo.
     console.log('\n── Portada con tapas');
@@ -167,6 +227,8 @@ module.exports = async function probar(api) {
     eq('  y lo dice', (await avisoEnPantalla()).split('.')[0] + ' · ' + await rutaEnPantalla(),
       'Entré al catálogo que encontré en la portada ("Directorio") · Sitio de prueba – Catálogo › Sitio de prueba – Directorio');
 
+    await hasta(`document.querySelectorAll('#recientes option').length === 1`, 'la dirección anotada como reciente');
+    eq('  la dirección que se pegó queda entre las recientes (la portada, no el catálogo al que entró)', api.config().recientes.map(r => `${r.titulo} → ${r.url.replace(S, '')}`).join(' | '), 'Sitio de prueba – Catálogo → /');
     // Volver a la portada por la ruta: muestra lo que tiene, la pista del catálogo y deja traer más páginas
     await en(`document.querySelector('#ruta button').click()`);
     await hasta(`document.querySelectorAll('#lista .fila').length === 4 && !document.querySelector('#siguiente').hidden`, 'la portada');
@@ -177,12 +239,30 @@ module.exports = async function probar(api) {
     eq('"Traer más páginas": suma las siguientes, sin repetir', await titulos() + ' · ' + await avisoEnPantalla() + ' · ' + await en(`document.querySelector('#siguiente').hidden`),
       'Alfa, Beta, Gama 3, Delta, Épsilon, Zeta, Eta · Sumé 3 renglones a esta lista, de 2 páginas. No hay más páginas. · true');
 
+    // "Traer todas": se vuelve a la portada (pasando por el directorio) y se junta el listado entero de un toque
+    await en(`document.querySelector('#pistas button').click()`);
+    await hasta(`document.querySelectorAll('#lista .fila').length === 15`, 'el directorio');
+    await en(`document.querySelector('#ruta button').click()`);
+    await hasta(`document.querySelectorAll('#lista .fila').length === 4 && !document.querySelector('#todasLasPaginas').hidden`, 'la portada otra vez');
+    await en(`document.querySelector('#todasLasPaginas').click()`);
+    await hasta(`document.querySelectorAll('#lista .fila').length === 7 && document.querySelector('#todasLasPaginas').hidden`, 'todas las páginas del listado');
+    eq('"Traer todas": sigue sola hasta el final del listado', await titulos() + ' · ' + await avisoEnPantalla() + ' · ' + await en(`document.querySelector('#todasLasPaginas').textContent`),
+      'Alfa, Beta, Gama 3, Delta, Épsilon, Zeta, Eta · Sumé 3 renglones a esta lista, de 2 páginas. No hay más páginas. · Traer todas');
+
     await en(`document.querySelector('#lista .fila .entrar').click()`);
     await hasta(`document.querySelectorAll('#lista .seccion').length === 2`, 'los capítulos de la serie');
     eq('entrar a un título muestra sus capítulos por volumen',
       await en(`[...document.querySelectorAll('#lista > *')].map(e => e.classList.contains('seccion') ? '[' + e.querySelector('.txt').textContent + ']' : e.querySelector('.num').textContent).join(' ')`),
       '[Volumen 1] 1 2 [Volumen 2] 3 4');
     eq('  la ruta recuerda por dónde se entró', await en(`[...document.querySelectorAll('#ruta button')].map(e => e.textContent).join(' › ')`), 'Sitio de prueba – Catálogo › Alfa – Todos los capítulos');
+    // Al entrar a un título, su nombre queda como serie y la lista marca lo que ya está en la carpeta
+    await hasta(`!document.querySelector('#enDisco').hidden`, 'lo que ya está en la carpeta');
+    eq('  al entrar a un título, su nombre queda puesto como serie', await en(`document.querySelector('#serie').value + ' ' + document.querySelector('#serie').classList.contains('auto')`), 'Alfa true');
+    eq('  y la lista marca los capítulos que ya están en la carpeta y dice cuáles faltan', await en(`document.querySelector('#enDiscoTexto').textContent + ' · ' + [...document.querySelectorAll('#lista .fila')].map(f => f.querySelector('.num').textContent + (f.querySelector('.esta') ? '✔' : '')).join(' ')`),
+      'Ya tenés 2 de 4. Te faltan: 3–4. · 1✔ 2✔ 3 4');
+    await en(`document.querySelector('#marcarFaltan').click()`);
+    eq('  "Marcar los que faltan" tilda justo esos', await en(`[...document.querySelectorAll('#lista .fila')].map(f => f.querySelector('input').checked ? f.querySelector('.num').textContent : '').join('') + ' · ' + document.querySelector('#descargar').textContent`), '34 · Descargar 2 capítulos');
+    await en(`document.querySelector('#ninguno').click()`);
     await en(`document.querySelectorAll('#lista .seccion input')[1].click()`);
     eq('  tildar un volumen marca sus capítulos', await en(`[...document.querySelectorAll('#lista .fila')].map(f => f.querySelector('input').checked ? f.querySelector('.num').textContent : '').join('') + ' · ' + document.querySelector('#descargar').textContent`), '34 · Descargar 2 capítulos');
     await en(`document.querySelector('#descargar').click()`);
@@ -274,6 +354,77 @@ module.exports = async function probar(api) {
     await hasta(`document.querySelectorAll('#guardadosLista .guardado').length === 0`, 'la lista vacía');
     eq('  y con el segundo la vacía: queda el cuadro para pegar', await avisoG() + ' · ' + await en(`document.querySelector('#guardadosLista').textContent + ' ' + document.querySelector('#guardadosBarra').hidden + ' ' + (document.querySelector('#listaLinks').offsetHeight > 0)`) + ' · ' + api.guardados().length,
       'Quité todos los favoritos. · ⭐ Favoritos · Todavía no tenés favoritos. Pegá un link o muchos en el cuadro de arriba y quedan guardados. true true · 0');
+
+    // Revisar las páginas de un capítulo: todas a la vista, con lo que el filtro tomó por publicidad
+    await en(`document.querySelector('#url').value = ${JSON.stringify(S + '/leer/avisos-1/')}; document.querySelector('#analizar').click()`);
+    await hasta(`!document.querySelector('#capitulo').hidden && /Avisos/.test(document.querySelector('#capNombre').textContent)`, 'el capítulo con un aviso');
+    await en(`document.querySelector('#capRevisar').click()`);
+    await hasta(`document.querySelectorAll('#revLista .pag').length === 7`, 'las páginas para revisar');
+    const paginasRev = () => en(`[...document.querySelectorAll('#revLista .pag')].map(p => p.querySelector('.pag-n').textContent + (p.querySelector('.pag-m') ? '[' + p.querySelector('.pag-m').textContent + ']' : '')).join(' ') + ' · ' + document.querySelector('#revCuenta').textContent + ' · ' + document.querySelector('#revBajar').textContent`);
+    eq('revisar páginas: se ven todas, con el aviso apagado y dicho por qué', await paginasRev(),
+      '1 2 3 ✕[enlace a otro sitio] 4 5 6 · 6 de 7 imágenes · 1 tomada por publicidad · Descargar 6 páginas');
+    await hasta(`[...document.querySelectorAll('#revLista .pag img')].every(i => i.src.startsWith('data:image/'))`, 'las miniaturas de las páginas');
+    eq('  cada una con su miniatura, y la lista de la página queda oculta mientras tanto', await en(`document.querySelectorAll('#revLista .pag img').length + ' ' + getComputedStyle(document.querySelector('#lista')).display`), '7 none');
+    await capturar('programa-revisar');
+    await en(`document.querySelectorAll('#revLista .pag')[3].click()`);
+    eq('  tocar lo que tomó por publicidad lo pone (era una página)', await paginasRev(),
+      '1 2 3 4[enlace a otro sitio] 5 6 7 · 7 de 7 imágenes · 1 tomada por publicidad · Descargar 7 páginas');
+    await en(`document.querySelectorAll('#revLista .pag')[0].click(); document.querySelectorAll('#revLista .pag')[3].click()`);
+    eq('  y tocar una página la saca (era un aviso que no detectó)', await paginasRev(),
+      '✕ 1 2 ✕[enlace a otro sitio] 3 4 5 · 5 de 7 imágenes · 1 tomada por publicidad · Descargar 5 páginas');
+    await en(`document.querySelector('#revTodas').click()`);
+    const todasRev = (await paginasRev()).split(' · ')[1];
+    await en(`document.querySelector('#revDetectadas').click()`);
+    eq('  "Todas" y "Como las detectó"', todasRev + ' / ' + (await paginasRev()).split(' · ')[1], '7 de 7 imágenes / 6 de 7 imágenes');
+    await en(`(() => { const s = document.querySelector('#serie'); s.value = 'Revisado'; s.dispatchEvent(new Event('input')); })(); document.querySelectorAll('#revLista .pag')[5].click(); document.querySelector('#revBajar').click()`);
+    await hasta(`document.querySelector('#revision').hidden`, 'la revisión cerrada');
+    await api.colaVacia();
+    eq('  "Descargar" baja solo las elegidas', ls('Revisado') + ' · ' + pdfPages(path.join(tmp, 'Revisado', 'Revisado 0001.pdf')), 'Revisado 0001.pdf · 5 × 420x640');
+
+    // Reintentar, desde la interfaz
+    eq('reintentar: apagado mientras no haya nada que falló', await en(`document.querySelector('#reintentar').disabled + ' ' + document.querySelector('#reintentar').textContent`), 'true Reintentar lo que falló');
+    api.encolar([{ url: S + '/leer/alfa-9/', texto: 'No existe' }], { carpeta: tmp, formatos: soloPdf });
+    await api.colaVacia();
+    await hasta(`!document.querySelector('#reintentar').disabled`, 'el botón de reintentar');
+    const intentos = sitio.pedidos.capitulos['/leer/alfa-9/'];
+    await en(`document.querySelector('#reintentar').click()`);
+    await hasta(`document.querySelector('#reintentar').textContent === 'Reintentar 1 que falló' && !document.querySelector('#reintentar').disabled && document.querySelector('#cancelar').disabled`, 'el reintento terminado');
+    await api.colaVacia();
+    eq('  con algo que falló se prende, y al tocarlo lo intenta de nuevo', `${(sitio.pedidos.capitulos['/leer/alfa-9/']) - intentos >= 1}`, 'true');
+
+    // Favoritos: filtros por tipo y por idioma (los dos se detectan al pegar la lista, por sus títulos de grupo)
+    await pegarEnFavoritos(`Zeta: ${S}/serie/zeta/\nManga en español:\nGama: ${S}/serie/gama/\nCómics en inglés:\nDelta: ${S}/serie/delta/`);
+    await hasta(`document.querySelectorAll('#guardadosLista .guardado').length === 3`, 'los favoritos con tipo e idioma');
+    const filtrarG = (tipo, idioma) => en(`(() => { const t = document.querySelector('#guardadosTipo'), i = document.querySelector('#guardadosIdioma'); t.value = ${JSON.stringify(tipo)}; i.value = ${JSON.stringify(idioma)}; t.dispatchEvent(new Event('change'));
+      return [...document.querySelectorAll('#guardadosLista .guardado')].map(g => g.querySelector('.g-nombre').textContent + ' [' + (g.querySelector('.g-tipo')?.textContent || '') + ']').join(' | ') + ' · ' + document.querySelector('#guardadosCuenta').textContent; })()`);
+    eq('favoritos: cada uno muestra su tipo y su idioma', await filtrarG('', ''), 'Zeta [Manga y cómics] | Gama [Manga · Español] | Delta [Cómics · Inglés] · 3 favoritos');
+    eq('  filtro por tipo (el que no dice cuál es vale para los dos)', await filtrarG('manga', '') + ' / ' + await filtrarG('comics', ''),
+      'Zeta [Manga y cómics] | Gama [Manga · Español] · 2 de 3 / Zeta [Manga y cómics] | Delta [Cómics · Inglés] · 2 de 3');
+    eq('  filtro por idioma, y los que no tienen idioma anotado', await filtrarG('', 'en') + ' / ' + await filtrarG('', 'otro'), 'Delta [Cómics · Inglés] · 1 de 3 / Zeta [Manga y cómics] · 1 de 3');
+    eq('  los dos filtros juntos', await filtrarG('manga', 'es') + ' / ' + await filtrarG('comics', 'es'), 'Gama [Manga · Español] · 1 de 3 /  · 0 de 3');
+    await filtrarG('', '');
+
+    // Nombres y sagas
+    const escribirEn = (id, texto) => en(`(() => { const c = document.querySelector('#${id}'); c.value = ${JSON.stringify(texto)}; c.dispatchEvent(new Event('input')); })()`);
+    await en(`document.querySelector('#nombres').open = true`);
+    await escribirEn('plantilla', '{serie}/{volumen}/{serie} {numero} - {titulo}');
+    await hasta(`/Tomo 1/.test(document.querySelector('#plantillaVista').textContent)`, 'la vista previa de la plantilla');
+    eq('plantilla de nombres: se guarda al escribirla y muestra cómo quedaría', api.config().plantilla + ' · ' + await en(`[...document.querySelectorAll('#plantillaVista div')].map(d => d.textContent).join(' | ')`),
+      '{serie}/{volumen}/{serie} {numero} - {titulo} · De una lista: One Piece/Tomo 1/One Piece 0005 - Capítulo 5.pdf | Suelto: Naruto/Naruto 0300.pdf');
+    await escribirEn('plantilla', '{serie}/{tomo}');
+    await hasta(`/tomo/.test(document.querySelector('#plantillaAviso').textContent)`, 'los avisos de la plantilla');
+    eq('  avisa si los nombres van a chocar o si un marcador no existe', await en(`document.querySelector('#plantillaAviso').textContent`),
+      '⚠️ Sin {numero} ni {titulo}, todos los capítulos de una serie se llamarían igual.\n⚠️ No conozco {tomo}: va a quedar escrito tal cual en el nombre.');
+    await en(`document.querySelector('#plantillas button').click()`);
+    await hasta(`/East Blue/.test(document.querySelector('#plantillaVista').textContent)`, 'la plantilla de siempre');
+    eq('  "De siempre" vuelve al nombre de siempre, sin plantilla guardada', JSON.stringify(api.config().plantilla) + ' · ' + await en(`document.querySelector('#plantilla').value`), '"" · {serie}/{saga}/{serie} {numero}');
+    await en(`document.querySelector('#sagas').value = ${JSON.stringify('Mi Serie\n1-10 Primera\nesto no es una saga\n11- Segunda')}; document.querySelector('#guardarSagas').click()`);
+    await hasta(`document.querySelector('#sagasMsg').textContent.length > 0`, 'las sagas guardadas');
+    eq('sagas propias: se guardan, se usan y dice lo que no entendió', (await en(`document.querySelector('#sagasMsg').textContent`)).replace(/No entendí: .*/, 'No entendí: (…)') + ' · ' + api.nucleo.sagaDe('Mi Serie', 12) + ' · ' + api.nucleo.nameFor({ serie: 'Mi Serie', numero: 3 }),
+      'Guardadas: 1 serie. No entendí: (…) · Segunda · Mi Serie/01 Primera/Mi Serie 0003');
+    api.guardarConfig({ sagasTexto: '', plantilla: '' });
+    eq('recientes: quedan las direcciones que se analizaron a mano, la última primero', api.config().recientes.map(r => r.url.replace(S, '').replace(T, 'T')).join(' | ') + ' · ' + await en(`document.querySelectorAll('#recientes option').length`),
+      '/leer/avisos-1/ | T/ | / · 3');
     eq('sin errores en la consola de la interfaz', consola.join(' | '), '');
   } finally {
     await sitio.cerrar();

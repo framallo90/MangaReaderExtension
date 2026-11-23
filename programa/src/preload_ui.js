@@ -23,6 +23,12 @@ contextBridge.exposeInMainWorld('mr', {
   quitarLinks: (urls) => pedir('guardados:quitar', urls),
   // La miniatura (data:) de la imagen que acompaña a un título; `pagina` es de dónde salió
   tapa: (url, pagina) => pedir('tapa', { url, pagina }),
+  reintentar: () => pedir('reintentar'),                    // vuelve a la cola lo que falló, quedó incompleto o se canceló
+  paginas: (url) => pedir('paginas', url),                  // todas las imágenes de un capítulo, con lo marcado como publicidad
+  disco: (pedido) => pedir('disco', pedido),                // qué capítulos de una serie ya están en la carpeta: { serie, numeros, formatos }
+  vistaPlantilla: (texto) => pedir('plantilla:vista', texto),
+  revisarSagas: (texto) => pedir('sagas:revisar', texto),
+  reciente: (dato) => pedir('reciente', dato),              // anota una dirección analizada a mano: { url, titulo }
   elegirCarpeta: () => pedir('carpeta'),
   abrirCarpeta: () => pedir('abrir-carpeta'),
   // (entre llaves: no devuelve nada. Lo que devuelve ipcRenderer.on no se puede pasar a la página)

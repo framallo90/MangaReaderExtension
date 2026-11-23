@@ -5,7 +5,7 @@ Dos herramientas para guardar capítulos de manga y cómics como **PDF**, **CBZ*
 | | Qué es | Versión | Dónde está |
 |---|---|---|---|
 | 🧩 **La extensión** | Se usa desde Chrome, sobre la página que tenés abierta | 2.10.0 | `manga-reader-ext(ver 22-11-2026-7)/manga-reader-ext` |
-| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.5.0 | `programa/` |
+| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.6.0 | `programa/` |
 
 Funcionan por separado y comparten el mismo código para detectar páginas, armar nombres y generar los archivos. Son de uso personal, están en español y todo corre en tu máquina, sin servidor.
 
@@ -187,36 +187,54 @@ Aplicación de escritorio para Windows, hecha con Electron y JavaScript plano. H
 | 🔎 **Explorar por niveles** | De una página saca sus listas de links: títulos, capítulos numerados y en orden, y páginas. La flecha › de cada renglón baja un nivel |
 | 🗃 **Encontrar el catálogo** | Si pegás la portada de un sitio y tiene un link a su listado completo ("Directorio", "Biblioteca"), entra solo. Una portada llena de tapas no la confunde con un capítulo |
 | 🖼 **Tapas** | Si la página muestra la tapa de cada título, la lista se ve como un mosaico de tapas. Un botón vuelve a la lista de renglones |
-| 📑 **Listados largos** | Baja hasta el final para ver lo que la página carga de a poco, y con "Traer más páginas" junta las páginas siguientes en una sola lista |
+| 📑 **Listados largos** | Baja hasta el final para ver lo que la página carga de a poco. "Traer más páginas" suma las 10 siguientes y "Traer todas" sigue hasta el final |
 | 📚 **Volúmenes y sagas** | Si la página separa los capítulos en volúmenes o sagas, aparecen agrupados y se tilda el grupo entero |
-| 📦 **Cola de descargas** | Baja de a un capítulo, muestra en qué anda cada uno y se puede cancelar |
+| 🧹 **Revisar páginas** | En un capítulo, muestra todas sus imágenes con lo que tomó por publicidad apagado y el motivo. Un toque pone o saca cada una |
+| ✔ **Lo que ya tenés** | Marca en la lista los capítulos que ya están en la carpeta, dice cuáles faltan y los tilda. Los reconoce aunque estén con otro nombre |
+| 📦 **Cola de descargas** | Baja de a un capítulo y muestra en qué anda cada uno. Se cancela, y se reintenta todo lo que falló. Avisa al terminar y muestra el avance en la barra de tareas |
 | 📁 **Carpeta a elección** | Guarda donde quieras, y saltea lo que ya está mirando el disco |
+| 🗂 **Nombres y sagas** | `Serie/Saga/Serie 0012` por defecto. Se cambia con una plantilla (`{serie}/{volumen}/{serie} {numero} - {titulo}`) y se cargan sagas propias |
 | 🔗 **Pegar links** | Igual que en la extensión: una lista de links con el número de cada uno |
-| ⭐ **Favoritos** | Tu lista de sitios, catálogos y series: pegás un link o muchos y quedan guardados; cada uno se analiza con un clic |
-| 📄 **Mismos formatos y nombres** | PDF, CBZ e imágenes, como `Serie/Saga/Serie 0012` |
+| ⭐ **Favoritos** | Tu lista de sitios, catálogos y series: pegás un link o muchos y quedan guardados; cada uno se analiza con un clic. Se filtran por tipo e idioma |
+| 🕘 **Recientes** | Las últimas direcciones que analizaste a mano, a un toque |
+| 📄 **Mismos formatos** | PDF, CBZ e imágenes, armados con el mismo código que la extensión |
 
 ## Cómo abrirlo
 
-Hace falta [Node.js](https://nodejs.org) 22 o más nuevo. Todavía no tiene instalador.
+**Con el instalador.** Hace falta [Node.js](https://nodejs.org) 22 o más nuevo para armarlo una vez:
 
 ```bash
 cd programa
-npm install      # una sola vez
-npm start
+npm install            # una sola vez
+npm run instalador     # arma dist/Manga-Reader-Instalador-<versión>.exe
 ```
+
+Ese `.exe` se instala como cualquier programa y deja su acceso directo. No está firmado: la primera vez Windows puede mostrar "Windows protegió su PC"; se sigue con **Más información → Ejecutar de todas formas**.
+
+**Desde el código**, sin instalar: `npm start` en la carpeta `programa`.
+
+De las dos formas usa los mismos datos (favoritos, opciones y sagas).
 
 ## Cómo se usa
 
 1. Pegá una dirección arriba y tocá **Analizar**. Puede ser la portada de un sitio, un catálogo, una serie o un capítulo.
-2. Elegí una pestaña: **Capítulos** o **Títulos y links**. Con la flecha **›** entrás a cualquier renglón, y la ruta de arriba sirve para volver.
-3. Si el listado sigue en más páginas, tocá **Traer más páginas**.
+2. Elegí una pestaña: **Capítulos** o **Títulos y links**. Con la flecha **›** (o tocando una tapa) entrás a cualquier renglón, y la ruta de arriba sirve para volver.
+3. Si el listado sigue en más páginas, tocá **Traer más páginas** o **Traer todas**.
 4. Tildá lo que querés, elegí formatos y carpeta a la derecha, y tocá **Descargar**.
+
+Al entrar a un título, su nombre queda puesto como **Serie** y la lista marca con **✔ ya está** los capítulos que ya tenés en la carpeta. **Marcar los que faltan** tilda el resto.
+
+En la página de un capítulo, **Revisar páginas** muestra todas sus imágenes antes de bajarlo:
+
+- Las que van tienen borde verde y su número; las que tomó por publicidad están apagadas, con el motivo.
+- Un toque sobre una imagen la pone o la saca.
+- **Descargar N páginas** baja exactamente las elegidas.
 
 Para no pegar siempre las mismas direcciones está **⭐ Favoritos**. Al abrirlo aparecen el cuadro para pegar y, debajo, tu lista:
 
 - **Pegá un link o muchos** en el cuadro y quedan guardados en el momento, todos juntos. Uno por renglón y escritos como los tengas (`Nombre: https://sitio.com/ — nota`), igual que "Mis sitios" en la extensión. También sirve el archivo de sitios que exporta la extensión.
 - **＋ La dirección de arriba** guarda la que estás mirando.
-- **Tocar un favorito** lo analiza. Se puede buscar en la lista, quitar de a uno o todos.
+- **Tocar un favorito** lo analiza. Se puede buscar, filtrar por tipo e idioma, y quitar de a uno o todos.
 
 Lo que todavía le falta y cómo está armado: [programa/README.md](programa/README.md).
 
@@ -225,6 +243,19 @@ Lo que todavía le falta y cómo está armado: [programa/README.md](programa/REA
 # Actualizaciones
 
 Lo más nuevo arriba. El historial completo de la extensión está en la sección 15 de [DOCUMENTACION.md](DOCUMENTACION.md).
+
+### 22-11-2026 · Programa 0.6.0
+
+- **Revisar páginas:** en un capítulo se ven todas sus imágenes, con lo que el filtro tomó por publicidad apagado y el motivo. Un toque pone o saca cada una, y se bajan exactamente las elegidas. La cola dice cuántas descartó el filtro en cada capítulo.
+- **Lo que ya tenés y lo que te falta:** la lista de capítulos marca los que ya están en la carpeta, dice cuáles faltan y los tilda. Se fija en el número y no en el nombre exacto, así que reconoce lo guardado con otro nombre o en una carpeta que se llama casi igual, y al descargar no lo duplica.
+- **La serie se completa sola** al entrar a un título, para que todos sus capítulos vayan a la misma carpeta.
+- **Plantilla de nombres y sagas propias**, como en la extensión. El tomo y el nombre de cada capítulo de la lista se pueden usar en el nombre del archivo.
+- **Reintentar lo que falló:** vuelve a la cola todo lo que falló, quedó incompleto o se canceló.
+- **Traer todas** las páginas de un listado, hasta el final (para a las 50, con una pausa entre cada una).
+- **Favoritos con filtros** por tipo e idioma, y cada uno muestra los suyos.
+- **Direcciones recientes:** las últimas que se analizaron a mano.
+- **Aviso al terminar la cola** y avance en el ícono de la barra de tareas.
+- **Instalador de Windows:** `npm run instalador` arma el `.exe`. Usa los mismos datos que `npm start`.
 
 ### 22-11-2026 · Programa 0.5.0
 

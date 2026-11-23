@@ -125,3 +125,59 @@ aside h2 { margin: 6px 0 0; font-size: 13px; color: #a0c4ff; text-transform: upp
 .tarea.listo .t-estado { color: #7ee2a8; }
 .tarea.mal .t-estado { color: #ff8a7a; white-space: normal; }
 aside .barra button { padding: 6px 9px; font-size: 12px; }
+
+/* ── Lo que ya está en la carpeta ── */
+#enDisco { font-size: 12px; color: #b9c2d8; }
+#enDisco button { padding: 4px 10px; font-size: 12px; }
+.fila.ya .txt { color: #8fa6d8; }
+.fila .esta { flex: none; font-size: 11px; color: #7ee2a8; }
+#lista.tapas .fila.ya .tapa { opacity: .45; }
+#lista.tapas .fila .esta { position: absolute; left: 11px; bottom: 44px; padding: 0 6px; border-radius: 9px; background: rgba(15, 26, 51, .85); }
+
+/* ── Revisar las páginas de un capítulo ── */
+#explorador.revisando #tabs, #explorador.revisando #enDisco, #explorador.revisando #herramientas, #explorador.revisando #lista,
+#explorador.revisando #siguiente, #explorador.revisando #todasLasPaginas, #explorador.revisando #capitulo .barra, #explorador.revisando #pistas { display: none; }
+#revision { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+#revision .barra button { padding: 6px 10px; font-size: 12px; }
+#revCuenta { color: #fff; }
+.estira { flex: 1; }
+#revLista { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; align-content: start;
+  padding: 10px; background: #0f1a33; border: 1px solid #2a3a5e; border-radius: 8px; }
+#revLista::-webkit-scrollbar { width: 8px; }
+#revLista::-webkit-scrollbar-thumb { background: #2a3a5e; border-radius: 4px; }
+/* Una imagen del capítulo: con borde verde y su número si va; apagada y con una ✕ si no */
+.pag { position: relative; padding: 0; border: 2px solid #55648a; border-radius: 6px; background: #16213e; overflow: hidden; white-space: normal; }
+.pag img { display: block; width: 100%; aspect-ratio: 2 / 3; object-fit: cover; opacity: .3; }
+.pag.va { border-color: #2ecc71; }
+.pag.va img { opacity: 1; }
+.pag-n { position: absolute; top: 4px; left: 4px; min-width: 22px; padding: 0 5px; border-radius: 9px; background: rgba(15, 26, 51, .9); color: #ff8a7a; font-size: 12px; font-weight: 700; }
+.pag.va .pag-n { color: #7ee2a8; }
+.pag-m { position: absolute; left: 0; right: 0; bottom: 0; padding: 2px 4px; background: rgba(243, 156, 18, .92); color: #1a1a2e; font-size: 10px; font-weight: 600; line-height: 1.25; }
+
+/* ── Las últimas direcciones, antes de analizar nada ── */
+#inicio { display: flex; flex-direction: column; gap: 6px; }
+#inicioLista { display: flex; flex-direction: column; background: #0f1a33; border: 1px solid #2a3a5e; border-radius: 8px; overflow: hidden; }
+.reciente { display: flex; align-items: baseline; gap: 10px; padding: 7px 10px; border: none; border-bottom: 1px solid #1c2947; border-radius: 0; background: none; text-align: left; }
+.reciente:last-child { border-bottom: none; }
+.reciente:hover { background: #16213e; }
+.reciente .g-nombre { flex: none; max-width: 55%; color: #fff; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.reciente .g-datos { flex: 1; min-width: 0; font-size: 12px; color: #8fa6d8; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── Favoritos: filtros y etiqueta de tipo e idioma ── */
+#guardadosBarra select { padding: 6px 8px; font-size: 12px; }
+.guardado .g-tipo { flex: none; font-size: 11px; color: #c9b6ff; background: #2b2347; border-radius: 3px; padding: 1px 6px; }
+
+/* ── Guardar: la serie puesta sola, y nombres y sagas ── */
+#serie.auto { border-color: #667eea; color: #c9d4ff; }
+#nombres { font-size: 12px; color: #8fa6d8; }
+#nombres summary { cursor: pointer; padding: 2px 0; color: #a0c4ff; }
+#nombres[open] { display: flex; flex-direction: column; gap: 7px; }
+#nombres .barra button { padding: 4px 8px; font-size: 11px; }
+#plantilla { font-family: Consolas, 'Courier New', monospace; font-size: 12px; }
+#plantillaVista { padding: 6px 8px; background: #0f1a33; border: 1px solid #2a3a5e; border-radius: 6px; font: 11px/1.6 Consolas, 'Courier New', monospace; color: #7ee2a8; word-break: break-all; }
+#plantillaVista:empty, #plantillaAviso:empty { display: none; }
+#plantillaAviso { color: #ff8a7a; white-space: pre-line; }
+#sagas { min-height: 96px; resize: vertical; white-space: pre; font: 12px Consolas, 'Courier New', monospace; line-height: 1.5; }
+#sagasMsg.error { color: #ff8a7a; }
+#sagasMsg.bien { color: #7ee2a8; }
+.tarjeta .barra { flex: none; flex-wrap: nowrap; }

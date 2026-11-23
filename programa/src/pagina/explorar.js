@@ -248,6 +248,8 @@
       const porRuta = links.filter(l => l.url.startsWith(aca + '/') && !porTexto.includes(l) && CATALOGO_RUTA_RE.test(rutaDe(l.url)));
       return {
         url: location.href.split('#')[0], titulo: limpio(document.title),
+        // Cómo se llama la serie de esta página, si se puede saber: la del capítulo o el título grande
+        serie: c?.serie || cleanSerie(limpio(document.querySelector('h1')?.textContent).slice(0, 80)),
         capitulo: esCapitulo ? { serie: c?.serie || '', numero: c?.numero ?? null, nombre: suggestName(), imagenes: countCandidates() } : null,
         listas: listasDe(links, conocidas),
         siguiente: siguientePagina(),
@@ -255,6 +257,19 @@
         // primero los que lo dicen en su texto, después los que lo dicen en su dirección
         catalogos: [...porTexto, ...porRuta].slice(0, 5).map(l => ({ url: l.url, texto: l.texto || rutaDe(l.url) })),
         sigueCreciendo: sigue,                        // la página seguía cargando más al bajar: puede faltar
+      };
+    },
+
+    // Todas las imágenes del capítulo abierto, con lo que el filtro dejaría afuera y por qué
+    // (`motivo`): para revisarlas a mano antes de bajarlo, como en el diálogo de la extensión
+    revisar: async ({ recorrer = true }) => {
+      if (recorrer) { await scrollThrough(); window.scrollTo(0, 0); }
+      const r = await collectPages();
+      const c = detectChapter();
+      return {
+        paginas: r.pages.map(p => ({ url: p.url, ancho: p.w, alto: p.h, motivo: p.flag || '' })),
+        faltantes: r.failed, capitulo: c ? { serie: c.serie, numero: c.numero } : null,
+        nombre: suggestName(), clave: pageKey(), titulo: limpio(document.title),
       };
     },
 

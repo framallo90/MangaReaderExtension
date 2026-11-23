@@ -1,15 +1,55 @@
 {
   "name": "manga-reader-programa",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Programa de escritorio de Manga Reader: explora una página y guarda capítulos como PDF, CBZ o imágenes.",
   "private": true,
   "main": "src/main.js",
   "scripts": {
     "generar": "node scripts/generar.js",
     "start": "node scripts/abrir.js",
-    "prueba": "node scripts/abrir.js --prueba"
+    "prueba": "node scripts/abrir.js --prueba",
+    "instalador": "node scripts/instalador.js"
   },
   "devDependencies": {
-    "electron": "^45.4.1"
+    "electron": "^45.4.1",
+    "electron-builder": "^26.18.0"
+  },
+  "author": "Manga Reader",
+  "build": {
+    "appId": "ar.mangareader.programa",
+    "productName": "Manga Reader",
+    "files": [
+      "src/**",
+      "generado/**",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Manga Reader",
+      "artifactName": "Manga-Reader-Instalador-${version}.${ext}",
+      "installerLanguages": [
+        "es_ES"
+      ],
+      "language": "3082"
+    },
+    "publish": null
   }
 }

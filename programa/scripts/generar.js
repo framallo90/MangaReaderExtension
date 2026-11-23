@@ -9,7 +9,8 @@
 //                         las funciones de content.js + src/pagina/explorar.js
 //   generado/nucleo.js    las funciones que no necesitan una página (links pegados, nombres)
 //   generado/offscreen.js el armado de PDF, CBZ e imágenes, tal cual
-//   generado/sitios.js    la lectura de una lista de links pegada (para los links guardados), tal cual
+//   generado/sitios.js    la lectura de una lista de links pegada (para los favoritos), tal cual
+//   generado/opciones.js  las sagas escritas como texto y los capítulos que faltan (parseSagas, missingRanges), tal cual
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const raiz = path.join(__dirname, '..', '..');
 const { grab, line } = require(path.join(raiz, 'tests', 'extraer'));
@@ -63,8 +64,11 @@ ${fs.readFileSync(path.join(__dirname, '..', 'src', 'pagina', 'explorar.js'), 'u
 `;
 
 // ── Para el programa mismo (sin página) ──
-const FUNCIONES_NUCLEO = ['sanitizeSegment', 'sanitizePath', 'fmtNum', 'nameFor', 'splitChapterUrl', 'numForms', 'chaptersFromLinks'];
+const FUNCIONES_NUCLEO = ['sanitizeSegment', 'sanitizePath', 'fmtNum', 'nameFor', 'splitChapterUrl', 'numForms', 'chaptersFromLinks',
+  'contextoPlantilla', 'nombrePorPlantilla'];
 const nucleo = `${aviso}${sagas}
+
+${plantilla}
 
 ${[/const SAGAS = /, /let userSagas = /, /let esquemaNombres = /, /const noSlash = /].map(una).join('\n')}
 
@@ -78,7 +82,11 @@ function sagaDe(serie, numero) {
 }
 
 module.exports = { sanitizeSegment, sanitizePath, fmtNum, nameFor, splitChapterUrl, numForms, chaptersFromLinks, sagaDe,
-  setSagas: (s) => { userSagas = s || {}; }, version: ${JSON.stringify(version)} };
+  aplicarPlantilla, plantillaColisiona, marcadoresDesconocidos, PLANTILLA_DEFECTO,
+  setSagas: (s) => { userSagas = s || {}; },
+  // Plantilla de nombres propia. Vacía o igual a la predeterminada es "sin plantilla": el nombre de siempre
+  setEsquema: (t) => { t = String(t || '').trim(); esquemaNombres = t && t !== PLANTILLA_DEFECTO ? t : null; },
+  version: ${JSON.stringify(version)} };
 `;
 
 // Que lo generado al menos sea JavaScript válido, antes de escribirlo
@@ -90,4 +98,5 @@ fs.writeFileSync(path.join(salida, 'pagina.js'), pagina);
 fs.writeFileSync(path.join(salida, 'nucleo.js'), nucleo);
 fs.copyFileSync(path.join(ext, 'offscreen.js'), path.join(salida, 'offscreen.js'));
 fs.copyFileSync(path.join(ext, 'sitios.js'), path.join(salida, 'sitios.js'));
-console.log(`Generado a partir de ${version}: pagina.js (${FUNCIONES_PAGINA.length} funciones), nucleo.js, offscreen.js, sitios.js`);
+fs.copyFileSync(path.join(ext, 'opciones.js'), path.join(salida, 'opciones.js'));
+console.log(`Generado a partir de ${version}: pagina.js (${FUNCIONES_PAGINA.length} funciones), nucleo.js, offscreen.js, sitios.js, opciones.js`);

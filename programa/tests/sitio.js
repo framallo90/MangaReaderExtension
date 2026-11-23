@@ -6,6 +6,8 @@
 //   /serie/alfa/      capítulos separados en "Volumen 1" y "Volumen 2", con el número en la dirección
 //   /serie/beta/      capítulos cuya dirección es un código: el número está solo en el texto del link
 //   /leer/alfa-N/     capítulo con carga diferida de imágenes
+//   /leer/inestable-1/  capítulo con una página que falla al principio (para reintentar)
+//   /leer/avisos-1/   capítulo con un aviso en el medio (para revisar las páginas a mano)
 //   /ver/900000N      capítulo sin número en la dirección ni en el título; su servidor de
 //                     imágenes exige el Referer del sitio
 const http = require('http'), fs = require('fs'), path = require('path');
@@ -112,6 +114,22 @@ function iniciar({ tapas = false } = {}) {
       pedidos.capitulos[u] = (pedidos.capitulos[u] || 0) + 1;
       return +m[1] >= 1 && +m[1] <= 4 ? html(pagina(`Alfa Capítulo ${m[1]} | Sitio de prueba`, menu + imagenes('alfa/' + m[1], true))) : enviar('text/plain', 'no', 404);
     }
+    // Un capítulo con una página que falla las tres primeras veces que se la pide: la primera
+    // bajada queda incompleta y al reintentar sale entera
+    if (u === '/leer/inestable-1/') return html(pagina('Inestable Capítulo 1 | Sitio de prueba', menu + imagenes('inestable/1', false)));
+    if (/^\/img\/inestable\/1\/\d\.jpg$/.test(u)) {
+      // (solo cuenta cuando la pide el armador, que manda "Accept: image/*"; a la página se la entrega siempre)
+      if (u.endsWith('/3.jpg') && req.headers.accept === 'image/*' && (pedidos.inestable = (pedidos.inestable || 0) + 1) <= 3) return enviar('text/plain', 'ocupado', 503);
+      return enviar('image/jpeg', JPG);
+    }
+    // Un capítulo con un aviso en el medio (una imagen que lleva a otro sitio)
+    if (u === '/leer/avisos-1/') {
+      pedidos.avisos = (pedidos.avisos || 0) + 1;
+      const pags = [1, 2, 3, 4, 5, 6].map(k => `<img width="420" height="640" style="display:block" src="/img/avisos/1/${k}.jpg">`);
+      pags.splice(3, 0, '<a href="https://otro-sitio.example/oferta"><img width="420" height="640" style="display:block" src="/img/avisos/1/aviso.jpg"></a>');
+      return html(pagina('Avisos Capítulo 1 | Sitio de prueba', menu + pags.join('\n')));
+    }
+    if (/^\/img\/avisos\/1\/\w+\.jpg$/.test(u)) return enviar('image/jpeg', JPG);
     m = u.match(/^\/ver\/900000([1-3])$/);
     if (m) return html(pagina('Lector', menu + imagenes('beta/' + m[1], false)));
     if (/^\/img\/alfa\/\d\/\d\.jpg$/.test(u) || u === '/tapa.jpg') return enviar('image/jpeg', JPG);
