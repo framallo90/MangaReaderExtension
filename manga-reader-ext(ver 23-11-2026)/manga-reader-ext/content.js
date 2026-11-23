@@ -825,6 +825,10 @@
           <div class="mr-save-count" id="mr-save-count">Buscando páginas…</div>
           <div class="mr-save-warn" id="mr-save-warn"><span id="mr-save-warn-text"></span>
             <button id="mr-save-scan" type="button">Recorrer la página</button></div>
+          <div class="mr-save-orden" id="mr-save-orden" hidden>
+            <button class="mr-orden-btn" id="mr-save-invertir" type="button" title="Da vuelta el orden de las páginas">⇅ Invertir</button>
+            <button class="mr-orden-btn" id="mr-save-ordenar" type="button" title="Las ordena por el número que trae el nombre de cada imagen">Ordenar por número</button>
+          </div>
           <div class="mr-thumbs" id="mr-thumbs"></div>
           <div class="mr-save-btns">
             <button class="mr-save-go" id="mr-save-go" type="button">Guardar</button>
@@ -859,6 +863,8 @@
       sv('#mr-save-go').onclick = () => saveChapter(false);
       sv('#mr-save-next').onclick = () => saveChapter(true);
       sv('#mr-save-scan').onclick = scanPage;
+      sv('#mr-save-invertir').onclick = () => ordenarPaginas('invertir');
+      sv('#mr-save-ordenar').onclick = () => ordenarPaginas('numero');
 
       reachedBottom = atBottom();
       window.addEventListener('scroll', onPageScroll, { passive: true });
@@ -881,10 +887,49 @@
     if (!saveEl || seq !== loadSeq) return;                    // se cerró, o ya hay una búsqueda más nueva
     // Lo tildado se lee DESPUÉS de esperar: así se respetan los clics hechos mientras buscaba
     const prev = new Map(pages.map(p => [p.url, p.on]));
-    pages = found.pages.map(p => ({ ...p, on: prev.has(p.url) ? prev.get(p.url) : !p.flag }));
+    let nuevas = found.pages.map(p => ({ ...p, on: prev.has(p.url) ? prev.get(p.url) : !p.flag }));
+    // Si las cambiaste de lugar, ese orden se respeta al volver a buscar: lo que aparece nuevo va al final
+    if (ordenManual) {
+      const lugar = new Map(pages.map((p, i) => [p.url, i]));
+      nuevas = nuevas.map((p, i) => [p, lugar.has(p.url) ? lugar.get(p.url) : pages.length + i]).sort((a, b) => a[1] - b[1]).map(x => x[0]);
+    }
+    pages = nuevas;
     lastFailed = found.failed;
     lastLocked = found.locked;
     pagesLoaded = true;
+    renderThumbs();
+    refresh();
+  }
+
+  // ── Orden de las páginas ────────────────────────────
+  // El orden de las miniaturas es el del PDF, el del CBZ y el de la numeración de las imágenes
+  // sueltas. Sale del orden en que las páginas están en el sitio, que no siempre es el de
+  // lectura: se pueden arrastrar, mover con ▲▼, invertir u ordenar por el número de su nombre.
+  let ordenManual = false;        // las cambiaste de lugar: ese orden se respeta al volver a buscar
+  let arrastrada = -1;            // la miniatura que se está arrastrando
+
+  function moverPagina(desde, hasta) {
+    if (saving || desde === hasta || desde < 0 || hasta < 0 || desde >= pages.length || hasta >= pages.length) return;
+    pages.splice(hasta, 0, pages.splice(desde, 1)[0]);
+    ordenManual = true;
+    renderThumbs();
+    refresh();
+    sv(`.mr-thumb[data-i="${hasta}"]`)?.focus();               // el foco sigue a la página que se movió
+  }
+
+  // El número que trae el nombre de la imagen ("…/cap-12/007.jpg" → 7): el último que tenga
+  function numeroDeImagen(url) {
+    let nombre = url.split(/[?#]/)[0].split('/').pop() || '';
+    try { nombre = decodeURIComponent(nombre); } catch {}
+    const n = nombre.match(/\d+/g);
+    return n ? parseInt(n[n.length - 1], 10) : Infinity;
+  }
+
+  function ordenarPaginas(como) {
+    if (saving || pages.length < 2) return;
+    if (como === 'invertir') pages.reverse();
+    else pages = pages.map((p, i) => [p, numeroDeImagen(p.url), i]).sort((a, b) => a[1] - b[1] || a[2] - b[2]).map(x => x[0]);
+    ordenManual = true;
     renderThumbs();
     refresh();
   }
@@ -894,22 +939,37 @@
     if (!box) return;
     const top = box.scrollTop;                                 // que no salte arriba al volver a dibujar
     box.innerHTML = pages.map((p, i) => `
-      <button class="mr-thumb ${p.on ? 'on' : 'off'}" data-i="${i}" type="button"
-              title="${esc(p.flag ? `Posible publicidad: ${p.flag}` : `Página ${i + 1}`)} · clic para ${p.on ? 'quitar' : 'incluir'}">
-        <img src="${esc(p.url)}" loading="lazy" alt="">
+      <button class="mr-thumb ${p.on ? 'on' : 'off'}" data-i="${i}" type="button" draggable="true"
+              title="${esc(p.flag ? `Posible publicidad: ${p.flag}` : `Página ${i + 1}`)} · clic para ${p.on ? 'quitar' : 'incluir'} · arrastrala o usá ▲▼ para cambiarla de lugar">
+        <img src="${esc(p.url)}" loading="lazy" alt="" draggable="false">
         <span class="mr-thumb-n">${i + 1}</span>
+        <span class="mr-thumb-mv" data-mv="-1" title="Mover antes">▲</span><span class="mr-thumb-mv" data-mv="1" title="Mover después">▼</span>
         ${p.flag ? '<span class="mr-thumb-ad">AD</span>' : ''}
       </button>`).join('');
     box.scrollTop = top;
+    const soltar = () => { arrastrada = -1; box.querySelectorAll('.mr-arrastrando, .mr-destino').forEach(x => x.classList.remove('mr-arrastrando', 'mr-destino')); };
     box.querySelectorAll('.mr-thumb').forEach(b => {
-      b.onclick = () => {
+      const i = +b.dataset.i;
+      b.onclick = (e) => {
         if (saving) return;
-        const p = pages[+b.dataset.i];
+        const mv = e.target.closest('[data-mv]');
+        if (mv) return moverPagina(i, i + +mv.dataset.mv);      // ▲▼: cambia de lugar, no la quita
+        const p = pages[i];
         p.on = !p.on;
         b.classList.toggle('on', p.on);
         b.classList.toggle('off', !p.on);
         refresh();
       };
+      b.ondragstart = (e) => {
+        if (saving) return e.preventDefault();
+        arrastrada = i;
+        b.classList.add('mr-arrastrando');
+        try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(i)); } catch {}
+      };
+      b.ondragover = (e) => { if (arrastrada >= 0 && arrastrada !== i) { e.preventDefault(); b.classList.add('mr-destino'); } };
+      b.ondragleave = () => b.classList.remove('mr-destino');
+      b.ondrop = (e) => { e.preventDefault(); const desde = arrastrada; soltar(); moverPagina(desde, i); };
+      b.ondragend = soltar;
     });
   }
 
@@ -937,6 +997,7 @@
     } else if (pagesLoaded) {
       count.textContent = 'No encontré páginas · bajá hasta el final del capítulo';
     }
+    sv('#mr-save-orden').hidden = pages.length < 2 || lastLocked;
     const blocked = saving || (!pdf && !cbz && !imgs) || !onCount;
     sv('#mr-save-go').disabled = blocked;
     sv('#mr-save-next').disabled = blocked;
@@ -1010,6 +1071,7 @@
   function closeSaveDialog() {
     if (saveEl) { saveEl.remove(); saveEl = null; }
     pages = []; pagesLoaded = false; lastFailed = 0; lastLocked = false; loadSeq++;
+    ordenManual = false; arrastrada = -1;
     clearTimeout(reloadTimer);
     window.removeEventListener('scroll', onPageScroll);
     document.removeEventListener('load', onImageLoad, true);

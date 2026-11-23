@@ -9,8 +9,45 @@
 const fs = require('fs'), path = require('path'), http = require('http');
 const { lanzar, lote, pdfPages, sleep, root, ultimaVersion, RAIZ } = require('./navegador');
 
+const zlib = require('zlib');
 const FIXTURES = path.join(__dirname, 'fixtures');
 const JPG = fs.readFileSync(path.join(FIXTURES, 'pagina.jpg'));       // 420×640
+
+// Una imagen PNG gris de ese tamaño. En la serie "orden" cada página tiene un tamaño distinto,
+// para poder leer en el PDF y en el CBZ en qué orden quedaron.
+function pngGris(w, h, tono) {
+  const trozo = (tipo, datos) => {
+    const largo = Buffer.alloc(4); largo.writeUInt32BE(datos.length);
+    const cuerpo = Buffer.concat([Buffer.from(tipo, 'latin1'), datos]);
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(zlib.crc32(cuerpo));
+    return Buffer.concat([largo, cuerpo, crc]);
+  };
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8;
+  const filas = Buffer.alloc((w + 1) * h, tono);
+  for (let y = 0; y < h; y++) { filas[y * (w + 1)] = 0; if (y % 40 < 6) filas.fill(40, y * (w + 1) + 21, y * (w + 1) + w - 20); }
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]), trozo('IHDR', ihdr), trozo('IDAT', zlib.deflateSync(filas)), trozo('IEND', Buffer.alloc(0))]);
+}
+// Página 1: 420×640 (JPG) · página 2: 400×600 · página 3: 380×560
+const DE_ORDEN = { 1: JPG, 2: pngGris(400, 600, 230), 3: pngGris(380, 560, 200) };
+const TAMANOS = { '420x640': 1, '400x600': 2, '380x560': 3 };
+
+// En qué orden quedaron las páginas de la serie "orden" en un PDF ("3,2,1"): cada página del PDF
+// mide lo mismo que su imagen
+function pdfOrden(archivo) {
+  const t = fs.readFileSync(archivo).toString('latin1');
+  return (t.match(/\/MediaBox \[0 0 [\d.]+ [\d.]+\]/g) || []).map(s => { const [w, h] = s.slice(15, -1).split(' ').map(Math.round); return TAMANOS[`${w}x${h}`] || '?'; }).join(',');
+}
+// Y en un CBZ: el nombre de cada entrada con la página que es ("001=3 002=2 003=1"), por su tamaño en bytes
+function cbzOrden(archivo) {
+  const b = fs.readFileSync(archivo), fin = b.length - 22, cual = new Map(Object.entries(DE_ORDEN).map(([n, d]) => [d.length, n])), out = [];
+  let p = b.readUInt32LE(fin + 16);
+  for (let i = 0; i < b.readUInt16LE(fin + 10); i++) {
+    const n = b.readUInt16LE(p + 28), nombre = b.subarray(p + 46, p + 46 + n).toString();
+    if (!/\.xml$/.test(nombre)) out.push(`${nombre.replace(/\.\w+$/, '')}=${cual.get(b.readUInt32LE(p + 24)) || '?'}`);
+    p += 46 + n + b.readUInt16LE(p + 30) + b.readUInt16LE(p + 32);
+  }
+  return out.join(' ');
+}
 
 // Sitio de prueba, en dos puertos: el segundo es "otro sitio" (otro origen) para el iframe del
 // lector, y en las páginas se escribe %OTRO% donde va su dirección. `pedidos` cuenta lo que se
@@ -36,6 +73,8 @@ async function sitio(pedidos = {}, estado = { rotos: new Set(), imagen: null }) 
       if (mal) return send('text/html; charset=utf-8', '<!doctype html><meta charset="UTF-8"><title>Esperá</title><p>Demasiados pedidos.</p>', mal.status, mal.headers || {});
       return pagina('capitulo.html');
     }
+    m = u.match(/^\/fx\/img\/orden\/\d+\/([123])\.jpg$/);       // dicen .jpg, pero dos son PNG: la extensión mira el contenido
+    if (m) return send(m[1] === '1' ? 'image/jpeg' : 'image/png', DE_ORDEN[m[1]]);
     if (/^\/fx\/img\/[\w/-]+\.jpg$/.test(u)) {
       const mal = estado.imagen ? estado.imagen(u, req) : null;
       return mal ? send('text/plain', 'no', mal.status, mal.headers || {}) : send('image/jpeg', JPG);
@@ -322,6 +361,50 @@ const AREAS = {
     await pg.close();
     estado.rotos = new Set();
     await b.ext.eval(`chrome.storage.local.remove(['cola', 'ritmo']); chrome.notifications.clear('mr-lote')`);
+  },
+
+  // ═══ 6. El orden de las páginas ═══
+  async orden({ b, S, eq }) {
+    console.log('\n── 2.11 · El orden de las páginas: arrastrar, ▲▼, invertir y ordenar por número');
+    const url = S + '/fx/orden/leer/1?pags=3';
+    // El orden de las miniaturas, por el número de la imagen de cada una
+    const ORDEN = `[...document.querySelectorAll('#mr-save .mr-thumb img')].map(i => i.src.match(/(\\d)\\.jpg$/)[1]).join(',')`;
+    const abrir = async () => {
+      const pg = await b.cdp.open(url);
+      await pg.waitFor(`document.readyState === 'complete'`, 'el capítulo de 3 páginas');
+      await pedir(b, url, 'save');
+      await pg.waitFor(`document.querySelectorAll('#mr-save .mr-thumb.on').length >= 3 && !/Recorriendo|Buscando/.test(document.querySelector('#mr-save-count').textContent)`, 'las 3 miniaturas', 30000);
+      return pg;
+    };
+    const guardar = async (pg, nombre, cbz) => {
+      await pg.eval(`(() => { const n = document.querySelector('#mr-save-name'); n.value = ${JSON.stringify(nombre)}; n.dispatchEvent(new Event('input', { bubbles: true }));
+        if (document.querySelector('#mr-save-cbz').checked !== ${!!cbz}) document.querySelector('#mr-save-cbz').click(); document.querySelector('#mr-save-go').click(); })()`);
+      await pg.waitFor(`/success|error/.test(document.querySelector('#mr-save-status').className)`, 'el guardado', 60000);
+    };
+    const archivo = (nombre, ext) => path.join(b.dl, 'MangaReader', nombre + '.' + ext);
+
+    const p1 = await abrir();
+    eq('3 páginas: salen en el orden de la página', await p1.eval(ORDEN), '1,2,3');
+    await p1.eval(`document.querySelector('#mr-save-invertir').click()`);
+    eq('Invertir da vuelta las miniaturas, y cada una dice su lugar nuevo', await p1.eval(ORDEN) + ' · ' + await p1.eval(`[...document.querySelectorAll('#mr-save .mr-thumb-n')].map(n => n.textContent).join(',')`), '3,2,1 · 1,2,3');
+    await guardar(p1, 'Orden/Invertido', true);
+    eq('  el PDF sale 3, 2, 1', pdfOrden(archivo('Orden/Invertido', 'pdf')), '3,2,1');
+    eq('  y el CBZ numera en ese orden', cbzOrden(archivo('Orden/Invertido', 'cbz')), '001=3 002=2 003=1');
+    await p1.eval(`document.querySelector('#mr-save-ordenar').click()`);
+    eq('Ordenar por número las deja por el número del nombre de cada imagen', await p1.eval(ORDEN), '1,2,3');
+    await p1.eval(`document.querySelector('#mr-save .mr-thumb[data-i="0"] [data-mv="1"]').click()`);
+    eq('▼ en la primera la pasa al segundo lugar, sin destildarla', await p1.eval(ORDEN) + ' · tildadas: ' + await p1.eval(`document.querySelectorAll('#mr-save .mr-thumb.on').length`), '2,1,3 · tildadas: 3');
+    await p1.eval(`document.querySelector('#mr-save .mr-thumb[data-i="2"] [data-mv="-1"]').click()`);
+    eq('▲ en la última la sube un lugar', await p1.eval(ORDEN), '2,3,1');
+    await p1.close();
+
+    const p2 = await abrir();
+    await p2.eval(`(() => { const t = (i) => document.querySelector('#mr-save .mr-thumb[data-i="' + i + '"]'), ev = (tipo) => new DragEvent(tipo, { bubbles: true, cancelable: true });
+      t(0).dispatchEvent(ev('dragstart')); t(2).dispatchEvent(ev('dragover')); t(2).dispatchEvent(ev('drop')); })()`);
+    eq('arrastrar la primera al final', await p2.eval(ORDEN), '2,3,1');
+    await guardar(p2, 'Orden/Arrastrado', false);
+    eq('  el PDF sale 2, 3, 1', pdfOrden(archivo('Orden/Arrastrado', 'pdf')), '2,3,1');
+    await p2.close();
   },
 };
 

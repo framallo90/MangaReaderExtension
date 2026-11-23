@@ -121,6 +121,25 @@
   font: 700 8px 'Segoe UI', system-ui, sans-serif; padding: 1px 3px; border-radius: 3px;
 }
 
+/* Cambiar el orden de las páginas: los botones de arriba de la grilla y ▲▼ en cada miniatura */
+#mr-save .mr-save-orden { display: flex; gap: 6px; }
+#mr-save .mr-save-orden[hidden] { display: none; }
+#mr-save .mr-orden-btn {
+  padding: 4px 8px; margin: 0; border: 1px solid #2a3a5e; border-radius: 5px; width: auto; height: auto;
+  background: #16213e; color: #e0e0e0; font: 11px 'Segoe UI', system-ui, sans-serif; cursor: pointer;
+}
+#mr-save .mr-orden-btn:hover { border-color: #667eea; color: #fff; }
+#mr-save .mr-thumb-mv {
+  position: absolute; top: 2px; width: 15px; height: 15px; line-height: 15px; text-align: center; border-radius: 3px;
+  background: rgba(0,0,0,.8); color: #fff; font: 9px 'Segoe UI', system-ui, sans-serif; opacity: 0;
+}
+#mr-save .mr-thumb-mv[data-mv="-1"] { left: 2px; }
+#mr-save .mr-thumb-mv[data-mv="1"] { left: 19px; }
+#mr-save .mr-thumb-mv:hover { background: #667eea; }
+#mr-save .mr-thumb:hover .mr-thumb-mv, #mr-save .mr-thumb:focus-visible .mr-thumb-mv { opacity: 1; }
+#mr-save .mr-thumb.mr-arrastrando { opacity: .35; }
+#mr-save .mr-thumb.mr-destino { outline: 2px dashed #a0c4ff; outline-offset: 1px; }
+
 /* ── Avisos del diálogo ─────────────────────── */
 #mr-save .mr-save-seen { font-size: 11px; color: #2ecc71; }
 #mr-save .mr-save-seen:empty { display: none; }
