@@ -35,7 +35,9 @@ async function ir(url, nivel = ruta.length, buscarCatalogo = false) {
     let r = await mr.analizar(url), entre = '';
     ruta = ruta.slice(0, nivel);
     ruta.push({ url: r.url, titulo: r.titulo || r.url });
-    if (buscarCatalogo && !r.capitulo && r.catalogos?.length && esPortada(r.url)) {
+    // (en la portada de un sitio, una página "con pinta de capítulo" pero sin número de capítulo
+    // en el título ni en la dirección es más probablemente una portada con imágenes grandes)
+    if (buscarCatalogo && !(r.capitulo && r.capitulo.numero !== null) && r.catalogos?.length && esPortada(r.url)) {
       const c = r.catalogos[0];
       estado(`Encontré el catálogo ("${c.texto}"). Abriéndolo…`, 'trabajando');
       try {
@@ -121,8 +123,9 @@ function dibujar() {
     $('capDatos').textContent = c.imagenes ? `unas ${c.imagenes} imágenes` : '';
   }
 
-  // Links al listado completo del sitio, si la página los tiene
-  const pistas = actual && !actual.capitulo ? (actual.catalogos || []) : [];
+  // Links al listado completo del sitio, si la página los tiene (también cuando parece un
+  // capítulo: si en realidad era una portada, por acá se sale)
+  const pistas = actual?.catalogos || [];
   $('pistas').hidden = !pistas.length;
   $('pistas').replaceChildren(el('span', { className: 'tenue', textContent: '¿Buscás el listado completo? Probá:' }), ...pistas.map(c => {
     const b = el('button', { type: 'button', textContent: c.texto + ' ›', title: c.url });
@@ -240,8 +243,9 @@ async function usarLinks() {
   }
 }
 
-// ── Links guardados ──
-// Tu lista de direcciones (sitios, catálogos, series). Tocar una la analiza como si la pegaras arriba.
+// ── Favoritos ──
+// Tu lista de direcciones (sitios, catálogos, series). Se cargan pegando un link o muchos en el
+// cuadro del panel, y tocar uno lo analiza como si lo pegaras arriba.
 let guardados = [];
 let quitarTodosArmado = 0;        // "Quitar todos" pide un segundo toque: este es el temporizador que lo desarma
 const sinProtocolo = (u) => String(u).replace(/^https?:\/\/(www\.)?/i, '').replace(/\/$/, '');
@@ -252,47 +256,49 @@ function avisoGuardados(texto, clase = '') {
 function dibujarGuardados() {
   const q = $('guardadosFiltro').value.trim().toLowerCase();
   const ver = guardados.filter(s => !q || `${s.nombre} ${s.url} ${s.descripcion || ''}`.toLowerCase().includes(q));
-  $('verGuardados').textContent = guardados.length ? `⭐ Guardados (${guardados.length})` : '⭐ Guardados';
-  $('guardadosCuenta').textContent = !guardados.length ? '' : q ? `${ver.length} de ${guardados.length}` : plural(guardados.length, 'link', 'links');
-  $('guardadosFiltro').hidden = $('quitarTodos').hidden = !guardados.length;
-  if (!guardados.length) $('cargar').hidden = false;                 // sin nada guardado, el cuadro para cargar queda a la vista
+  $('verGuardados').textContent = guardados.length ? `⭐ Favoritos (${guardados.length})` : '⭐ Favoritos';
+  $('guardadosCuenta').textContent = q ? `${ver.length} de ${guardados.length}` : plural(guardados.length, 'favorito', 'favoritos');
+  $('guardadosBarra').hidden = !guardados.length;
   $('guardadosLista').replaceChildren(...(ver.length ? ver.map(s => {
     const abrir = el('button', { type: 'button', className: 'g-abrir', title: `Analizar ${s.url}` },
       el('span', { className: 'g-nombre', textContent: s.nombre }),
       el('span', { className: 'g-datos', textContent: sinProtocolo(s.url) + (s.descripcion ? ' · ' + s.descripcion : '') }));
     abrir.addEventListener('click', () => { $('guardados').hidden = true; $('url').value = s.url; ir(s.url, 0, true); });
-    const quitar = el('button', { type: 'button', className: 'g-quitar', textContent: '✕', title: 'Quitar de la lista' });
+    const quitar = el('button', { type: 'button', className: 'g-quitar', textContent: '✕', title: 'Quitar de favoritos' });
     quitar.addEventListener('click', async () => { guardados = await mr.quitarLinks([s.url]); dibujarGuardados(); });
     return el('div', { className: 'guardado' }, abrir, quitar);
   }) : [el('div', { className: 'vacio', textContent: guardados.length ? 'Nada coincide con la búsqueda.'
-    : 'Todavía no guardaste ningún link. Guardá la dirección que estés mirando o cargá una lista.' })]));
+    : 'Todavía no tenés favoritos. Pegá un link o muchos en el cuadro de arriba y quedan guardados.' })]));
 }
-// Guarda la dirección de arriba, con el título de la página si ya se analizó
+// Guarda la dirección del cuadro de arriba, con el título de la página si ya se analizó
 async function guardarActual() {
   let url = $('url').value.trim();
-  if (!url) return avisoGuardados('Escribí o pegá una dirección arriba.', 'error');
+  if (!url) return avisoGuardados('Escribí o pegá una dirección en el cuadro de arriba.', 'error');
   if (!/^[a-z][a-z0-9+.-]*:/i.test(url)) url = 'https://' + url;
   const nombre = actual && actual.url === url ? (actual.titulo || '') : '';
   try {
     const r = await mr.guardarLinks({ sitio: { nombre, url } });
     guardados = r.lista;
     dibujarGuardados();
-    avisoGuardados(r.agregados ? 'Guardada.' : 'Esa dirección ya estaba en tu lista.', r.agregados ? 'bien' : '');
+    avisoGuardados(r.agregados ? 'Guardada en favoritos.' : 'Esa dirección ya estaba en tus favoritos.', r.agregados ? 'bien' : '');
   } catch (e) {
     avisoGuardados('⚠️ ' + e.message, 'error');
   }
 }
-// Suma a la lista los links de un texto pegado
+// Guarda en favoritos los links del cuadro: uno o muchos, escritos como vengan. Si se pudo
+// guardar alguno (o ya estaban todos), el cuadro queda vacío para pegar otra tanda.
 async function agregarLista() {
+  if (!$('listaLinks').value.trim()) return avisoGuardados('Pegá un link o muchos en el cuadro.', 'error');
   try {
     const r = await mr.guardarLinks({ texto: $('listaLinks').value });
     guardados = r.lista;
-    if (r.agregados) { $('listaLinks').value = ''; $('cargar').hidden = true; }
+    $('listaLinks').value = '';
+    $('guardadosFiltro').value = '';
     dibujarGuardados();
-    avisoGuardados((r.agregados ? `Agregué ${plural(r.agregados, 'link', 'links')}.` : 'No agregué ninguno.') +
+    avisoGuardados((r.agregados ? `Guardé ${plural(r.agregados, 'link', 'links')} en favoritos.` : 'No guardé ninguno.') +
       (r.repetidos ? ` ${plural(r.repetidos, 'ya estaba o venía repetido', 'ya estaban o venían repetidos')}.` : ''), r.agregados ? 'bien' : '');
   } catch (e) {
-    avisoGuardados('⚠️ ' + e.message, 'error');
+    avisoGuardados('⚠️ ' + e.message, 'error');           // el texto queda en el cuadro, para corregirlo
   }
 }
 function quitarTodos() {
@@ -300,7 +306,7 @@ function quitarTodos() {
   if ($('quitarTodos').dataset.armado) {
     delete $('quitarTodos').dataset.armado;
     $('quitarTodos').textContent = 'Quitar todos';
-    mr.quitarLinks('todos').then((l) => { guardados = l; dibujarGuardados(); avisoGuardados('Quité todos los links.'); });
+    mr.quitarLinks('todos').then((l) => { guardados = l; $('guardadosFiltro').value = ''; dibujarGuardados(); avisoGuardados('Quité todos los favoritos.'); });
     return;
   }
   $('quitarTodos').dataset.armado = '1';
@@ -322,11 +328,13 @@ $('verGuardados').addEventListener('click', () => {
   $('guardados').hidden = !$('guardados').hidden;
   $('pegar').hidden = true;
   avisoGuardados('');
-  if (!$('guardados').hidden) (guardados.length ? $('guardadosFiltro') : $('listaLinks')).focus();
+  if (!$('guardados').hidden) $('listaLinks').focus();          // listo para pegar con Ctrl+V
 });
 $('guardarActual').addEventListener('click', guardarActual);
-$('verCargar').addEventListener('click', () => { $('cargar').hidden = !$('cargar').hidden; if (!$('cargar').hidden) $('listaLinks').focus(); });
 $('agregarLista').addEventListener('click', agregarLista);
+// Pegar en el cuadro guarda directamente (cuando el texto pegado ya está en el cuadro)
+$('listaLinks').addEventListener('paste', () => setTimeout(agregarLista, 0));
+$('listaLinks').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); agregarLista(); } });
 $('guardadosFiltro').addEventListener('input', dibujarGuardados);
 $('quitarTodos').addEventListener('click', quitarTodos);
 $('filtro').addEventListener('input', dibujar);

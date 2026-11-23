@@ -5,7 +5,7 @@ Dos herramientas para guardar capítulos de manga y cómics como **PDF**, **CBZ*
 | | Qué es | Versión | Dónde está |
 |---|---|---|---|
 | 🧩 **La extensión** | Se usa desde Chrome, sobre la página que tenés abierta | 2.10.0 | `manga-reader-ext(ver 22-11-2026-7)/manga-reader-ext` |
-| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.3.0 | `programa/` |
+| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.4.0 | `programa/` |
 
 Funcionan por separado y comparten el mismo código para detectar páginas, armar nombres y generar los archivos. Son de uso personal, están en español y todo corre en tu máquina, sin servidor.
 
@@ -185,13 +185,13 @@ Aplicación de escritorio para Windows, hecha con Electron y JavaScript plano. H
 | | |
 |---|---|
 | 🔎 **Explorar por niveles** | De una página saca sus listas de links: títulos, capítulos numerados y en orden, y páginas. La flecha › de cada renglón baja un nivel |
-| 🗃 **Encontrar el catálogo** | Si pegás la portada de un sitio y tiene un link a su listado completo ("Directorio", "Biblioteca"), entra solo |
+| 🗃 **Encontrar el catálogo** | Si pegás la portada de un sitio y tiene un link a su listado completo ("Directorio", "Biblioteca"), entra solo. Una portada llena de tapas no la confunde con un capítulo |
 | 📑 **Listados largos** | Baja hasta el final para ver lo que la página carga de a poco, y con "Traer más páginas" junta las páginas siguientes en una sola lista |
 | 📚 **Volúmenes y sagas** | Si la página separa los capítulos en volúmenes o sagas, aparecen agrupados y se tilda el grupo entero |
 | 📦 **Cola de descargas** | Baja de a un capítulo, muestra en qué anda cada uno y se puede cancelar |
 | 📁 **Carpeta a elección** | Guarda donde quieras, y saltea lo que ya está mirando el disco |
 | 🔗 **Pegar links** | Igual que en la extensión: una lista de links con el número de cada uno |
-| ⭐ **Links guardados** | Tu lista de sitios, catálogos y series: se carga de a uno o pegando una lista entera, y cada link se analiza con un clic |
+| ⭐ **Favoritos** | Tu lista de sitios, catálogos y series: pegás un link o muchos y quedan guardados; cada uno se analiza con un clic |
 | 📄 **Mismos formatos y nombres** | PDF, CBZ e imágenes, como `Serie/Saga/Serie 0012` |
 
 ## Cómo abrirlo
@@ -211,11 +211,11 @@ npm start
 3. Si el listado sigue en más páginas, tocá **Traer más páginas**.
 4. Tildá lo que querés, elegí formatos y carpeta a la derecha, y tocá **Descargar**.
 
-Para no pegar siempre las mismas direcciones está **⭐ Guardados**:
+Para no pegar siempre las mismas direcciones está **⭐ Favoritos**. Al abrirlo aparecen el cuadro para pegar y, debajo, tu lista:
 
-- **＋ Guardar esta dirección** suma la que estás mirando.
-- **Cargar una lista** acepta muchos links pegados juntos, uno por renglón y escritos como los tengas (`Nombre: https://sitio.com/ — nota`), igual que "Mis sitios" en la extensión. También sirve el archivo de sitios que exporta la extensión.
-- **Tocar un link guardado** lo analiza. Se puede buscar en la lista, quitar de a uno o todos.
+- **Pegá un link o muchos** en el cuadro y quedan guardados en el momento, todos juntos. Uno por renglón y escritos como los tengas (`Nombre: https://sitio.com/ — nota`), igual que "Mis sitios" en la extensión. También sirve el archivo de sitios que exporta la extensión.
+- **＋ La dirección de arriba** guarda la que estás mirando.
+- **Tocar un favorito** lo analiza. Se puede buscar en la lista, quitar de a uno o todos.
 
 Lo que todavía le falta y cómo está armado: [programa/README.md](programa/README.md).
 
@@ -224,6 +224,12 @@ Lo que todavía le falta y cómo está armado: [programa/README.md](programa/REA
 # Actualizaciones
 
 Lo más nuevo arriba. El historial completo de la extensión está en la sección 15 de [DOCUMENTACION.md](DOCUMENTACION.md).
+
+### 22-11-2026 · Programa 0.4.0
+
+- **Una portada llena de tapas ya no pasa por capítulo.** Antes, al pegar la portada de un sitio con muchas tapas, el programa ofrecía "Descargar este capítulo" y no buscaba el catálogo. Ahora reconoce las tapas (imágenes que llevan cada una a la página de su serie), muestra los títulos y entra al listado completo.
+- **Encuentra mejor el listado completo:** también cuando el link tiene un ícono pegado al texto, cuando no tiene texto, o cuando lo dice su dirección (`/biblioteca`, `/directorio`, `/library`, `/series`…). El acceso "¿Buscás el listado completo?" ahora se muestra en cualquier página.
+- **"Guardados" pasa a llamarse Favoritos.** Al abrirlo, el cuadro para pegar ya está a la vista: se pega un link o muchos y quedan guardados en el momento, sin más pasos.
 
 ### 22-11-2026 · Programa 0.3.0
 

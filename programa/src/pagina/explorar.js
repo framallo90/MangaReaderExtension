@@ -9,6 +9,11 @@
   const ARCHIVO_RE = /\.(?:x?html?|shtml|php\d?|aspx?|jsp|cgi)$/i;
   // Links que suelen llevar al listado completo de un sitio (la portada muestra solo una parte)
   const CATALOGO_RE = /^(?:cat[aá]logo|directorio|biblioteca|listado|library|directory|browse|a\s*-\s*z|(?:lista|listado) de (?:mangas?|series|c[oó]mics|t[ií]tulos)|(?:tod[oa]s )?l[oa]s (?:mangas?|series|c[oó]mics|t[ií]tulos)|all (?:manga|series|comics|titles)|series|mangas?|c[oó]mics|t[ií]tulos)$/i;
+  // Lo mismo, cuando el texto del link no lo dice (un ícono, "Explorar") pero su dirección sí
+  const CATALOGO_RUTA_RE = /^\/(?:[a-z]{2}\/)?(?:cat[aá]logo|directorio|biblioteca|listado|library|directory|browse|lista-de-(?:mangas?|series|comics)|series|mangas?|comics|titulos)\/?$/i;
+  // El texto de un link sin lo que tenga pegado adelante o atrás que no sea letra (un ícono, "»")
+  const sinAdornos = (s) => String(s || '').replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+  const IMAGEN_RE = /\.(?:jpe?g|png|webp|gif|avif|bmp)$/i;
   const esPaginacion = (u) => [...u.searchParams].some(([k, v]) => /^(?:page|pagina|pag|p)$/i.test(k) && /^\d+$/.test(v));
 
   // Baja hasta el final para que aparezca lo que la página carga a medida que se baja (los
@@ -57,7 +62,7 @@
       const url = u.href.split('#')[0];
       const clave = noSlash(url);
       if (clave === aqui) continue;
-      const texto = limpio(el.textContent) || limpio(el.title) || limpio(el.querySelector('img')?.alt);
+      const texto = limpio(el.textContent) || limpio(el.getAttribute('aria-label')) || limpio(el.title) || limpio(el.querySelector('img')?.alt);
       const ya = porUrl.get(clave);
       if (ya) { if (!ya.texto && texto) ya.texto = texto; continue; }
       const s = splitChapterUrl(url);
@@ -157,6 +162,56 @@
     return '';
   }
 
+  // ¿Las imágenes grandes de esta página son las tapas de un listado, y no las páginas de un
+  // capítulo? Una tapa es una imagen que lleva a otra página del sitio (la de su serie): el
+  // link la envuelve o está en su tarjeta. Las páginas de un capítulo no son links o, si lo
+  // son, llevan a la imagen en grande, a una parte de esta misma página o todas al mismo
+  // lado (el capítulo siguiente): ahí un mismo destino junta muchas imágenes distintas,
+  // mientras que el de una tapa junta una sola, aunque la portada la repita en dos secciones.
+  // Es un listado si hay tapas y, sacándolas, no queda nada con forma de capítulo (tres
+  // imágenes grandes en una misma carpeta). Así un capítulo con tapas de "otras series" al
+  // final sigue siendo un capítulo.
+  function pareceListado() {
+    const grandes = [...document.querySelectorAll('img')].filter(img =>
+      imgUrl(img) && !(img.complete && img.naturalWidth && (img.naturalWidth < MIN_SIDE || img.naturalHeight < MIN_SIDE)));
+    if (grandes.length < 3) return false;
+    const esGrande = new Set(grandes);
+    // El link de una imagen: el que la envuelve o, si no, el de su tarjeta (el bloque más
+    // chico que tiene un link y ninguna otra imagen grande)
+    const linkDe = (img) => {
+      let a = img.closest('a[href]');
+      for (let el = img.parentElement, k = 0; !a && el && k < 4; el = el.parentElement, k++) {
+        if ([...el.querySelectorAll('img')].filter(i => esGrande.has(i)).length > 1) break;
+        a = el.querySelector('a[href]');
+      }
+      return a;
+    };
+    const aca = noSlash(location.href.split('#')[0]);
+    const destinoDe = new Map(), imagenesDe = new Map();      // imagen → destino · destino → imágenes distintas que llevan ahí
+    for (const img of grandes) {
+      const a = linkDe(img);
+      if (!a) continue;
+      let u;
+      try { u = new URL(a.getAttribute('href'), document.baseURI); } catch { continue; }
+      const destino = noSlash(u.href.split('#')[0]);
+      if (u.origin !== location.origin || IMAGEN_RE.test(u.pathname)) continue;                       // un aviso, o la imagen en grande
+      if (destino === aca || u.pathname === location.pathname) continue;                             // esta misma página
+      if (location.pathname.length > 1 && destino.startsWith(aca + '/')) continue;                    // una parte de esta página (…/capitulo-5/pagina/2)
+      destinoDe.set(img, destino);
+      if (!imagenesDe.has(destino)) imagenesDe.set(destino, new Set());
+      imagenesDe.get(destino).add(imgUrl(img));
+    }
+    const esTapa = (img) => destinoDe.has(img) && imagenesDe.get(destinoDe.get(img)).size <= 2;
+    if (grandes.filter(esTapa).length < 3) return false;
+    const carpetas = new Map();
+    for (const img of grandes) {
+      if (esTapa(img)) continue;
+      const d = urlDir(imgUrl(img));
+      carpetas.set(d, (carpetas.get(d) || 0) + 1);
+    }
+    return Math.max(0, ...carpetas.values()) < 3;
+  }
+
   const comandos = {
     // Imágenes que parecen páginas (cargadas o no) y links: para saber cuándo la página terminó de armarse
     contar: () => ({ imagenes: countCandidates(), links: document.querySelectorAll('a[href]').length, listo: document.readyState === 'complete' }),
@@ -164,16 +219,21 @@
     explorar: async ({ conocidas = [] } = {}) => {
       const sigue = await bajarTodo();                // primero, que aparezca lo que carga al bajar
       const c = detectChapter();
-      const esCapitulo = looksLikeChapter() || (countCandidates() >= 5 && !!c);
+      // Muchas imágenes grandes no alcanzan: la portada de un sitio también las tiene (las tapas)
+      const esCapitulo = (looksLikeChapter() || (countCandidates() >= 5 && !!c)) && !pareceListado();
       const links = juntarLinks();
       const aca = location.origin;
+      const rutaDe = (url) => { try { return decodeURIComponent(new URL(url).pathname); } catch { return ''; } };
+      const porTexto = links.filter(l => l.url.startsWith(aca + '/') && CATALOGO_RE.test(sinAdornos(l.texto)));
+      const porRuta = links.filter(l => l.url.startsWith(aca + '/') && !porTexto.includes(l) && CATALOGO_RUTA_RE.test(rutaDe(l.url)));
       return {
         url: location.href.split('#')[0], titulo: limpio(document.title),
         capitulo: esCapitulo ? { serie: c?.serie || '', numero: c?.numero ?? null, nombre: suggestName(), imagenes: countCandidates() } : null,
         listas: listasDe(links, conocidas),
         siguiente: siguientePagina(),
-        // Links del mismo sitio que parecen llevar al listado completo ("Directorio", "Biblioteca"…)
-        catalogos: links.filter(l => l.url.startsWith(aca + '/') && CATALOGO_RE.test(l.texto)).slice(0, 5).map(l => ({ url: l.url, texto: l.texto })),
+        // Links del mismo sitio que parecen llevar al listado completo ("Directorio", "Biblioteca"…):
+        // primero los que lo dicen en su texto, después los que lo dicen en su dirección
+        catalogos: [...porTexto, ...porRuta].slice(0, 5).map(l => ({ url: l.url, texto: l.texto || rutaDe(l.url) })),
         sigueCreciendo: sigue,                        // la página seguía cargando más al bajar: puede faltar
       };
     },

@@ -30,7 +30,7 @@ function guardarConfig(c) {
   return config;
 }
 
-// ── Links guardados ──────────────────────────────────
+// ── Favoritos (los links guardados) ──────────────────
 // La lista de direcciones del usuario (sitios, catálogos, series), para no tener que pegarlas
 // cada vez. Se carga como "Mis sitios" en la extensión: de a una, o pegando una lista entera.
 let guardados = [];          // [{nombre, url, descripcion, tipo, idiomas}]

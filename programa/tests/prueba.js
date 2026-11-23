@@ -15,6 +15,8 @@ module.exports = async function probar(api) {
   };
   const sitio = await iniciar();
   const S = sitio.url;
+  const tapas = await iniciar({ tapas: true });       // otro sitio, con la portada llena de tapas
+  const T = tapas.url;
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mr-programa-'));
   const lista = (r, tipo) => r.listas.find(l => l.tipo === tipo);
   const ls = (rel) => { try { return fs.readdirSync(path.join(tmp, rel)).sort().join(' | '); } catch { return '(no existe)'; } };
@@ -88,7 +90,22 @@ module.exports = async function probar(api) {
     api.limpiar();
     eq('sin formato elegido: lo dice', (() => { try { api.encolar(caps.items, { carpeta: tmp, formatos: { pdf: false, cbz: false, imgs: false } }); return 'sin error'; } catch (e) { return e.message; } })(), 'Elegí al menos un formato');
 
-    console.log('\n── Links guardados');
+    // La portada de un sitio suele ser una grilla de tapas: imágenes grandes, como las páginas
+    // de un capítulo, pero cada una lleva a otra página. No es un capítulo.
+    console.log('\n── Portada con tapas');
+    const pt = await api.analizar(T + '/');
+    eq('portada llena de tapas: no la toma por un capítulo, y saca sus títulos', `${pt.capitulo} · ${lista(pt, 'titulos').items.map(i => i.texto).join(', ')}`,
+      'null · Uno, Dos, Tres, Cuatro, Cinco, Seis, Siete, Ocho');
+    eq('  encuentra el listado completo por el texto del link (con un ícono adelante) y por su dirección', pt.catalogos.map(c => `${c.texto} → ${c.url.replace(T, '')}`).join(' | '),
+      '📚 Biblioteca → /biblioteca | Explorar todo → /directorio');
+    const bib = await api.analizar(T + '/biblioteca');
+    eq('el listado completo, con una tapa por obra, tampoco es un capítulo', `${bib.capitulo} · ${lista(bib, 'titulos').items.length} títulos`, 'null · 12 títulos');
+    const l5 = await api.analizar(T + '/lector/5'), l7 = await api.analizar(T + '/lector/7');
+    eq('un capítulo sigue siéndolo aunque sus páginas sean links al capítulo siguiente y tenga tapas de otras obras al final',
+      `${l5.capitulo?.serie} ${l5.capitulo?.numero} · ${l5.capitulo?.imagenes} imágenes`, 'Obra Uno 5 · 6 imágenes');
+    eq('y aunque cada página sea un link a su vista de a una', `${l7.capitulo?.serie} ${l7.capitulo?.numero}`, 'Obra Uno 7');
+
+    console.log('\n── Favoritos (links guardados)');
     const nombres = (l) => l.map(s => s.nombre).join(', ');
     const pegada = api.guardarLinks({ texto: ['Manga en español:', `Sitio de prueba: ${S}/ — el catálogo de prueba`, `- [Alfa](${S}/serie/alfa/) la serie con volúmenes`,
       'otro-sitio.example/catalogo', `${S}/serie/alfa`, 'un renglón sin link'].join('\n') });
@@ -165,44 +182,72 @@ module.exports = async function probar(api) {
     eq('pegar links: quedan numerados y marcados', await en(`[...document.querySelectorAll('#lista .fila')].map(f => f.querySelector('.num').textContent + (f.querySelector('input').checked ? '*' : '')).join(' ') + ' · ' + document.querySelector('#estado').textContent`),
       '1* 2* · Tomé 2 links: capítulos 1 a 2, con el número que trae cada link. Escribí el nombre de la serie a la derecha.');
 
-    // Links guardados: quedaron dos de las pruebas de arriba
+    // Pegar la portada de un sitio que es una grilla de tapas: no la toma por un capítulo y entra a su listado
+    await en(`document.querySelector('#url').value = ${JSON.stringify(T + '/')}; document.querySelector('#analizar').click()`);
+    await hasta(`document.querySelectorAll('#lista .fila').length === 12`, 'el listado completo del sitio de tapas');
+    eq('pegar una portada llena de tapas: entra a su listado completo, sin ofrecerla como capítulo', await titulos() + ' · ' + await en(`document.querySelector('#capitulo').hidden`) + ' · ' + (await avisoEnPantalla()).split('.')[0],
+      'Uno, Dos, Tres, Cuatro, Cinco, Seis, Siete, Ocho, Nueve, Diez, Once, Doce · true · Entré al catálogo que encontré en la portada ("📚 Biblioteca")');
+    await en(`document.querySelector('#ruta button').click()`);
+    await hasta(`document.querySelectorAll('#lista .fila').length === 8`, 'la portada de tapas');
+    eq('  la portada muestra sus títulos y las pistas del listado completo', await titulos() + ' · ' + await en(`[...document.querySelectorAll('#pistas button')].map(e => e.textContent).join(', ') + ' · ' + document.querySelector('#capitulo').hidden`),
+      'Uno, Dos, Tres, Cuatro, Cinco, Seis, Siete, Ocho · 📚 Biblioteca ›, Explorar todo › · true');
+
+    // Favoritos: quedaron dos de las pruebas de arriba
     const filasG = async () => (await en(`[...document.querySelectorAll('#guardadosLista .guardado')].map(g => g.querySelector('.g-nombre').textContent + ' (' + g.querySelector('.g-datos').textContent + ')').join(' | ')`)).split(S.replace('http://', '')).join('');
+    const ultimaG = async () => (await en(`(() => { const g = [...document.querySelectorAll('#guardadosLista .guardado')].pop(); return g.querySelector('.g-nombre').textContent + ' (' + g.querySelector('.g-datos').textContent + ')'; })()`)).split(S.replace('http://', '')).join('');
     const avisoG = () => en(`document.querySelector('#guardadosMsg').textContent + ' · ' + document.querySelector('#verGuardados').textContent`);
-    eq('links guardados: el botón dice cuántos hay y el panel arranca cerrado', await en(`document.querySelector('#verGuardados').textContent + ' ' + document.querySelector('#guardados').hidden`), '⭐ Guardados (2) true');
+    // Pegar en el cuadro, como con Ctrl+V: el texto entra al cuadro y salta el evento "paste"
+    const pegarEnFavoritos = (texto) => en(`(() => { const c = document.querySelector('#listaLinks'); c.value = ${JSON.stringify(texto)}; c.dispatchEvent(new Event('paste')); })()`);
+    eq('favoritos: el botón dice cuántos hay y el panel arranca cerrado', await en(`document.querySelector('#verGuardados').textContent + ' ' + document.querySelector('#guardados').hidden`), '⭐ Favoritos (2) true');
     await en(`document.querySelector('#verGuardados').click()`);
-    eq('  al abrirlo muestra la lista, con la dirección y lo anotado; "Pegar links" se cierra', await filasG() + ' · ' + await en(`document.querySelector('#pegar').hidden`),
-      'Sitio de prueba ( · el catálogo de prueba) | Beta (/serie/beta) · true');
-    await en(`document.querySelector('#verCargar').click(); document.querySelector('#listaLinks').value = ${JSON.stringify(`Mis series:\nAlfa: ${S}/serie/alfa/ — con volúmenes\n${S}/serie/beta/`)}; document.querySelector('#agregarLista').click()`);
-    await hasta(`document.querySelectorAll('#guardadosLista .guardado').length === 3`, 'la lista cargada');
-    eq('  cargar una lista pegada: suma los nuevos y avisa los que ya estaban', await avisoG() + ' · ' + await en(`document.querySelector('#cargar').hidden + ' ' + JSON.stringify(document.querySelector('#listaLinks').value)`),
-      'Agregué 1 link. 1 ya estaba o venía repetido. · ⭐ Guardados (3) · true ""');
+    eq('  al abrirlo aparece la lista y el cuadro para pegar, ya con el cursor', await filasG() + ' · ' +
+      await en(`(() => { const c = document.querySelector('#listaLinks'); return (c.offsetHeight > 0) + ' ' + (document.activeElement === c) + ' ' + document.querySelector('#pegar').hidden; })()`),
+      'Sitio de prueba ( · el catálogo de prueba) | Beta (/serie/beta) · true true true');
+    await pegarEnFavoritos(`Mis series:\nAlfa: ${S}/serie/alfa/ — con volúmenes\n${S}/serie/beta/\n- [El directorio](${S}/directorio/)`);
+    await hasta(`document.querySelectorAll('#guardadosLista .guardado').length === 4`, 'los links pegados en favoritos');
+    eq('  pegar muchos links juntos los guarda solos: suma los nuevos, avisa los que ya estaban y vacía el cuadro', await avisoG() + ' · ' + await en(`JSON.stringify(document.querySelector('#listaLinks').value)`),
+      'Guardé 2 links en favoritos. 1 ya estaba o venía repetido. · ⭐ Favoritos (4) · ""');
+    eq('  quedan en la lista, cada uno con su nombre y su nota', await filasG(), 'Sitio de prueba ( · el catálogo de prueba) | Beta (/serie/beta) | Alfa (/serie/alfa · con volúmenes) | El directorio (/directorio)');
+    await pegarEnFavoritos(`${S}/serie/alfa/`);
+    await hasta(`/No guardé/.test(document.querySelector('#guardadosMsg').textContent)`, 'el aviso del repetido');
+    eq('  pegar uno solo que ya estaba: lo dice', await avisoG(), 'No guardé ninguno. 1 ya estaba o venía repetido. · ⭐ Favoritos (4)');
+    await en(`document.querySelector('#listaLinks').value = 'esto no es un link'; document.querySelector('#agregarLista').click()`);
+    await hasta(`/No encontré/.test(document.querySelector('#guardadosMsg').textContent)`, 'el aviso de que no hay links');
+    eq('  un texto sin links: lo dice y lo deja en el cuadro', await en(`document.querySelector('#guardadosMsg').textContent + ' · ' + document.querySelector('#listaLinks').value`),
+      '⚠️ No encontré ningún link en lo que pegaste. · esto no es un link');
+    await en(`document.querySelector('#listaLinks').value = 'otro.example/serie'; document.querySelector('#agregarLista').click()`);
+    await hasta(`document.querySelectorAll('#guardadosLista .guardado').length === 5`, 'el link escrito');
+    eq('  uno solo, escrito a mano y con el botón', await avisoG() + ' · ' + await ultimaG(), 'Guardé 1 link en favoritos. · ⭐ Favoritos (5) · otro.example (otro.example/serie)');
     await en(`(() => { const f = document.querySelector('#guardadosFiltro'); f.value = 'volúmenes'; f.dispatchEvent(new Event('input')); })()`);
-    eq('  buscar en la lista', await filasG() + ' · ' + await en(`document.querySelector('#guardadosCuenta').textContent`), 'Alfa (/serie/alfa · con volúmenes) · 1 de 3');
-    if (process.env.CAPTURAS) fs.writeFileSync(path.join(process.env.CAPTURAS, 'programa-guardados.png'), (await ui.webContents.capturePage()).toPNG());
+    eq('  buscar en la lista', await filasG() + ' · ' + await en(`document.querySelector('#guardadosCuenta').textContent`), 'Alfa (/serie/alfa · con volúmenes) · 1 de 5');
+    if (process.env.CAPTURAS) {
+      await new Promise(r => setTimeout(r, 600));           // que la ventana (oculta) termine de dibujarse
+      fs.writeFileSync(path.join(process.env.CAPTURAS, 'programa-favoritos.png'), (await ui.webContents.capturePage()).toPNG());
+    }
     await en(`document.querySelector('#guardadosLista .g-abrir').click()`);
     await hasta(`document.querySelectorAll('#lista .seccion').length === 2 && document.querySelector('#guardados').hidden`, 'la serie guardada');
-    eq('  tocar un link guardado lo analiza', await rutaEnPantalla() + ' · ' + (await en(`document.querySelector('#url').value`)).replace(S, ''), 'Alfa – Todos los capítulos · /serie/alfa/');
-    await en(`document.querySelector('#verGuardados').click(); document.querySelector('#guardadosFiltro').value = ''; document.querySelector('#guardarActual').click()`);
+    eq('  tocar un favorito lo analiza', await rutaEnPantalla() + ' · ' + (await en(`document.querySelector('#url').value`)).replace(S, ''), 'Alfa – Todos los capítulos · /serie/alfa/');
+    await en(`document.querySelector('#verGuardados').click(); (() => { const f = document.querySelector('#guardadosFiltro'); f.value = ''; f.dispatchEvent(new Event('input')); })(); document.querySelector('#guardarActual').click()`);
     await hasta(`document.querySelector('#guardadosMsg').textContent.length > 0`, 'el aviso');
-    eq('  guardar la dirección que se está mirando: si ya está, lo dice', await avisoG(), 'Esa dirección ya estaba en tu lista. · ⭐ Guardados (3)');
+    eq('  "La dirección de arriba": si ya está, lo dice', await avisoG(), 'Esa dirección ya estaba en tus favoritos. · ⭐ Favoritos (5)');
     await en(`document.querySelector('#lista .fila .entrar').click()`);
     await hasta(`!document.querySelector('#capitulo').hidden`, 'un capítulo');
     await en(`document.querySelector('#guardarActual').click()`);
-    await hasta(`document.querySelectorAll('#guardadosLista .guardado').length === 4`, 'la dirección guardada');
-    eq('  y si no, la guarda con el título de la página', await avisoG() + ' · ' + (await filasG()).split(' | Alfa (/serie/alfa · con volúmenes) | ').pop(),
-      'Guardada. · ⭐ Guardados (4) · Alfa Capítulo 1 | Sitio de prueba (/leer/alfa-1)');
-    await en(`document.querySelectorAll('#guardadosLista .g-quitar')[3].click()`);
-    await hasta(`document.querySelectorAll('#guardadosLista .guardado').length === 3`, 'el link quitado');
-    eq('  quitar uno', await filasG(), 'Sitio de prueba ( · el catálogo de prueba) | Beta (/serie/beta) | Alfa (/serie/alfa · con volúmenes)');
+    await hasta(`document.querySelectorAll('#guardadosLista .guardado').length === 6`, 'la dirección guardada');
+    eq('  y si no, la guarda con el título de la página', await avisoG() + ' · ' + await ultimaG(), 'Guardada en favoritos. · ⭐ Favoritos (6) · Alfa Capítulo 1 | Sitio de prueba (/leer/alfa-1)');
+    await en(`[...document.querySelectorAll('#guardadosLista .g-quitar')].pop().click()`);
+    await hasta(`document.querySelectorAll('#guardadosLista .guardado').length === 5`, 'el favorito quitado');
+    eq('  quitar uno', await ultimaG() + ' · ' + await en(`document.querySelector('#verGuardados').textContent`), 'otro.example (otro.example/serie) · ⭐ Favoritos (5)');
     await en(`document.querySelector('#quitarTodos').click()`);
-    eq('  "Quitar todos" pide confirmar con otro toque', await en(`document.querySelector('#quitarTodos').textContent + ' · ' + document.querySelectorAll('#guardadosLista .guardado').length`), '¿Quitar los 3? Tocá de nuevo · 3');
+    eq('  "Quitar todos" pide confirmar con otro toque', await en(`document.querySelector('#quitarTodos').textContent + ' · ' + document.querySelectorAll('#guardadosLista .guardado').length`), '¿Quitar los 5? Tocá de nuevo · 5');
     await en(`document.querySelector('#quitarTodos').click()`);
     await hasta(`document.querySelectorAll('#guardadosLista .guardado').length === 0`, 'la lista vacía');
-    eq('  y con el segundo la vacía: queda a la vista el cuadro para cargar otra', await avisoG() + ' · ' + await en(`document.querySelector('#guardadosLista').textContent + ' ' + document.querySelector('#cargar').hidden`) + ' · ' + api.guardados().length,
-      'Quité todos los links. · ⭐ Guardados · Todavía no guardaste ningún link. Guardá la dirección que estés mirando o cargá una lista. false · 0');
+    eq('  y con el segundo la vacía: queda el cuadro para pegar', await avisoG() + ' · ' + await en(`document.querySelector('#guardadosLista').textContent + ' ' + document.querySelector('#guardadosBarra').hidden + ' ' + (document.querySelector('#listaLinks').offsetHeight > 0)`) + ' · ' + api.guardados().length,
+      'Quité todos los favoritos. · ⭐ Favoritos · Todavía no tenés favoritos. Pegá un link o muchos en el cuadro de arriba y quedan guardados. true true · 0');
     eq('sin errores en la consola de la interfaz', consola.join(' | '), '');
   } finally {
     await sitio.cerrar();
+    await tapas.cerrar();
     try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
   }
   console.log(fallas ? `\n${fallas} FALLAS` : '\nTODO OK');

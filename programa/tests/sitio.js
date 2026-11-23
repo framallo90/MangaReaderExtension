@@ -52,12 +52,42 @@ const serieAlfa = pagina('Alfa – Todos los capítulos', `${menu}<h1>Alfa</h1>
 const serieBeta = pagina('Beta – Capítulos', `${menu}<h1>Beta</h1>
 <a href="/ver/9000003">Capítulo 3: El final</a> <a href="/ver/9000002">Capítulo 2</a> <a href="/ver/9000001">Capítulo 1</a>`);
 
-function iniciar() {
+// ── Otro sitio: la portada es una grilla de tapas ──
+// Con iniciar({ tapas: true }). Cada tapa es una imagen grande que lleva a su obra: en la
+// mitad de las tarjetas el link envuelve a la imagen y en la otra mitad va al lado, como
+// título. El link al listado completo tiene un ícono adelante, y hay otro sin texto.
+//   /                portada: 8 tapas
+//   /biblioteca      el listado completo: 12 obras (/directorio muestra lo mismo)
+//   /lector/5        capítulo donde cada página es un link al capítulo siguiente, con tapas
+//                    de otras obras al final
+//   /lector/7        capítulo donde cada página es un link a su vista de a una
+const OBRAS = ['Uno', 'Dos', 'Tres', 'Cuatro', 'Cinco', 'Seis', 'Siete', 'Ocho', 'Nueve', 'Diez', 'Once', 'Doce'];
+const tapa = (nombre, i) => {
+  const dir = `/obra/${i + 1}/${nombre.toLowerCase()}`, img = `<img loading="lazy" width="150" height="225" src="/tapas/${i + 1}.jpg" alt="">`;
+  return i % 2 ? `<div class="tarjeta">${img}<a href="${dir}">${nombre}</a></div>` : `<a class="tarjeta" href="${dir}">${img}<span>${nombre}</span></a>`;
+};
+const grilla = (obras) => `<div style="display:flex;flex-wrap:wrap;gap:8px">${obras.map(tapa).join('')}</div>`;
+const menuTapas = `<header><a href="/"><img src="/tapas/logo.jpg" width="60" height="60" alt="Sitio de tapas"></a>
+<nav><a href="/biblioteca"><i></i>📚 Biblioteca</a> <a href="/directorio" aria-label="Explorar todo"><svg width="16" height="16"></svg></a> <a href="/grupos">Grupos</a> <a href="/ingresar">Ingresar</a></nav></header>`;
+const portadaTapas = pagina('Sitio de tapas — Leer online', `${menuTapas}<h2>Populares</h2>${grilla(OBRAS.slice(0, 8))}`);
+const bibliotecaTapas = pagina('Sitio de tapas — Biblioteca', `${menuTapas}<h1>Biblioteca</h1>${grilla(OBRAS)}`);
+const lectorTapas = (n) => pagina(`Obra Uno Capítulo ${n} | Sitio de tapas`, menuTapas +
+  [1, 2, 3, 4, 5, 6].map(k => `<a href="${n === 5 ? '/lector/6' : `/lector/${n}/pagina/${k}`}"><img width="420" height="640" style="display:block" src="/tapas/paginas/${n}/${k}.jpg"></a>`).join('\n') +
+  (n === 5 ? `<h3>También te puede gustar</h3>${grilla(OBRAS.slice(1, 4))}` : ''));
+
+function iniciar({ tapas = false } = {}) {
   const pedidos = { sinReferer: 0, capitulos: {}, portada: 0 };
   const srv = http.createServer((req, res) => {
     const [u, consulta = ''] = req.url.split('?');
     const enviar = (tipo, cuerpo, estado = 200) => { res.writeHead(estado, { 'Content-Type': tipo, 'Cache-Control': 'no-store' }); res.end(cuerpo); };
     const html = (cuerpo) => enviar('text/html; charset=utf-8', cuerpo);
+    if (tapas) {
+      if (u === '/') return html(portadaTapas);
+      if (u === '/biblioteca' || u === '/directorio') return html(bibliotecaTapas);
+      if (u === '/lector/5' || u === '/lector/7') return html(lectorTapas(+u.slice(-1)));
+      if (/^\/tapas\/(?:\w+\.jpg|paginas\/\d\/\d\.jpg)$/.test(u)) return enviar('image/jpeg', JPG);
+      return enviar('text/plain', 'no', 404);
+    }
     if (u === '/') {
       const n = +(new URLSearchParams(consulta).get('page') || 1);
       pedidos.portada++;
