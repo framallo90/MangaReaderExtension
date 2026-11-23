@@ -21,9 +21,20 @@ const MARCOS = (MANIFEST.content_scripts[0].all_frames === true);
 // ('complete' por defecto, 'interrupted', 'hang') · onTabMessage: lo que responde la pestaña
 // marcos: lo que cuenta cada marco de la pestaña, [[frameId, candidatas]…] (-1: no tiene el script);
 // puede ser una función, para que cambie de una vez a la otra
-function setup({ build, results = {}, invalidName = false, onTabMessage, marcos = [[0, 0]] } = {}) {
+// guardado: lo que hay en chrome.storage.local al empezar
+function setup({ build, results = {}, invalidName = false, onTabMessage, marcos = [[0, 0]], guardado = {} } = {}) {
   const onChanged = ev(); let nextId = 1, jobN = 0, offscreen = 0;
   const items = {}, log = [], revoked = [], tabLog = [], t = { closed: 0, onRemove: null };
+  // chrome.storage.local de mentira. Cada lectura y cada escritura tardan un instante, como las
+  // de verdad: así se nota si dos cambios seguidos se pisan.
+  const datos = JSON.parse(JSON.stringify(guardado)), escrituras = [];
+  const instante = () => new Promise(r => setTimeout(r, 1));
+  const copia = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
+  const local = {
+    get: async (claves) => { await instante(); const o = {}; for (const k of [].concat(claves || Object.keys(datos))) if (k in datos) o[k] = copia(datos[k]); return o; },
+    set: async (o) => { await instante(); for (const [k, v] of Object.entries(o)) { datos[k] = copia(v); escrituras.push(k); } },
+    remove: async (claves) => { await instante(); for (const k of [].concat(claves)) { delete datos[k]; escrituras.push('-' + k); } },
+  };
   const finishDownload = (id, result) => {
     items[id].state = result;
     if (result === 'interrupted') items[id].error = 'FILE_FAILED';
@@ -42,6 +53,7 @@ function setup({ build, results = {}, invalidName = false, onTabMessage, marcos 
     },
     contextMenus: { onClicked: ev(), removeAll: f => f && f(), create() {} },
     commands: { onCommand: ev() },
+    storage: { local, onChanged: ev() },
     offscreen: { createDocument: async () => { offscreen++; }, closeDocument: async () => { t.closed++; offscreen = 0; } },
     downloads: {
       onChanged,
@@ -81,8 +93,10 @@ function setup({ build, results = {}, invalidName = false, onTabMessage, marcos 
     setTimeout: (f, ms) => setTimeout(f, Math.ceil((ms || 0) / 500)), crypto: { randomUUID: () => 'job-' + (++jobN) } };
   vm.createContext(ctx);
   vm.runInContext(src + '\n;Object.assign(globalThis, { blobs, jobs, workers, owners });', ctx);
-  return Object.assign(t, { ctx, log, revoked, tabLog, onChanged, finishDownload });
+  return Object.assign(t, { ctx, log, revoked, tabLog, onChanged, finishDownload, datos, escrituras });
 }
+// Un pedido como los que manda la pestaña (chrome.runtime.sendMessage): devuelve lo que se le contesta
+const pedido = (t, msg, sender = SENDER) => new Promise(res => t.ctx.chrome.runtime.onMessage.emit(msg, sender, res));
 
 const FILES = [
   { kind: 'pdf', url: 'blob:pdf', sizeKB: 100 }, { kind: 'cbz', url: 'blob:cbz', sizeKB: 120 },
@@ -257,6 +271,51 @@ const brief = (r) => `páginas=${r.pages} fallidas=[${r.failed}] archivos=[${r.f
     const t = setup({});
     let r; try { await t.ctx.batchChapter({ ...CHAP, url: 'javascript:alert(1)' }, SENDER); r = 'no falló'; } catch (e) { r = e.message; }
     eq('dirección que no es http', r + ' · pestañas abiertas: ' + t.tabLog.length, 'Dirección no válida · pestañas abiertas: 0');
+  }
+
+  // ── La cola de un lote, guardada en chrome.storage (2.11) ──
+  if (/function colaNueva\(/.test(src)) {
+    const como = (c) => (!c ? 'sin cola' : c.items.map(i => `${i.numero} ${i.estado}${i.error ? ' (' + i.error + ')' : ''}`).join(', '));
+    const ITEMS = [1, 2, 3, 4].map(n => ({ url: `https://s.com/c/${n}`, numero: n, titulo: `Capítulo ${n}`, volumen: n < 3 ? 'Tomo 1' : '' }));
+    const NUEVA = { action: 'colaNueva', items: ITEMS, serie: 'S', formatos: { pdf: true }, sitio: 's.com', origen: 'https://s.com/serie', plantilla: 'https://s.com/c/{n}' };
+    const t = setup({});
+    const { id } = await pedido(t, NUEVA);
+    const c0 = t.datos.cola;
+    eq('encolar: la cola queda escrita en storage, con todo pendiente', como(c0), '1 pendiente, 2 pendiente, 3 pendiente, 4 pendiente');
+    eq('  con su id, la fecha, y de cada capítulo la dirección, el número, el título y el tomo',
+      `${c0.id === id && !!id} · ${typeof c0.fecha === 'number'} · ${JSON.stringify(c0.items[0])}`,
+      'true · true · {"url":"https://s.com/c/1","numero":1,"titulo":"Capítulo 1","volumen":"Tomo 1","estado":"pendiente","error":""}');
+    eq('  y lo que hace falta para seguirla después: serie, formatos, sitio, página de la serie y dirección con {n}',
+      `${c0.serie} · ${JSON.stringify(c0.formatos)} · ${c0.sitio} · ${c0.origen} · ${c0.plantilla}`, 'S · {"pdf":true} · s.com · https://s.com/serie · https://s.com/c/{n}');
+    await pedido(t, { action: 'colaMarca', id, numero: 1, estado: 'listo' });
+    await pedido(t, { action: 'colaMarca', id, numero: 2, estado: 'fallo', error: 'Sin páginas (encontré 0)' });
+    eq('cada cambio de estado se escribe, y el que falla guarda su motivo', como(t.datos.cola), '1 listo, 2 fallo (Sin páginas (encontré 0)), 3 pendiente, 4 pendiente');
+    await Promise.all([pedido(t, { action: 'colaMarca', id, numero: 3, estado: 'fallo', error: 'HTTP 404' }), pedido(t, { action: 'colaMarca', id, numero: 4, estado: 'listo' })]);
+    eq('  dos cambios a la vez no se pisan', como(t.datos.cola), '1 listo, 2 fallo (Sin páginas (encontré 0)), 3 fallo (HTTP 404), 4 listo');
+    await pedido(t, { action: 'colaMarca', id: 'otra-cola', numero: 1, estado: 'fallo', error: 'x' });
+    eq('  un cambio para otra cola (una que ya se descartó) no toca esta', como(t.datos.cola), '1 listo, 2 fallo (Sin páginas (encontré 0)), 3 fallo (HTTP 404), 4 listo');
+    await pedido(t, { action: 'colaFin', id });
+    eq('al terminar con fallas la cola queda guardada', como(t.datos.cola), '1 listo, 2 fallo (Sin páginas (encontré 0)), 3 fallo (HTTP 404), 4 listo');
+    const re = await pedido(t, { action: 'colaReintentar', id });
+    eq('reintentar: los que fallaron vuelven a pendiente, sin el motivo', `${como(t.datos.cola)} · devuelve ${re.cola.items.filter(i => i.estado === 'pendiente').length} pendientes`,
+      '1 listo, 2 pendiente, 3 pendiente, 4 listo · devuelve 2 pendientes');
+    await pedido(t, { action: 'colaMarca', id, numero: 2, estado: 'listo' });
+    await pedido(t, { action: 'colaMarca', id, numero: 3, estado: 'listo' });
+    await pedido(t, { action: 'colaFin', id });
+    eq('cuando no queda nada pendiente ni con falla, la cola se borra', como(t.datos.cola), 'sin cola');
+
+    const t2 = setup({ guardado: { cola: { id: 'vieja', fecha: 1, items: [{ url: 'u', numero: 9, estado: 'pendiente', error: '' }] } } });
+    await pedido(t2, { action: 'colaDescartar' });
+    eq('descartar la cola la borra', como(t2.datos.cola), 'sin cola');
+    const t3 = setup({ guardado: { cola: { id: 'vieja', fecha: 1, items: [{ url: 'u', numero: 9, estado: 'pendiente', error: '' }] } } });
+    const n = await pedido(t3, { ...NUEVA, items: ITEMS.slice(0, 2) });
+    eq('un lote nuevo reemplaza a la cola que había', `${como(t3.datos.cola)} · ${n.id !== 'vieja'}`, '1 pendiente, 2 pendiente · true');
+    // El capítulo que termina bien se anota desde el service worker: vale aunque la pestaña del lote ya no esté
+    const t4 = setup({ marcos: [[0, 15]], onTabMessage: () => ({ ok: true, complete: true, pages: 15, name: 'S/S 0001', lines: [] }) });
+    const q = await pedido(t4, NUEVA);
+    await t4.ctx.batchChapter({ ...CHAP, url: ITEMS[0].url, numero: 1, cola: q.id }, SENDER);
+    await wait(20);
+    eq('el capítulo que se guarda bien queda listo en la cola aunque la pestaña del lote se haya cerrado', como(t4.datos.cola), '1 listo, 2 pendiente, 3 pendiente, 4 pendiente');
   }
   fin();
 })();

@@ -46,14 +46,36 @@ chrome.commands.onCommand.addListener((command, tab) => {
 // del shadow root del diálogo.
 const CONTENT_FILES = ['agrupar.js', 'plantilla.js', 'sagas.js', 'estilos.js', 'content.js'];
 
+// Marcos: el script corre en la página y en cada iframe (el lector de muchos sitios está en
+// uno), y cada marco cuenta sus candidatas. Devuelve [{ frameId, n }]; n = -1 si ese marco no
+// tiene una copia viva del script.
+async function contarMarcos(tabId) {
+  const r = await chrome.scripting.executeScript({
+    target: { tabId, allFrames: true },
+    func: () => (window.__mangaReaderAlive?.() && typeof window.__mangaReaderCuenta === 'function' ? window.__mangaReaderCuenta() : -1),
+  });
+  return (r || []).map(x => ({ frameId: x.frameId, n: typeof x.result === 'number' ? x.result : -1 }));
+}
+
+// El marco con más candidatas. Si empatan gana el de más arriba (la página es el 0): cuando
+// las mismas imágenes están en la página y en un iframe, son un solo capítulo, no dos.
+function marcoCon(marcos) {
+  let mejor = { frameId: 0, n: 0 };
+  for (const m of marcos) if (m.n > mejor.n || (m.n === mejor.n && m.frameId < mejor.frameId)) mejor = m;
+  return mejor.frameId;
+}
+
+// Guardar se le pide al marco donde están las páginas. Lo demás (el diálogo de varios
+// capítulos, que sale de la lista de la serie) va a la página.
+const AL_LECTOR = new Set(['save', 'autoSave']);
+
 async function tellTab(tabId, msg) {
-  try {
-    return await chrome.tabs.sendMessage(tabId, msg);
-  } catch (e) {
-    if (!/receiving end|context invalidated|port closed/i.test(e.message)) throw e;
+  let marcos = await contarMarcos(tabId);
+  if (marcos.some(m => m.n < 0)) {
+    await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: CONTENT_FILES });
+    marcos = await contarMarcos(tabId);
   }
-  await chrome.scripting.executeScript({ target: { tabId }, files: CONTENT_FILES });
-  return chrome.tabs.sendMessage(tabId, msg);
+  return chrome.tabs.sendMessage(tabId, msg, { frameId: AL_LECTOR.has(msg.action) ? marcoCon(marcos) : 0 });
 }
 
 // ── Message handler ───────────────────────────────────
@@ -61,22 +83,26 @@ async function tellTab(tabId, msg) {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.target === 'offscreen') return; // es para el documento offscreen
 
-  // Progreso de la bajada de páginas → a la pestaña que pidió el guardado
+  // Progreso de la bajada de páginas → al marco de la pestaña que pidió el guardado
   if (msg?.target === 'background' && msg.action === 'progress') {
-    const tabId = jobs.get(msg.jobId);
-    if (tabId != null) {
-      chrome.tabs.sendMessage(tabId, { action: 'progress', done: msg.done, total: msg.total }).catch(() => {});
-      batchNote(tabId, `bajando páginas ${msg.done}/${msg.total}`);
+    const quien = jobs.get(msg.jobId);
+    if (quien?.tabId != null) {
+      chrome.tabs.sendMessage(quien.tabId, { action: 'progress', done: msg.done, total: msg.total }, { frameId: quien.frameId }).catch(() => {});
+      batchNote(quien.tabId, `bajando páginas ${msg.done}/${msg.total}`);
     }
     return;
   }
 
   const handlers = {
     build: () => runBuild(msg, sender),
-    tab: () => tellTab(msg.tabId, { action: msg.command }).then(() => ({})),   // desde el popup
+    // Desde el popup (dice qué pestaña) o desde la burbuja de un iframe (es la suya)
+    tab: () => tellTab(msg.tabId ?? sender.tab?.id, { action: msg.command }).then(() => ({})),
     batchChapter: () => batchChapter(msg, sender),
     batchCancel: () => batchCancel(sender),
     batchNote: () => { batchNote(sender.tab?.id, msg.text); return Promise.resolve({}); },
+    candidato: () => candidato(sender),
+    // Un iframe no sabe cómo se llama el capítulo: el título y la dirección son los de la página
+    contexto: () => chrome.tabs.sendMessage(sender.tab.id, { action: 'contexto' }, { frameId: 0 }).then(r => ({ contexto: r?.contexto || null })),
   };
 
   const h = handlers[msg?.action];
@@ -86,6 +112,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 });
+
+// La burbuja va en un solo marco de la pestaña: el que tiene más candidatas. Cada marco que
+// parece un capítulo pregunta antes de mostrarla; a los demás se les avisa que la saquen.
+// No se anota quién ganó: se cuenta de nuevo cada vez, así no depende de que el service worker
+// siga despierto.
+async function candidato(sender) {
+  const tabId = sender.tab?.id;
+  if (tabId == null) return { gana: true };
+  const marcos = await contarMarcos(tabId);
+  const mejor = marcoCon(marcos);
+  for (const m of marcos) {
+    if (m.frameId !== mejor && m.n >= 0) chrome.tabs.sendMessage(tabId, { action: 'ceder' }, { frameId: m.frameId }).catch(() => {});
+  }
+  return { gana: (sender.frameId || 0) === mejor };
+}
 
 // ── Descargas ─────────────────────────────────────────
 
@@ -129,7 +170,7 @@ function waitDownload(id, ms = 20000) {
 // El service worker no puede crear Blob URLs, así que los archivos se arman en un
 // documento offscreen y desde acá se descargan con chrome.downloads.
 
-const jobs = new Map();         // jobId → tabId (para reenviar el progreso)
+const jobs = new Map();         // jobId → { tabId, frameId } de quien lo pidió (para reenviarle el progreso)
 const blobs = new Map();        // downloadId → blob URL (para liberarla al terminar)
 let offscreenCreating = null;
 
@@ -166,7 +207,7 @@ async function runBuild({ urls, formats, title, meta, path }, sender) {
   // El trabajo se registra ANTES de preparar el documento offscreen: así la limpieza
   // de una descarga anterior no lo cierra justo cuando este trabajo lo necesita.
   const jobId = crypto.randomUUID();
-  jobs.set(jobId, sender.tab?.id);
+  jobs.set(jobId, { tabId: sender.tab?.id, frameId: sender.frameId || 0 });
   try {
     const request = { target: 'offscreen', action: 'build', urls, formats, title, meta, jobId };
     let r;
@@ -222,12 +263,12 @@ chrome.downloads.onChanged.addListener((d) => {
 // haga con JavaScript) y el content script la guarda con el mismo código de siempre.
 
 const workers = new Map();      // pestaña que maneja el lote → pestaña del capítulo abierto
-const owners = new Map();       // pestaña del capítulo → pestaña que maneja el lote
+const owners = new Map();       // pestaña del capítulo → { tab, frame } que maneja el lote
 const cancelled = new Set();    // lotes cancelados (por pestaña que los maneja)
 
 function batchNote(workerTabId, text) {
   const owner = owners.get(workerTabId);
-  if (owner != null) chrome.tabs.sendMessage(owner, { action: 'batchNote', text }).catch(() => {});
+  if (owner) chrome.tabs.sendMessage(owner.tab, { action: 'batchNote', text }, { frameId: owner.frame }).catch(() => {});
 }
 
 async function batchCancel(sender) {
@@ -252,7 +293,7 @@ async function batchChapter(msg, sender) {
   try {
     tab = await chrome.tabs.create({ url: msg.url, active: !!msg.visible, index: sender.tab.index + 1, openerTabId: owner });
     workers.set(owner, tab.id);
-    owners.set(tab.id, owner);
+    owners.set(tab.id, { tab: owner, frame: sender.frameId || 0 });
     const limit = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error('El capítulo tardó demasiado')), 240000); });
     const work = driveChapter(tab.id, msg);
     work.catch(() => {});                                // si gana el límite, su error posterior no queda suelto
@@ -281,10 +322,12 @@ async function driveChapter(tabId, msg) {
   // 2) Que aparezcan las páginas del capítulo y dejen de sumarse (los sitios que arman
   //    la página con JavaScript tardan un poco más). Se pregunta desde acá porque en
   //    una pestaña en segundo plano los temporizadores de la página van lentos.
+  //    Vale el marco que más tiene, no la suma: si las mismas páginas están en la página y en
+  //    un iframe, se contarían dos veces.
   let last = -1, stable = 0;
   for (let i = 0; i < 30; i++) {
     await sleep(700);
-    const n = (await tellTab(tabId, { action: 'count' }).catch(() => null))?.n ?? -1;
+    const n = Math.max(-1, ...(await contarMarcos(tabId).catch(() => [])).map(m => m.n));
     if (n >= 3 && n === last) { if (++stable >= 2) break; } else stable = 0;
     if (n < 3 && i >= 14) break;                         // ~10 s sin nada que parezca un capítulo
     last = n;

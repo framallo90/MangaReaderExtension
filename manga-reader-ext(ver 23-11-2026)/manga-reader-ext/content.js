@@ -35,6 +35,24 @@
   document.querySelectorAll(OURS).forEach(e => e.remove());
   window.__mangaReaderAlive = alive;
   window.__mangaReaderCleanup = cleanup;
+  window.__mangaReaderCuenta = () => countCandidates();     // se la pide el service worker a cada marco de la pestaña
+
+  // ── En un iframe ────────────────────────────────────
+  // Este script corre en la página y en cada uno de sus iframes. Cuando el lector está en un
+  // iframe, las páginas están ahí pero el capítulo es el de la página de arriba: su título, su
+  // dirección y su sitio. Se le piden por el service worker, que es la única forma de leerlos
+  // si el iframe es de otro origen.
+  const enMarco = window !== window.top;
+  let arriba = null;             // { nombre, capitulo, clave, sitio, titulo } de la página de arriba
+  async function pedirArriba() {
+    if (!enMarco) return null;
+    try { arriba = (await bg({ action: 'contexto' }, 5000)).contexto || null; } catch { arriba = null; }
+    return arriba;
+  }
+  const capituloAca = () => (!arriba ? detectChapter() : arriba.capitulo ? { ...arriba.capitulo, sitio: arriba.sitio } : null);
+  const nombreAca = () => (arriba ? arriba.nombre : suggestName());
+  const claveAca = () => (arriba ? arriba.clave : pageKey());
+  const sitioAca = () => (arriba ? arriba.sitio : location.hostname);
 
   // ── Dónde vive la interfaz ──────────────────────────
   // El diálogo y la burbuja van adentro del shadow root de un solo elemento, #mr-host, con su
@@ -705,7 +723,7 @@
     try {
       r = await bg({
         action: 'build', urls, formats, path, title: last,
-        meta: { title: last, series: chap?.serie, number: chap?.numero, arc, web: pageKey() },
+        meta: { title: last, series: chap?.serie, number: chap?.numero, arc, web: claveAca() },
       }, 60000 + urls.length * 20000);
     } catch (e) {
       return { lines: [`⚠️ ${e.message}`], complete: false, pages: 0, failedNums: [] };
@@ -736,7 +754,7 @@
       savedMap = (await store.get(['savedChapters'])).savedChapters || {};
       // serie y numero solo se anotan con una plantilla propia: la página de guardados los
       // necesita para agrupar y decir qué falta, y ahí no los puede sacar del nombre
-      savedMap[path] = { ts: Date.now(), pages: urls.length, url: pageKey(), ...(tpl ? { serie: tpl.serie, numero: chap.numero } : {}) };
+      savedMap[path] = { ts: Date.now(), pages: urls.length, url: claveAca(), ...(tpl ? { serie: tpl.serie, numero: chap.numero } : {}) };
       await store.set({ savedChapters: savedMap });
     } else if (!anyError) {
       lines.push('⚠️ Faltaron páginas: no lo marqué como guardado. Probá guardarlo de nuevo.');
@@ -771,12 +789,16 @@
     opening = true;
     try {
       const st = await store.get(['savePdf', 'saveCbz', 'saveImgs', 'saveFolders', 'savedChapters', 'autoScan']);
+      await pedirArriba();
+      if (saveEl) return;                                       // se abrió otro mientras se esperaba
       if (!batchRunning) closeChapterDialog();
-      const folder = (st.saveFolders || {})[location.hostname] || '';
-      let name = suggestName();
+      const folder = (st.saveFolders || {})[sitioAca()] || '';
+      let name = nombreAca();
       if (folder && !name.includes('/')) name = `${folder}/${name}`;   // solo si no se pudo detectar la serie
       savedMap = st.savedChapters || {};
-      nextUrl = nextChapterUrl();
+      // Desde un iframe no se ofrece "Guardar y siguiente": el que tiene que cambiar de capítulo
+      // es la página de arriba, y el aviso para abrir el diálogo al llegar se anota por origen
+      nextUrl = enMarco ? '' : nextChapterUrl();
 
       saveEl = document.createElement('div');
       saveEl.id = 'mr-save';
@@ -916,7 +938,7 @@
     sv('#mr-save-next').disabled = blocked;
 
     // ¿Ya lo guardaste? (por nombre, o por la dirección de esta página)
-    const here = noSlash(pageKey());
+    const here = noSlash(claveAca());
     const hit = savedMap[path] ? [path, savedMap[path]] : Object.entries(savedMap).find(([, v]) => noSlash(v.url) === here);
     const seen = sv('#mr-save-seen');
     if (hit) {
@@ -1006,11 +1028,11 @@
     // Recordar opciones y la carpeta de la serie para este sitio
     const st = await store.get(['saveFolders']);
     const folders = st.saveFolders || {};
-    folders[location.hostname] = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+    folders[sitioAca()] = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
     store.set({ savePdf: formats.pdf, saveCbz: formats.cbz, saveImgs: formats.imgs, saveFolders: folders });
 
     setSaveStatus(`⏳ Bajando páginas: 0/${sel.length}…`, 'working');
-    const r = await saveCore(path, sel.map(p => p.url), formats, detectChapter(), sel.map(p => p.n));
+    const r = await saveCore(path, sel.map(p => p.url), formats, capituloAca(), sel.map(p => p.n));
     saving = false;
     if (!saveEl) return;
     for (const n of r.failedNums) sv(`.mr-thumb[data-i="${n - 1}"]`)?.classList.add('fail');
@@ -1040,21 +1062,22 @@
   // tiene en la lista del lote: solo los usa la plantilla de nombres ({volumen}, {titulo}).
   async function autoSave({ formats, serie, numero, strict, fixed, volumen, titulo }) {
     note('buscando las páginas…');
+    await pedirArriba();                                                    // en un iframe, el capítulo es el de la página de arriba
     if (document.visibilityState === 'visible') await scrollThrough();      // dispara la carga diferida
     const found = await collectPages();
     const urls = found.pages.filter(p => !p.flag).map(p => p.url);
     if (urls.length < 3) throw new Error(`Sin páginas (encontré ${urls.length})`);
 
-    let c = detectChapter();
+    let c = capituloAca();
     // Si la dirección se armó a partir del número y el sitio abrió otro capítulo (o su portada), no sirve
     if (strict && c && numero != null && c.numero !== numero) throw new Error(`Sin páginas: se abrió el capítulo ${c.numero}`);
     if (fixed && numero != null) {
       // Sin nombre de serie escrito: el que sale del título, o el título sin sus números
-      const fromTitle = cleanSerie((document.title || '').split(/\s+\|\s+/)[0].replace(/\d+(\.\d+)?/g, ' ').replace(/\s+/g, ' ').trim());
+      const fromTitle = cleanSerie((arriba?.titulo || document.title || '').split(/\s+\|\s+/)[0].replace(/\d+(\.\d+)?/g, ' ').replace(/\s+/g, ' ').trim());
       c = { serie: serie || c?.serie || fromTitle || 'Manga', numero };
     } else if (serie) c = { serie, numero: c?.numero ?? numero };
-    if (c) Object.assign(c, { volumen: volumen || '', titulo: titulo || '' });      // también con la serie automática
-    const path = c && c.numero != null && !isNaN(c.numero) ? nameFor(c) : suggestName();
+    if (c) Object.assign(c, { volumen: volumen || '', titulo: titulo || '', ...(arriba ? { sitio: arriba.sitio } : {}) });      // también con la serie automática
+    const path = c && c.numero != null && !isNaN(c.numero) ? nameFor(c) : nombreAca();
 
     note(`bajando ${urls.length} páginas…`);
     const r = await saveCore(path, urls, formats, c, null, found.failed);
@@ -1576,9 +1599,18 @@
   }
 
   async function showFab() {
-    if (fabEl) return;
-    const st = await store.get(['fabEnabled', 'fabPos']);
+    if (fabEl || cedido) return;
+    const st = await store.get(['fabEnabled', 'fabPos', 'fabBlockedHosts']);
     if (st.fabEnabled === false || fabEl) return;
+    // Con iframes de por medio la burbuja va en un solo marco, el que tiene más páginas: se
+    // pregunta antes de mostrarla. Una página sin iframes no pregunta nada.
+    if (enMarco || window.frames.length) {
+      await pedirArriba();
+      if ((st.fabBlockedHosts || []).includes(sitioAca())) return;      // el sitio es el de la página de arriba
+      const r = await bg({ action: 'candidato' }, 8000).catch(() => null);
+      if (r && !r.gana) { cedido = true; return; }
+      if (fabEl || cedido) return;
+    }
     fabPos = st.fabPos || { r: 24, b: 24 };
 
     fabEl = document.createElement('div');
@@ -1636,11 +1668,12 @@
     main.addEventListener('pointercancel', endDrag);
 
     fabEl.querySelector('.mr-fab-i').onclick = () => { info.hidden = !info.hidden; placeFab(fabPos); };
-    fabEl.querySelector('.mr-fab-batch').onclick = () => { info.hidden = true; openChapterDialog(); };
+    // La lista de capítulos está en la página de arriba: desde un iframe, el diálogo se abre allá
+    fabEl.querySelector('.mr-fab-batch').onclick = () => { info.hidden = true; enMarco ? bg({ action: 'tab', command: 'batch' }).catch(() => {}) : openChapterDialog(); };
     fabEl.querySelector('.mr-fab-hide').onclick = () => store.set({ fabEnabled: false });
     fabEl.querySelector('.mr-fab-site').onclick = async () => {
       const hosts = (await store.get(['fabBlockedHosts'])).fabBlockedHosts || [];
-      if (!hosts.includes(location.hostname)) hosts.push(location.hostname);
+      if (!hosts.includes(sitioAca())) hosts.push(sitioAca());
       store.set({ fabBlockedHosts: hosts });
     };
   }
@@ -1656,13 +1689,14 @@
 
   let fabOff = false;             // la burbuja está oculta en todos lados
   let fabBlocked = false;         // …o solo en este sitio
+  let cedido = false;             // otro marco de la pestaña tiene más páginas: la burbuja va allá
   let fabCheckTimer = null;
   let fabTries = 0;
   let fabHref = location.href;
 
   function fabSettings(s) {
     fabOff = s.fabEnabled === false;
-    fabBlocked = (s.fabBlockedHosts || []).includes(location.hostname);
+    fabBlocked = (s.fabBlockedHosts || []).includes(sitioAca());
   }
 
   // Plantilla de nombres guardada en opciones. Vacía o igual a la predeterminada es "sin
@@ -1694,6 +1728,7 @@
     if (location.href !== fabHref) {                // el sitio cambió de página sin recargar
       fabHref = location.href;
       fabTries = 0;
+      cedido = false;                               // otra página: se vuelve a preguntar
       if (!saveEl && !chapterEl) hideFab();
     }
     if (fabEl || fabOff || fabBlocked || fabCheckTimer || fabTries >= FAB_MAX_TRIES) return;
@@ -1719,6 +1754,11 @@
       case 'save': openSaveDialog(); sendResponse({ ok: true }); return;
       case 'batch': openChapterDialog(); sendResponse({ ok: true }); return;
       case 'count': sendResponse({ ok: true, n: countCandidates() }); return;
+      // Lo pide un iframe de esta página: el capítulo que tiene adentro es el de acá
+      case 'contexto':
+        sendResponse({ ok: true, contexto: { nombre: suggestName(), capitulo: detectChapter(), clave: pageKey(), sitio: location.hostname, titulo: document.title } });
+        return;
+      case 'ceder': cedido = true; hideFab(); return;
       case 'autoSave':
         autoSave(msg).then(r => sendResponse({ ok: true, ...r })).catch(e => sendResponse({ ok: false, error: e.message }));
         return true;

@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Serie Marco</title>
+</head>
+<body style="margin:0">
+<!-- Un capítulo cuyas páginas no están en esta página sino en un iframe. ?capitulo= dice cuál;
+     con ?otro=1 el iframe es de otro origen (el segundo puerto del sitio de prueba, que el
+     servidor pone en lugar de %OTRO%). -->
+<script>
+  const q = new URLSearchParams(location.search), n = q.get('capitulo') || '7';
+  document.title = 'Serie Marco Capítulo ' + n + ' | Sitio de prueba';
+  const origen = q.get('otro') ? '%OTRO%' : '';
+  document.write('<iframe style="display:block;border:0;width:100%;height:700px" src="' + origen + '/fx/lector.html?c=marco' + n + '"></iframe>');
+</script>
+</body>
+</html>

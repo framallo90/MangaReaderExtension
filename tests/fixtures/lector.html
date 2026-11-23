@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Lector</title>
+</head>
+<body style="margin:0">
+<!-- El lector que va adentro de un iframe: las 6 páginas del capítulo, en la carpeta que diga ?c= -->
+<script>
+  const carpeta = new URLSearchParams(location.search).get('c') || 'lector';
+  for (let i = 1; i <= 6; i++) {
+    document.write('<img style="display:block" width="420" height="640" src="/fx/img/' + carpeta + '/' + i + '.jpg">');
+  }
+</script>
+</body>
+</html>
