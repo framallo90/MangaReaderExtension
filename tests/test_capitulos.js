@@ -263,4 +263,25 @@ if (/file = last/.test(require('fs').readFileSync(require('path').join(dir, 'con
   const q = pagina(dir, { title: 'Sin número', url: S + '/acerca' });
   eq('siguiente: página que no es un capítulo', q.nextChapterUrl(), '');
 }
+
+// ── Links pegados: los que ya están en el registro no entran (2.11) ──
+{
+  const p = pagina(dir, { title: 'Cualquier página', url: S + '/' });
+  if (p.quitarGuardados) {
+    const B = 'https://blog.example';
+    // Cinco links pegados desordenados; el 2 y el 4 ya se guardaron (uno quedó anotado con barra
+    // final y el otro llega con un parámetro de seguimiento, que no cambia de qué capítulo es)
+    const pegado = [5, 3, 1, 4, 2].map(n => `${B}/leer/serie-${n}${n === 4 ? '?utm_source=x' : ''}`).join('\n');
+    const guardado = { 'Serie/Serie 0002': { ts: 1, pages: 6, url: `${B}/leer/serie-2/` }, 'Serie/Serie 0004': { ts: 1, pages: 6, url: `${B}/leer/serie-4` },
+                       'Otra/Otra 0001': { ts: 1, pages: 6, url: 'https://otro.example/leer/serie-1' } };
+    const r = p.quitarGuardados(p.chaptersFromLinks(pegado).items, guardado);
+    eq('pegar 5 links desordenados con 2 ya guardados: quedan 3, ordenados, y se dice cuántos se descartaron',
+      `${r.items.map(c => c.numero).join(',')} · ${r.descartados} descartados`, '1,3,5 · 2 descartados');
+    eq('  cada uno conserva su número y su dirección', r.items.map(c => `${c.numero}=${c.url.replace(B, '')}`).join(' '), '1=/leer/serie-1 3=/leer/serie-3 5=/leer/serie-5');
+    const nada = p.quitarGuardados(p.chaptersFromLinks(pegado).items, {});
+    eq('  sin nada guardado entran todos', `${nada.items.length} · ${nada.descartados}`, '5 · 0');
+    const todos = p.quitarGuardados(p.chaptersFromLinks(`${B}/leer/serie-2\n${B}/leer/serie-4/`).items, guardado);
+    eq('  y si ya estaban todos, no queda ninguno', `${todos.items.length} · ${todos.descartados}`, '0 · 2');
+  }
+}
 fin();

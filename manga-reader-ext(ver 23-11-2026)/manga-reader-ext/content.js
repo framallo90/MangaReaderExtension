@@ -1264,6 +1264,10 @@
             <button class="mr-chapter-btn" id="mr-chapter-none" type="button">Ninguno</button>
             <button class="mr-chapter-btn" id="mr-chapter-reload" type="button" title="Volver a buscar capítulos en la página">↻ Buscar de nuevo</button>
           </div>
+          <div class="mr-chapter-row">
+            <button class="mr-chapter-btn" id="mr-chapter-ordenar" type="button" title="Del capítulo más bajo al más alto: en ese orden se bajan">Ordenar por número</button>
+            <button class="mr-chapter-btn" id="mr-chapter-invertir" type="button" title="Da vuelta la lista: se baja primero lo que está arriba">⇅ Invertir</button>
+          </div>
           <div class="mr-save-count" id="mr-chapter-count"></div>
           <div class="mr-save-hint mr-chapter-why" id="mr-chapter-why" hidden></div>
           <div class="mr-chapter-tabs" id="mr-chapter-tabs" hidden>
@@ -1329,6 +1333,8 @@
       sc('#mr-chapter-all').onclick = () => { for (const c of chapters) c.on = true; renderChapters(); };
       sc('#mr-chapter-none').onclick = () => { for (const c of chapters) c.on = false; renderChapters(); };
       sc('#mr-chapter-reload').onclick = () => loadChapters(true);
+      sc('#mr-chapter-ordenar').onclick = () => { if (!batchRunning) { alReves = false; ordenarCapitulos(); renderChapters(); } };
+      sc('#mr-chapter-invertir').onclick = () => { if (!batchRunning) { alReves = !alReves; ordenarCapitulos(); renderChapters(); } };
       sc('#mr-tab-cap').onclick = () => { vistaTomos = false; renderChapters(); };
       sc('#mr-tab-tomos').onclick = () => { vistaTomos = true; renderChapters(); };
       sc('#mr-chapter-links-go').onclick = useLinks;
@@ -1375,7 +1381,7 @@
         else if (c.fixed) chapters[i] = c;            // los links que pegaste mandan sobre lo que se encuentre en la página
       }
     }
-    chapters.sort((a, b) => a.numero - b.numero);
+    ordenarCapitulos();
 
     if (!keep) {
       // Si el adaptador del sitio trae la dirección de los capítulos, vale esa: no hay nada que suponer
@@ -1402,6 +1408,22 @@
     renderChapters();
   }
 
+  // El orden de la lista es el orden en que se bajan: por número, o al revés (del último al
+  // primero) si se la invirtió. Cada vez que la lista cambia se vuelve a ordenar así.
+  let alReves = false;
+  function ordenarCapitulos() {
+    chapters.sort((a, b) => (alReves ? b.numero - a.numero : a.numero - b.numero));
+  }
+
+  // De una lista de capítulos con dirección, los que ya figuran en el registro de guardados no
+  // se vuelven a bajar. Devuelve { items, descartados }. Se compara como en el resto: por la
+  // dirección sin parámetros de seguimiento y sin importar la barra final.
+  function quitarGuardados(items, guardado) {
+    const claves = new Set(Object.values(guardado || {}).map(v => noSlash(v.url)));
+    const quedan = items.filter(c => { try { return !claves.has(noSlash(pageKey(new URL(c.url)))); } catch { return true; } });
+    return { items: quedan, descartados: items.length - quedan.length };
+  }
+
   // "Usar estos links": la lista pasa a ser la de los links pegados, cada uno con su número,
   // todos marcados. Sirve cuando la extensión no puede sacar los capítulos de la página.
   function useLinks() {
@@ -1413,7 +1435,13 @@
     const r = chaptersFromLinks(sc('#mr-chapter-links').value, mode, start);
     if (!r.items.length) return say('No encontré ningún link en lo que pegaste.', true);
     if (r.items.length > 3000) return say('Son demasiados links juntos (más de 3000).', true);
+    // Los que ya están en el registro no entran (salvo que hayas destildado "Saltear los que ya
+    // guardé": ahí los querés bajar de nuevo). Los números ya se asignaron: no se corren.
+    const limpio = sc('#mr-chapter-skip').checked ? quitarGuardados(r.items, savedMap) : { items: r.items, descartados: 0 };
+    if (!limpio.items.length) return say(`Los ${r.items.length} links que pegaste ya los tenías guardados: no hay nada para bajar.`, true);
+    r.items = limpio.items;
 
+    alReves = false;
     chapters = r.items.map(c => ({ numero: c.numero, title: c.title || `Capítulo ${c.numero}`, url: c.url, fixed: true, on: true, state: '', note: '' }));
     const first = chapters[0].numero, last = chapters[chapters.length - 1].numero;
     sc('#mr-chapter-from').value = first;
@@ -1433,6 +1461,7 @@
       (mode === 'auto' && r.how === 'order' ? ' No encontré el número en los links.' : '') +
       (missing.length && missing.length <= 12 ? ` En el medio falta${missing.length === 1 ? '' : 'n'}: ${missing.join(', ')}.` : '') +
       (r.dup ? ` ${r.dup} repetido${r.dup === 1 ? '' : 's'} no entr${r.dup === 1 ? 'ó' : 'aron'}.` : '') +
+      (limpio.descartados ? ` ${limpio.descartados} descartado${limpio.descartados === 1 ? '' : 's'} porque ya ${limpio.descartados === 1 ? 'lo' : 'los'} tenías guardado${limpio.descartados === 1 ? '' : 's'}.` : '') +
       (sc('#mr-chapter-serie').value.trim() ? '' : ' Escribí el nombre de la serie en "Serie".'));
     // El nombre de la serie queda a la vista: con links pegados conviene escribirlo
     sc('#mr-chapter-more').open = true;
@@ -1481,7 +1510,7 @@
       for (let n = Math.ceil(a); n <= Math.floor(b); n++) {
         if (!have.has(n)) chapters.push({ numero: n, title: `Capítulo ${n}`, on: false, state: '', note: '' });
       }
-      chapters.sort((x, y) => x.numero - y.numero);
+      ordenarCapitulos();
       markSaved();
     }
     const inRange = chapters.filter(c => c.numero >= a && c.numero <= b);
@@ -1582,7 +1611,7 @@
     go.textContent = batchRunning ? 'Cancelar' : `Descargar ${todo} capítulo${todo === 1 ? '' : 's'}`;
     go.classList.toggle('mr-cancel', batchRunning);
     go.disabled = !batchRunning && (!todo || !anyFmt);
-    for (const id of ['range', 'all', 'none', 'reload']) sc(`#mr-chapter-${id}`).disabled = batchRunning;
+    for (const id of ['range', 'all', 'none', 'reload', 'ordenar', 'invertir']) sc(`#mr-chapter-${id}`).disabled = batchRunning;
     showRoute();
   }
 

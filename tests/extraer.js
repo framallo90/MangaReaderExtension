@@ -28,7 +28,8 @@ const BLOQUES = [
 // Funciones que no están en todas las versiones: se cargan si existen
 const BLOQUES_NUEVOS = [/function isDateArchive\(/,         // 2.8.6
   /function chaptersFromLinks\(/,                           // 2.9
-  /function contextoPlantilla\(/, /function nombrePorPlantilla\(/];   // 2.10
+  /function contextoPlantilla\(/, /function nombrePorPlantilla\(/,    // 2.10
+  /function quitarGuardados\(/];                            // 2.11
 const LINEAS = [/const OURS = /, /const MIN_SIDE = /, /const SAGAS = /, /let userSagas = /, /const noSlash = /];
 const LINEAS_NUEVAS = [/const MONTH_RE = /,                 // 2.8.6
   /let esquemaNombres = /];                                 // 2.10

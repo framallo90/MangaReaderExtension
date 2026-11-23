@@ -513,6 +513,39 @@ const AREAS = {
       `${dos.estado} · ${await pdfDe(path.join(b.dl, 'MangaReader', 'Serie Base', 'Serie Base 0002.pdf'), 5000)}`, 'success · 6 × 420x640');
     await b.ext.eval(`chrome.storage.local.remove('carpetaBase')`);
   },
+
+  // ═══ 9. Pegar links: sin los ya guardados, y con el orden a elección ═══
+  async pegar({ b, S, eq }) {
+    console.log('\n── 2.11 · Pegar links: descarta los ya guardados, ordena e invierte');
+    // Ya están guardados el 2 y el 4 de la serie
+    const antes = (await b.storage('savedChapters')) || {};
+    for (const n of [2, 4]) antes[`Serie Pegar/Serie Pegar 000${n}`] = { ts: Date.now(), pages: 6, url: `${S}/fx/pegar/leer/${n}` };
+    await b.setStorage({ savedChapters: antes });
+    const url = S + '/fx/hostil.html';                      // una página cualquiera: los capítulos salen de lo que se pega
+    const pg = await b.cdp.open(url);
+    await pg.waitFor(`document.readyState === 'complete'`, 'la página');
+    await pedir(b, url, 'batch');
+    await pg.waitFor(`!!document.querySelector('#mr-chapter-links-go')`, 'el diálogo de varios capítulos');
+    const pegado = [5, 3, 1, 4, 2].map(n => `${S}/fx/pegar/leer/${n}`).join('\n');
+    await pg.eval(`(() => { document.querySelector('#mr-chapter-links').value = ${JSON.stringify(pegado)}; document.querySelector('#mr-chapter-links-go').click(); })()`);
+    const FILAS = `[...document.querySelectorAll('#mr-chapter .mr-chapter-item .mr-chapter-n')].map(n => n.textContent).join(',')`;
+    eq('pegar 5 links desordenados con 2 ya guardados: quedan 3, ordenados', await pg.eval(FILAS), '1,3,5');
+    eq('  y el aviso dice que descartó 2', (await pg.eval(`document.querySelector('#mr-chapter-links-msg').textContent`)).match(/\d+ descartados? porque ya l[oa]s? tenías guardados?/)?.[0] || '(no lo dice)',
+      '2 descartados porque ya los tenías guardados');
+    await pg.eval(`document.querySelector('#mr-chapter-invertir').click()`);
+    eq('Invertir da vuelta la lista (se baja primero lo de arriba)', await pg.eval(FILAS), '5,3,1');
+    await pg.eval(`document.querySelector('#mr-chapter-ordenar').click()`);
+    eq('Ordenar por número la deja del más bajo al más alto', await pg.eval(FILAS), '1,3,5');
+    // Invertida, se baja en ese orden: el 5 queda guardado antes que el 1
+    await b.setStorage({ ritmo: { pausa: 0 } });
+    await pg.eval(`document.querySelector('#mr-chapter-invertir').click(); document.querySelector('#mr-chapter-serie').value = 'Serie Pegar'; document.querySelector('#mr-chapter-go').click()`);
+    const fin = await lote.fin(pg, 180000).catch(e => e.message);
+    const reg = (await b.storage('savedChapters')) || {};
+    const cuando = (n) => reg[`Serie Pegar/Serie Pegar 000${n}`]?.ts || 0;
+    eq('  y el lote baja en el orden de la lista', `${String(fin).split('\n')[0]} · ${cuando(5) && cuando(5) < cuando(3) && cuando(3) < cuando(1) ? '5, 3, 1' : 'otro orden'}`, '✅ Listo: 3 capítulos guardados · 5, 3, 1');
+    await pg.close();
+    await b.ext.eval(`chrome.storage.local.remove(['cola', 'ritmo'])`);
+  },
 };
 
 // Corre las áreas pedidas (todas, o las de SOLO) y devuelve cuántas se cortaron
