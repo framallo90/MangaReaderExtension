@@ -56,6 +56,17 @@ module.exports = async function probar(api) {
     eq('serie con códigos en la dirección: el número sale del texto del link', lista(beta, 'capitulos').items.map(i => `${i.numero}=${i.url.replace(S, '')}`).join(' '),
       '1=/ver/9000001 2=/ver/9000002 3=/ver/9000003');
 
+    console.log('\n── Capítulos con href hash y listas ocultas');
+    const cp = await api.analizar(S + '/capitulos-prueba/');
+    const cps = lista(cp, 'capitulos');
+    const nums = cps.items.map(i => i.numero);
+    const esperado = [...Array(109)].map((_, i) => i + 1).join(',');
+    eq('hash + ocultos: 109 capítulos del 1 al 109 sin repetidos', `${nums.length} ${nums.join(',')}`, `109 ${esperado}`);
+    eq('  versiones: cada capítulo con una sola URL', cps.items.every(i => !i.versiones || i.versiones === 1), true);
+    const raros = await api.analizar(S + '/capitulos-raros/');
+    eq('  un data-chapter-number que no es un número no cuenta: queda el de la dirección', lista(raros, 'capitulos').items.map(i => i.numero).join(','), '1,2,3,900');
+    eq('  el botón href="#" de un menú no le cambia el nombre al primer link', raros.listas.find(l => l.tipo === 'titulos' && l.nombre === '/serie').items.map(i => i.texto).join(', '), 'Alfa, Beta, Delta');
+
     const cap = await api.analizar(S + '/leer/alfa-2/');
     eq('capítulo: lo reconoce y propone el nombre', `${cap.capitulo.serie} ${cap.capitulo.numero} → ${cap.capitulo.nombre}`, 'Alfa 2 → Alfa/Alfa 0002');
     eq('página que no existe: lo dice', await api.analizar(S + '/leer/alfa-9/').then(() => 'sin error', e => e.message), 'La página respondió HTTP 404');

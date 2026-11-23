@@ -164,6 +164,16 @@ const obraEnRenglones = pagina('Obra Dos — capítulos', `${menuTapas}<h1>Dos</
 <li><div>Capítulo 1 <a href="/ver-obra/900211">Leer</a></div></li>
 </ul>`);
 const bibliotecaTapas = pagina('Sitio de tapas — Biblioteca', `${menuTapas}<h1>Biblioteca</h1>${grilla(OBRAS)}`);
+const filaCap = (n) => `<li class="upload-link" data-chapter-number="${n}"><a href="#">Capítulo ${n}</a> <div class="chapter-detail" style="display:none"><a href="/view_uploads/${n}">Leer online</a></div></li>`;
+const capitulosPrueba = pagina('Capítulos de prueba hash y ocultos', `${menu}<h1>Capítulos de prueba</h1>
+<a href="/view_uploads/1">Empezar a leer</a> <a href="/view_uploads/103">Último capítulo</a>
+<ul id="visibles">${[...Array(10)].map((_, i) => filaCap(i + 1)).join('')}</ul>
+<ul id="ocultos" style="display:none">${[...Array(99)].map((_, i) => filaCap(i + 11)).join('')}</ul>`);
+// Lo que no es un renglón de capítulo: el botón href="#" de un menú desplegable (no le pone su
+// nombre al primer link del menú) y un renglón cuyo data-chapter-number no es un número
+const capitulosRaros = pagina('Capítulos de prueba: menú desplegable y número raro', `<nav><ul><li><a href="/">Inicio</a></li>
+<li class="dropdown"><a href="#">Series</a><ul><li><a href="/serie/alfa/">Alfa</a></li><li><a href="/serie/beta/">Beta</a></li><li><a href="/serie/delta/">Delta</a></li></ul></li></ul></nav>
+<ul>${[1, 2, 3].map(filaCap).join('')}<li class="upload-link" data-chapter-number="extra"><a href="#">Especial</a> <div class="chapter-detail" style="display:none"><a href="/view_uploads/900">Leer online</a></div></li></ul>`);
 const lectorTapas = (n) => pagina(`Obra Uno Capítulo ${n} | Sitio de tapas`, menuTapas +
   [1, 2, 3, 4, 5, 6].map(k => `<a href="${n === 5 ? '/lector/6' : `/lector/${n}/pagina/${k}`}"><img width="420" height="640" style="display:block" src="/tapas/paginas/${n}/${k}.jpg"></a>`).join('\n') +
   (n === 5 ? `<h3>También te puede gustar</h3>${grilla(OBRAS.slice(1, 4))}` : ''));
@@ -216,6 +226,8 @@ function iniciar({ tapas = false } = {}) {
     }
     if (u === '/serie/alfa/') return html(serieAlfa);
     if (u === '/serie/beta/') return html(serieBeta);
+    if (u === '/capitulos-prueba/') return html(capitulosPrueba);
+    if (u === '/capitulos-raros/') return html(capitulosRaros);
     let m = u.match(/^\/leer\/alfa-(\d+)\/$/);
     if (m) {
       pedidos.capitulos[u] = (pedidos.capitulos[u] || 0) + 1;

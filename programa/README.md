@@ -4,7 +4,7 @@ Explora una página web por niveles (títulos → capítulos → páginas) y gua
 
 Todo corre en tu máquina: no hay servidor ni cuenta. Es independiente de la extensión de Chrome y usa su mismo código para detectar páginas, armar nombres y generar los archivos.
 
-**Estado: versión 0.9.0.** Funciona de punta a punta sobre los sitios de prueba. Los cambios de cada versión están en las [Actualizaciones](../README.md#actualizaciones) del README principal.
+**Estado: versión 0.10.0.** Funciona de punta a punta sobre los sitios de prueba. Los cambios de cada versión están en las [Actualizaciones](../README.md#actualizaciones) del README principal.
 
 ## Cómo abrirlo
 
@@ -230,7 +230,7 @@ Baja de a un capítulo, con una pausa entre uno y otro. Cada renglón dice en qu
 npm run prueba
 ```
 
-Corren dentro de Electron contra un sitio de prueba servido en la máquina. Son 170 comprobaciones:
+Corren dentro de Electron contra un sitio de prueba servido en la máquina. Son 174 comprobaciones:
 
 - **Explorar:** portada, catálogo paginado, directorio que carga al bajar, serie y capítulo.
 - **Portada con tapas:** que no pase por capítulo (y que un capítulo con tapas al final lo siga siendo), que cada título traiga su tapa y que la miniatura se pida con el Referer del sitio.
@@ -238,6 +238,7 @@ Corren dentro de Electron contra un sitio de prueba servido en la máquina. Son 
 - **Listas incompletas o escondidas:** el molde para completar por número (con y sin ceros adelante), la pestaña "Capítulos" con "Mostrar más" y el panel con barra propia.
 - **Tarjetas:** que las que tienen tapa sean títulos aunque digan "Cap. N" o lleven un código, y que de cada una quede el nombre aparte de lo demás.
 - **Catálogo, géneros y capítulos en renglones:** el link al listado que trae orden y número de página, los géneros aparte de los títulos, y una serie con el número en el renglón y más de un link por capítulo.
+- **Renglones con link `#`:** capítulos cuyo link es un hash de la página (con el link real adentro) y listas ocultas; que el botón `#` de un menú no le cambie el nombre a un link, y que un `data-chapter-number` que no es un número no cuente.
 - **Bajar:** los tres formatos a una carpeta temporal, lo que ya estaba, lo que falla.
 - **Lo que ya está:** por número, con otros nombres de archivo y en carpetas que se llaman casi igual; que otra serie parecida no cuente; cada formato aparte.
 - **Plantilla y sagas:** el tomo y el nombre del capítulo en el nombre del archivo, y la carpeta por saga.

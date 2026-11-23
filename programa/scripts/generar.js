@@ -57,7 +57,7 @@ ${fs.readFileSync(path.join(__dirname, '..', 'src', 'pagina', 'explorar.js'), 'u
   ipcRenderer.on('mr:cmd', async (_e, m) => {
     let r;
     try { r = { ok: true, valor: await comandos[m.cmd](m.args || {}) }; }
-    catch (e) { r = { ok: false, error: String(e && e.message || e) }; }
+    catch (e) { r = { ok: false, error: String(e && e.stack || e) }; }
     ipcRenderer.send('mr:res', { id: m.id, ...r });
   });
 })();

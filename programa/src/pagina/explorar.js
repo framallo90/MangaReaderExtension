@@ -72,6 +72,35 @@
     }
     return '';
   }
+  // Si el href de un renglón es un hash de esta misma página (#, #algo o la URL actual con
+  // fragmento), buscar dentro de ese renglón el primer link con una URL real del mismo sitio
+  // y devolverla. null si no hay ninguno: el renglón se descarta.
+  function urlRealEnRenglón(el) {
+    const base = document.baseURI;
+    const aqui = noSlash(location.href.split('#')[0]);
+    const mismoSitio = (u) => u.origin === location.origin;
+    for (let cont = el.parentElement, k = 0; cont && k < 10; cont = cont.parentElement, k++) {
+      for (const a of [...cont.querySelectorAll('a[href]')]) {
+        let u;
+        try { u = new URL(a.getAttribute('href'), base); } catch { continue; }
+        if (!/^https?:$/.test(u.protocol) || !mismoSitio(u)) continue;
+        const url = u.href.split('#')[0];
+        if (noSlash(url) === aqui) continue;      // otro hash de esta página, no sirve
+        return url;
+      }
+      if (cont.textContent.length > 3000) break;   // ya pasó del renglón
+    }
+    return null;
+  }
+  // Número de capítulo de un renglón: data-chapter-number, si no data-number.
+  // Solo si es un número ("12", "12.5"): con "extra" o "cap-12" el capítulo quedaría con número NaN.
+  function numeroAttrDe(el) {
+    for (let e = el; e && e !== document.body; e = e.parentElement) {
+      const v = e.getAttribute('data-chapter-number') || e.getAttribute('data-number');
+      if (v) return /^\d{1,5}(?:\.\d+)?$/.test(v.trim()) ? v.trim() : null;
+    }
+    return null;
+  }
   // El texto de un link sin lo que tenga pegado adelante o atrás que no sea letra (un ícono, "»")
   const sinAdornos = (s) => String(s || '').replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
   const IMAGEN_RE = /\.(?:jpe?g|png|webp|gif|avif|bmp)$/i;
@@ -153,9 +182,24 @@
       let u;
       try { u = new URL(el.getAttribute('href'), document.baseURI); } catch { continue; }
       if (!/^https?:$/.test(u.protocol)) continue;
-      const url = u.href.split('#')[0];
-      const clave = noSlash(url);
-      if (clave === aqui) continue;
+      let url = u.href.split('#')[0];
+      let clave = noSlash(url);
+      if (clave === aqui) {
+        // El href es un hash de esta página: buscar dentro del renglón el primer link con una
+        // URL real del mismo sitio y usarla; si no hay, descartar el renglón.
+        // Solo si nombra un capítulo: el botón de un menú desplegable y las pestañas también
+        // son href="#", y le pondrían su texto al primer link que tienen cerca.
+        if (!NUMERO_TEXTO_RE.test(textoDe(el)) && !numeroAttrDe(el)) continue;
+        const real = urlRealEnRenglón(el);
+        if (!real) continue;
+        const ur = new URL(real, document.baseURI);
+        const urlr = ur.href.split('#')[0];
+        const claver = noSlash(urlr);
+        if (claver === aqui) continue;
+        u = ur;
+        url = urlr;
+        clave = claver;
+      }
       if (soloNuevos && antesDeBuscar && antesDeBuscar.has(clave)) continue;     // ya estaba antes de buscar: no es un resultado
       const leido = leerLink(el);
       const texto = leido.nombre || limpio(el.getAttribute('aria-label')) || limpio(el.title) || limpio(el.querySelector('img')?.alt);
@@ -167,8 +211,10 @@
       const p = partes(u);
       if (/^(?:19|20)\d{2}$/.test(p.nombre) && (!texto || texto.includes(p.nombre))) continue;   // archivo por año
       if (!p.nums.length && s && !u.pathname.endsWith(s.num)) p.nums = [s.num];        // ?capitulo=12
+      const na = numeroAttrDe(el);
+      const nums = na ? [na] : p.nums;
       porUrl.set(clave, { url, texto, todo, detalle: leido.detalle, seccion, imagen: imagenes.get(clave) || '', filtro: esFiltro(u),
-                          fila: NUMERO_TEXTO_RE.test(todo) ? '' : filaDe(el), ...p });
+                          fila: NUMERO_TEXTO_RE.test(todo) ? '' : filaDe(el), numeroAttr: na, ...p, nums });
     }
     return [...porUrl.values()];
   }
@@ -256,9 +302,10 @@
       // los números van más o menos seguidos: en "últimas actualizaciones" también dice
       // "Capítulo 87", pero son de series distintas y salen salteados.
       // Y si cada uno trae su tapa, son títulos con su último capítulo, no los de una serie.
-      const dato = (l) => [l.todo, l.fila, l.seccion].find(t => NUMERO_TEXTO_RE.test(t || '')) || '';
+      const dato = (l) => l.numeroAttr || [l.todo, l.fila, l.seccion].find(t => NUMERO_TEXTO_RE.test(t || '')) || '';
+      const numeroDe = (d) => { const m = d.match(NUMERO_TEXTO_RE); return m ? parseFloat(m[1]) : parseFloat(d); };
       const conNumero = grupo.filter(l => dato(l));
-      const numeros = [...new Set(conNumero.map(l => parseFloat(dato(l).match(NUMERO_TEXTO_RE)[1])))];
+      const numeros = [...new Set(conNumero.map(l => numeroDe(dato(l))))];
       const seguidos = numeros.length <= 3 || numeros.length / (Math.max(...numeros) - Math.min(...numeros) + 1) >= 0.34;
       const base = conSecciones(grupo);
       if (numeros.length >= 2 && conNumero.length >= grupo.length * 0.8 && seguidos && !conTapa(grupo)) {
@@ -267,7 +314,7 @@
         for (const l of base) {
           const d = dato(l);
           if (!d) continue;
-          const numero = parseFloat(d.match(NUMERO_TEXTO_RE)[1]);
+          const numero = numeroDe(d);
           const ya = porNumero.get(numero);
           if (ya) { ya.versiones++; continue; }
           porNumero.set(numero, { url: l.url, texto: NUMERO_TEXTO_RE.test(l.texto) ? nombreDe(l) : d.slice(0, 90), numero, seccion: NUMERO_TEXTO_RE.test(l.seccion || '') ? '' : l.seccion, imagen: l.imagen, versiones: 1,
@@ -392,7 +439,7 @@
   // o de a tandas con un botón "Ver más" / "Mostrar todos". Se tocan esos botones (nunca un
   // link que lleve a otra página) hasta que dejan de aparecer links nuevos.
   const PESTANA_RE = /^(?:(?:lista de )?cap[ií]tulos|chapters?(?: list)?|episodios|episodes)(?:\s*[(:·-]?\s*\d+\s*\)?)?$/i;
-  const DESPLEGAR_RE = /^(?:(?:ver|mostrar|cargar|show|load|view|see)\s+(?:m[aá]s|tod[oa]s?|more|all)(?:\s+(?:l[oa]s\s+)?(?:cap[ií]tulos|chapters|episodios|episodes))?|(?:tod[oa]s\s+l[oa]s|all|m[aá]s|more)\s+(?:cap[ií]tulos|chapters|episodios|episodes)|expandir|expand|desplegar)$/i;
+  const DESPLEGAR_RE = /^(?:(?:ver|mostrar|cargar|show|load|view|see)\s+(?:m[aá]s|tod[oa]s?|more|all)(?:\s+(?:l[oa]s\s+)?(?:cap[ií]tulos|chapters|episodios|episodes))?|(?:tod[oa]s\s+l[oa]s|all|m[aá]s|more)\s+(?:cap[ií]tulos|chapters|episodios|episodes)|expandir|expand|desplegar|ver\s+todo)$/i;
   async function desplegar() {
     const aca = location.href.split('#')[0];
     const cuenta = () => document.querySelectorAll('a[href]').length;

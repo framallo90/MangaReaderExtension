@@ -5,7 +5,7 @@ Dos herramientas para guardar capítulos de manga y cómics como **PDF**, **CBZ*
 | | Qué es | Versión | Dónde está |
 |---|---|---|---|
 | 🧩 **La extensión** | Se usa desde Chrome, sobre la página que tenés abierta | 2.10.0 | `manga-reader-ext(ver 22-11-2026-7)/manga-reader-ext` |
-| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.9.0 | `programa/` |
+| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.10.0 | `programa/` |
 
 Funcionan por separado y comparten el mismo código para detectar páginas, armar nombres y generar los archivos. Son de uso personal, están en español y todo corre en tu máquina, sin servidor.
 
@@ -248,6 +248,15 @@ Lo que todavía le falta y cómo está armado: [programa/README.md](programa/REA
 # Actualizaciones
 
 Lo más nuevo arriba. El historial completo de la extensión está en la sección 15 de [DOCUMENTACION.md](DOCUMENTACION.md).
+
+### 23-11-2026 · Programa 0.10.0
+
+- **Capítulos cuyo link es `#`.** En algunos sitios el link del renglón es un hash de la misma página (`href="#"`: abre el renglón ahí mismo) y los links para leer están adentro. Ahora el programa usa el link real que el renglón tiene adentro, y si no hay ninguno, el renglón se descarta. Vale solo para los renglones que nombran un capítulo: el botón `#` de un menú desplegable o de una pestaña se saltea, como antes.
+- **El número de capítulo sale también de `data-chapter-number` / `data-number`**, para cuando la dirección trae un código y no el número. Si el atributo no es un número ("extra"), no cuenta.
+- **Las listas ocultas y "Ver todo" se leen:** entran los capítulos que la página trae escondidos, y "Ver todo" está entre los botones que el programa toca para desplegar la lista.
+- **Los repetidos se juntan en uno**, con `versiones` (cuántos links tiene ese capítulo).
+- **Pruebas:** la ruta `/capitulos-prueba/` del sitio de prueba da 109 capítulos del 1 al 109, sin repetidos, y `/capitulos-raros/` cubre el menú con `#` y el atributo que no es un número. `npm run prueba` hace 174 comprobaciones (172 más esas dos).
+- **Falta:** un renglón sin link real que es el primero de su lista toma el link del renglón siguiente; un `data-number` que no es el número del capítulo (la posición del renglón, o puesto en el contenedor de la lista) le gana al número que dicen la dirección y el texto; y si la dirección trae un código corto y un capítulo está subido dos veces, la lista que queda primera es la numerada por código.
 
 ### 23-11-2026 · Programa 0.9.0
 
