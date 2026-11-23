@@ -13,6 +13,14 @@ const { lanzar, lote, zipNames, pdfPages, sleep, root, ultimaVersion, RAIZ } = r
 const version = process.argv[2] || ultimaVersion();
 const EXT = path.join(root, version, 'manga-reader-ext');
 const CAPTURAS = process.env.CAPTURAS || '';
+// La versión que se está corriendo, para las comprobaciones cuyo texto cambió a propósito de una
+// versión a otra: se compara siempre, contra el texto que corresponde a esa versión.
+const VERSION = JSON.parse(fs.readFileSync(path.join(EXT, 'manifest.json'), 'utf8')).version;
+const desde = (v) => {
+  const a = VERSION.split('.').map(Number), b = v.split('.').map(Number);
+  for (let i = 0; i < 3; i++) if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
+  return true;
+};
 
 let fails = 0;
 function eq(label, got, want) {
@@ -621,8 +629,9 @@ function serve(req, res) {
           // (la serie de prueba se llama "Serie Protegida": se busca el texto del aviso, no esa palabra)
           await pr.eval(`document.querySelector('#mr-save-count').textContent + ' · ' + /🔒|protege|cifrad/i.test(document.querySelector('#mr-save').textContent) + ' · ' + getComputedStyle(document.querySelector('#mr-save-warn')).display`),
           'No encontré páginas del capítulo en esta página. · false · none');
-        // (desde la 2.11 el cartel de cada miniatura sigue con cómo cambiarla de lugar: acá se mira el motivo)
-        eq('  el motivo de las miniaturas tampoco lo nombra', (await pr.eval(`document.querySelector('#mr-save .mr-thumb').title`)).split(' · arrastrala')[0], 'Posible publicidad: no parece una página del capítulo · clic para incluir');
+        // (desde la 2.11 el cartel de cada miniatura sigue con cómo cambiarla de lugar)
+        eq('  el motivo de las miniaturas tampoco lo nombra', await pr.eval(`document.querySelector('#mr-save .mr-thumb').title`),
+          'Posible publicidad: no parece una página del capítulo · clic para incluir' + (desde('2.11.0') ? ' · arrastrala o usá ▲▼ para cambiarla de lugar' : ''));
       }
       eq('  nombre con "[#104] Serie"', await pr.eval(`document.querySelector('#mr-save-name').value`), 'Serie Protegida/Serie Protegida 0104');
       eq('  logo, banner y promoción vienen destildados',
@@ -810,13 +819,14 @@ function serve(req, res) {
 
       // Volver a pegar los mismos. Hasta la 2.10 entraban a la lista como guardados y el lote los
       // salteaba; desde la 2.11 los links ya guardados no entran, y lo dice.
+      // En las dos se mira lo mismo: lo que dice, la lista que queda y el botón. (Desde la 2.11 la
+      // lista no se toca: sigue mostrando los 4 del lote que recién terminó, con su resultado.)
       await pegarLinks([cap('01', '01'), cap('01', '02')].join('\n'));
-      if (fs.existsSync(path.join(EXT, 'ajustes.js'))) {
-        eq('pegar links ya guardados: no entran, y lo dice', await pl.eval(`document.querySelector('#mr-chapter-links-msg').textContent + ' · ' + document.querySelector('#mr-chapter-go').textContent`),
-          'Los 2 links que pegaste ya los tenías guardados: no hay nada para bajar. · Descargar 0 capítulos');
-      } else {
-        eq('pegar links ya guardados: se saltean', await lote.filas(pl) + ' · ' + await pl.eval(`document.querySelector('#mr-chapter-go').textContent`), '1* [✔ guardado] | 2* [✔ guardado] · Descargar 0 capítulos');
-      }
+      eq('pegar links ya guardados: no se vuelven a bajar, y se ve por qué',
+        [await msgLinks(), await lote.filas(pl), await pl.eval(`document.querySelector('#mr-chapter-go').textContent`)].join(' · '),
+        desde('2.11.0')
+          ? 'Los 2 links que pegaste ya los tenías guardados: no hay nada para bajar. · 1 [✅ 6 páginas] | 2 [✅ 6 páginas] | 3 [✅ 6 páginas] | 4 [✅ 6 páginas] · Descargar 0 capítulos'
+          : 'Tomé 2 links: capítulos 1 a 2, con el número que trae cada link. · 1* [✔ guardado] | 2* [✔ guardado] · Descargar 0 capítulos');
 
       // Links sin número, de otro sitio (localhost en vez de 127.0.0.1): se numeran en el orden pegado
       const OTRO = SITE.replace('127.0.0.1', 'localhost');

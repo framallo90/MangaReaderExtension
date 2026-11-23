@@ -26,6 +26,13 @@ const { eq, fin } = probador();
   eq('  y nunca más de un minuto, aunque pida una hora', A.esperaReintento(0, '3600'), 60000);
   eq('  un Retry-After que no se entiende vale como si no estuviera', A.esperaReintento(1, 'pronto'), 4000);
   eq('reconoce el motivo "el sitio pidió esperar"', [A.pidioEsperar('No se pudo leer ninguna página (HTTP 429)'), A.pidioEsperar('HTTP 429: el sitio pidió esperar'), A.pidioEsperar('Sin páginas (encontré 0)')].join(','), 'true,true,false');
+  // (2.11.1) Un 503 es el mismo pedido que un 429; un 500 o un 404 son otra cosa
+  eq('  un 503 cuenta igual que un 429, en la página o en las imágenes; un 500 y un 404, no',
+    ['HTTP 503: el sitio pidió esperar', 'No se pudo leer ninguna página (HTTP 503)', 'La página respondió HTTP 503', 'No se pudo leer ninguna página (HTTP 500)', 'La página respondió HTTP 404'].map(A.pidioEsperar).join(','), 'true,true,true,false,false');
+  const pedida = (...a) => (A.esperaPedida ? String(A.esperaPedida(...a)) : '(no está)');
+  eq('lo que pidió el sitio en Retry-After, para quien decide por su cuenta cuánto esperar: segundos, o una fecha',
+    [pedida('3'), pedida('0'), pedida('Mon, 23 Nov 2026 12:00:05 GMT', Date.parse('Mon, 23 Nov 2026 12:00:00 GMT'))].join(','), '3000,0,5000');
+  eq('  con tope de un minuto, y null si no vino o no se entiende', [pedida('3600'), pedida(''), pedida(undefined), pedida('pronto'), pedida('-5')].join(','), '60000,null,null,null,null');
 
   // ── Adaptadores por sitio ──
   if (A.normalizarAdaptador) {
@@ -123,6 +130,43 @@ const { eq, fin } = probador();
     eq('  429 siempre → se reintenta 3 veces y queda en falla con su motivo', await bajar([429]), 'HTTP 429 · 4 pedidos · esperas: 2000,4000,8000');
     eq('  503 con Retry-After también se espera', await bajar([{ status: 503, retryAfter: '3' }, {}]), '3 bytes · 2 pedidos · esperas: 3000');
     eq('  un 404 no se reintenta', await bajar([404, {}]), 'HTTP 404 · 1 pedidos · esperas: ninguna');
+    eq('  503 siempre → las 3 esperas y los 2 reintentos comunes: 6 pedidos, y queda en falla', await bajar([503]), 'HTTP 503 · 6 pedidos · esperas: 2000,4000,8000,700,1400');
+
+    // (2.11.1) El capítulo entero: qué informa el armador cuando una página queda afuera porque el
+    // sitio pidió esperar. `sitio` dice qué contesta cada página (por su número); lo demás sale bien.
+    const capitulo = async (cuantas, sitio, cortar) => {
+      if (typeof off.loadAll !== 'function') return '(el armador no lo informa)';
+      let pedidos = 0;
+      const avisar = console.warn;
+      console.warn = () => {};                                                    // el armador anota cada página que omite
+      globalThis.chrome = { runtime: { sendMessage: async () => {} } };          // el aviso de avance
+      globalThis.setTimeout = (f, ms) => real.setTimeout(f, ms >= 30000 ? ms : 0);
+      globalThis.fetch = async (u) => {
+        pedidos++;
+        const r = sitio(+u.match(/(\d+)\.jpg$/)[1]);
+        return r ? { ok: false, status: r.status, headers: { get: (h) => (/retry-after/i.test(h) ? r.retryAfter || null : null) } }
+                 : { ok: true, status: 200, headers: { get: () => null }, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer };
+      };
+      let fin;
+      try {
+        const r = await off.loadAll(Array.from({ length: cuantas }, (_, i) => `https://s.com/${i + 1}.jpg`), 'j', false, cortar);
+        fin = `${r.pages.filter(Boolean).length} de ${cuantas} · faltó: ${r.failed.join(',') || 'ninguna'} · esperar: ${r.esperar ? `${r.esperar.status} (Retry-After: ${r.esperar.retryAfter || 'no vino'})` : 'no'}`;
+      } catch (e) { fin = `${e.message} · esperar: ${e.esperar ? e.esperar.status : 'no'}`; }
+      Object.assign(globalThis, real);
+      delete globalThis.chrome;
+      console.warn = avisar;
+      return `${fin} · ${pedidos} pedidos`;
+    };
+    const la3 = (r) => (n) => (n === 3 ? r : null);
+    eq('la 3ª página de un capítulo responde 503 siempre: el armador dice que faltó porque el sitio pidió esperar, y cuánto pidió',
+      await capitulo(6, la3({ status: 503, retryAfter: '2' })), '5 de 6 · faltó: 3 · esperar: 503 (Retry-After: 2) · 11 pedidos');
+    eq('  si falta por otra cosa (404), no dice que haya que esperar', await capitulo(6, la3({ status: 404 })), '5 de 6 · faltó: 3 · esperar: no · 6 pedidos');
+    eq('  todas responden 503: se piden todas, con sus esperas, y el error lleva el motivo', await capitulo(10, () => ({ status: 503 })), 'No se pudo leer ninguna página (HTTP 503) · esperar: 503 · 60 pedidos');
+    eq('en un lote (soloEntero) la primera que queda afuera corta el capítulo: no se arma a medias y las que faltaban no se piden',
+      await capitulo(10, () => ({ status: 503 }), true), 'HTTP 503: el sitio pidió esperar · esperar: 503 · 24 pedidos');
+    eq('  una sola alcanza para cortarlo, y el motivo es el mismo que cuando lo responde la página del capítulo',
+      (await capitulo(6, la3({ status: 429 }), true)).split(' · ').slice(0, 2).join(' · ') + ' · ' + A.pidioEsperar('HTTP 429: el sitio pidió esperar'), 'HTTP 429: el sitio pidió esperar · esperar: 429 · true');
+    eq('  y un 404 no lo corta: en un lote también sale con lo que hay', await capitulo(6, la3({ status: 404 }), true), '5 de 6 · faltó: 3 · esperar: no · 6 pedidos');
   }
   fin();
 })();

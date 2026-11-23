@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Tiras</title>
+</head>
+<body style="margin:0">
+<!-- Un capítulo en tiras, como los de un webtoon: cada página es una tira de 420×200 (más baja
+     que el lado mínimo de la detección automática) y cada una viene de una carpeta distinta.
+     Sin un adaptador no hay nada que parezca un capítulo. ?capitulo=N dice cuál es; el 2 tiene
+     solo 2 tiras (menos que las 3 imágenes que la detección automática pide para un capítulo). -->
+<div id="visor-tiras">
+<script>
+  const n = +new URLSearchParams(location.search).get('capitulo') || 1;
+  document.title = 'Serie Tiras Capítulo ' + n + ' | Sitio de prueba';
+  for (let i = 1; i <= (n === 2 ? 2 : 5); i++) {
+    document.write('<img style="display:block" width="420" height="200" src="/fx/img/tiras/c' + n + 't' + i + '/' + i + '.png">');
+  }
+</script>
+</div>
+</body>
+</html>

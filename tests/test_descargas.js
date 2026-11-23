@@ -158,6 +158,20 @@ const brief = (r) => `páginas=${r.pages} fallidas=[${r.failed}] archivos=[${r.f
     let r; try { await t.ctx.runBuild({ ...REQ, urls: [] }, SENDER); r = 'no falló'; } catch (e) { r = e.message; }
     eq('sin páginas', r, 'No hay páginas para guardar');
   }
+  { // (2.11.1) El sitio pidió esperar con alguna imagen: lo que informa el armador vuelve a quien guarda,
+    // y lo que pide un lote (no guardar a medias) le llega al armador
+    let visto = null;
+    const armador = (m) => { visto = m; return { ok: true, pages: 1, failed: [2], files: FILES.slice(0, 1), esperar: { status: 503, retryAfter: '3' } }; };
+    const r = await setup({ build: armador }).ctx.runBuild({ ...REQ, formats: { pdf: true } }, SENDER);
+    eq('una página faltó porque el sitio respondió 503: el guardado suelto sale incompleto y lo dice', `fallidas=[${r.failed}] esperar=${r.esperar} · soloEntero=${visto.soloEntero}`, 'fallidas=[2] esperar=503 · soloEntero=false');
+    await setup({ build: armador }).ctx.runBuild({ ...REQ, formats: { pdf: true }, soloEntero: true }, SENDER);
+    eq('  el pedido de un lote le llega al armador con soloEntero', visto.soloEntero, true);
+    const t = setup({ build: { ok: false, error: 'HTTP 503: el sitio pidió esperar' } });
+    let e; try { await t.ctx.runBuild({ ...REQ, soloEntero: true }, SENDER); e = 'no falló'; } catch (x) { e = x.message; }
+    eq('  y si el armador corta el capítulo, no se descarga nada y el motivo llega entero', `${e} · descargas: ${t.log.length}`, 'HTTP 503: el sitio pidió esperar · descargas: 0');
+    const sin = await setup({ build: { ok: true, pages: 2, failed: [], files: FILES.slice(0, 1) } }).ctx.runBuild({ ...REQ, formats: { pdf: true } }, SENDER);
+    eq('  sin nada que esperar, esperar=0', sin.esperar, 0);
+  }
   { // Con "Preguntar dónde guardar" la descarga queda esperando: no se da por fallida ni se libera antes de tiempo
     const t = setup({ build: { ok: true, pages: 2, failed: [], files: FILES.slice(0, 1) }, results: { 'blob:pdf': 'hang' } });
     const r = await t.ctx.runBuild({ ...REQ, formats: { pdf: true } }, SENDER);
@@ -252,6 +266,9 @@ const brief = (r) => `páginas=${r.pages} fallidas=[${r.failed}] archivos=[${r.f
   }
 
   // ── Un capítulo de un lote ──
+  // Cuántas páginas tiene el capítulo se dice de las dos formas, para que cada prueba recorra el
+  // mismo camino en todas las versiones: `marcos` es lo que cuenta la 2.11 (por marco) y la
+  // respuesta al mensaje `count` es lo que preguntaban las anteriores (la 2.11 ya no lo manda).
   const CHAP = { url: 'https://s.com/manga/es/todos/05', formats: { pdf: true }, numero: 5, strict: true };
   {
     const t = setup({ marcos: [[0, 15]], onTabMessage: (id, m) => m.action === 'count' ? { ok: true, n: 15 } : { ok: true, complete: true, pages: 15, name: 'S/S 0005', lines: [] } });
@@ -268,7 +285,7 @@ const brief = (r) => `páginas=${r.pages} fallidas=[${r.failed}] archivos=[${r.f
   }
   if (SCRIPTS.includes('plantilla.js')) {      // 2.10: el tomo y el nombre que el capítulo tiene en la lista llegan a su pestaña
     let visto = null;
-    const t = setup({ onTabMessage: (id, m) => { if (m.action === 'autoSave') visto = m; return m.action === 'count' ? { ok: true, n: 15 } : { ok: true, complete: true, pages: 15, lines: [] }; } });
+    const t = setup({ marcos: [[0, 15]], onTabMessage: (id, m) => { if (m.action === 'autoSave') visto = m; return m.action === 'count' ? { ok: true, n: 15 } : { ok: true, complete: true, pages: 15, lines: [] }; } });
     await t.ctx.batchChapter({ ...CHAP, serie: 'S', fixed: true, volumen: 'Tomo 2', titulo: 'La huida' }, SENDER);
     eq('lote: a la pestaña del capítulo le llegan su tomo y su nombre (para la plantilla)', `${visto.serie} ${visto.numero} ${visto.fixed} ${visto.volumen} | ${visto.titulo}`, 'S 5 true Tomo 2 | La huida');
   }
@@ -278,13 +295,13 @@ const brief = (r) => `páginas=${r.pages} fallidas=[${r.failed}] archivos=[${r.f
     eq('capítulo que no existe', r + ' · ' + t.tabLog[t.tabLog.length - 1], 'Sin páginas (encontré 0) · remove 50');
   }
   {
-    const t = setup({ onTabMessage: (id, m) => m.action === 'count' ? { ok: true, n: 15 } : { ok: true, complete: true, pages: 15, lines: [] } });
+    const t = setup({ marcos: [[0, 15]], onTabMessage: (id, m) => m.action === 'count' ? { ok: true, n: 15 } : { ok: true, complete: true, pages: 15, lines: [] } });
     await t.ctx.batchChapter({ ...CHAP, visible: true }, SENDER);
     eq('a la vista: abre adelante y vuelve a la pestaña del lote', t.tabLog[0] + ' … ' + t.tabLog[t.tabLog.length - 1], 'create https://s.com/manga/es/todos/05 active=true … update 7');
   }
   { // Cancelar: se cierra la pestaña del capítulo y el pedido termina como "Cancelado"
     let reject;
-    const t = setup({ onTabMessage: (id, m) => m.action === 'count' ? { ok: true, n: 15 } : new Promise((_, rej) => { reject = rej; }) });
+    const t = setup({ marcos: [[0, 15]], onTabMessage: (id, m) => m.action === 'count' ? { ok: true, n: 15 } : new Promise((_, rej) => { reject = rej; }) });
     t.onRemove = () => reject && reject(new Error('The message port closed before a response was received.'));
     const p = t.ctx.batchChapter(CHAP, SENDER).then(() => 'no falló', e => e.message);
     await wait(300);

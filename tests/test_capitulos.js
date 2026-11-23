@@ -282,6 +282,13 @@ if (/file = last/.test(require('fs').readFileSync(require('path').join(dir, 'con
     eq('  sin nada guardado entran todos', `${nada.items.length} · ${nada.descartados}`, '5 · 0');
     const todos = p.quitarGuardados(p.chaptersFromLinks(`${B}/leer/serie-2\n${B}/leer/serie-4/`).items, guardado);
     eq('  y si ya estaban todos, no queda ninguno', `${todos.items.length} · ${todos.descartados}`, '0 · 2');
+    // (2.11.1) Con "Saltear los que ya guardé" destildado los querés bajar de nuevo: entran todos
+    const igual = p.quitarGuardados(p.chaptersFromLinks(pegado).items, guardado, false);
+    eq('con "Saltear los que ya guardé" destildado, los ya guardados entran igual y no hay descartados que avisar',
+      `${igual.items.map(c => c.numero).join(',')} · ${igual.descartados} descartados`, '1,2,3,4,5 · 0 descartados');
+    const igual2 = p.quitarGuardados(p.chaptersFromLinks(`${B}/leer/serie-2\n${B}/leer/serie-4/`).items, guardado, false);
+    eq('  también si ya estaban todos: no se queda sin nada para bajar', `${igual2.items.map(c => c.numero).join(',')} · ${igual2.descartados}`, '2,4 · 0');
+    eq('  y con la casilla tildada (o sin decir nada) se descartan como siempre', `${p.quitarGuardados(p.chaptersFromLinks(pegado).items, guardado, true).descartados} · ${r.descartados}`, '2 · 2');
   }
 }
 fin();

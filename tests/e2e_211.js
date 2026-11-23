@@ -29,6 +29,8 @@ function pngGris(w, h, tono) {
 }
 // Página 1: 420×640 (JPG) · página 2: 400×600 · página 3: 380×560
 const DE_ORDEN = { 1: JPG, 2: pngGris(400, 600, 230), 3: pngGris(380, 560, 200) };
+// Una tira de webtoon: más baja que el lado mínimo (250) de la detección automática
+const TIRA = pngGris(420, 200, 215);
 const TAMANOS = { '420x640': 1, '400x600': 2, '380x560': 3 };
 
 // En qué orden quedaron las páginas de la serie "orden" en un PDF ("3,2,1"): cada página del PDF
@@ -75,6 +77,7 @@ async function sitio(pedidos = {}, estado = { rotos: new Set(), imagen: null }) 
     }
     m = u.match(/^\/fx\/img\/orden\/\d+\/([123])\.jpg$/);       // dicen .jpg, pero dos son PNG: la extensión mira el contenido
     if (m) return send(m[1] === '1' ? 'image/jpeg' : 'image/png', DE_ORDEN[m[1]]);
+    if (/^\/fx\/img\/tiras\/[\w-]+\/\d+\.png$/.test(u)) return send('image/png', TIRA);
     if (/^\/fx\/img\/[\w/-]+\.jpg$/.test(u)) {
       const mal = estado.imagen ? estado.imagen(u, req) : null;
       return mal ? send('text/plain', 'no', mal.status, mal.headers || {}) : send('image/jpeg', JPG);
@@ -96,6 +99,9 @@ async function abrirLote(b, url, cuantos = 4) {
   return pg;
 }
 const colaComo = (c) => (!c ? 'sin cola' : c.items.map(i => `${i.numero} ${i.estado}${i.error ? ' (' + i.error + ')' : ''}`).join(', '));
+// Toca un botón del diálogo de varios capítulos y devuelve lo que dice el estado en ese mismo
+// instante, antes de que corra nada más
+const TOCAR = (boton) => `(() => { document.querySelector('${boton}').click(); return document.querySelector('#mr-chapter-status').textContent; })()`;
 // Lo que ofrece la barra de la cola: su texto y los botones que están a la vista
 const BARRA = `(() => { const q = (s) => ${RAIZ}.querySelector(s); const b = q('#mr-chapter-cola'); if (!b || b.hidden) return 'sin barra';
   return q('#mr-cola-texto').textContent.replace(/\\(\\d\\d\\/\\d\\d/, '(hoy') + ' [' + ['reanudar', 'reintentar', 'descartar'].map(k => q('#mr-cola-' + k)).filter(x => !x.hidden).map(x => x.textContent).join(' | ') + ']'; })()`;
@@ -242,13 +248,46 @@ const AREAS = {
     eq('  y el diálogo ofrece reintentarlos o descartar la cola', await pg.eval(BARRA),
       'Quedó un lote sin terminar (hoy): 2 fallaron. [Reintentar los 2 que fallaron | Descartar la cola]');
     estado.rotos = new Set();                               // el sitio vuelve a andar
-    await pg.eval(`document.querySelector('#mr-cola-reintentar').click()`);
+    // (2.11.1) El estado se lee en el mismo instante del clic: leer la cola es una ida y vuelta, y
+    // en ese rato no puede seguir a la vista el final del lote anterior
+    const alReintentar = await pg.eval(TOCAR('#mr-cola-reintentar'));
+    eq('  al tocar Reintentar el estado cambia en el momento: no sigue diciendo "Listo"', `${String(fin).split('\n')[0]} → ${alReintentar}`, 'Listo: 2 capítulos guardados · 2 con problemas → Preparando el lote…');
     await pg.waitFor(`/Cancelar/.test(document.querySelector('#mr-chapter-go').textContent)`, 'que arranque el reintento', 10000).catch(() => {});
     const fin2 = await lote.fin(pg, 180000).catch(e => e.message);
     eq('con el sitio arreglado, Reintentar baja esos dos', `${String(fin2).split('\n')[0]} · ${await pdfDe(pdf('Serie Cola', 2), 3000)} · ${await pdfDe(pdf('Serie Cola', 3), 3000)}`,
       '✅ Listo: 2 capítulos guardados · 6 × 420x640 · 6 × 420x640');
     eq('  y la cola queda vacía', colaComo(await b.storage('cola')) + ' · ' + await pg.eval(BARRA), 'sin cola · sin barra');
     await pg.close();
+
+    // (2.11.1) Un lote que arranca justo después de otro, y Reanudar: lo mismo, en el primer instante
+    const pe = await abrirLote(b, S + '/fx/estado/?caps=3', 3);
+    await pe.eval(`document.querySelector('#mr-chapter-all').click(); document.querySelector('#mr-chapter-go').click()`);
+    const primero = String(await lote.fin(pe, 180000).catch(e => e.message)).split('\n')[0];
+    // Los mismos tres de nuevo, sin saltear los ya guardados
+    await pe.eval(`(() => { const s = document.querySelector('#mr-chapter-skip'); if (s.checked) s.click(); document.querySelector('#mr-chapter-all').click(); })()`);
+    eq('termina un lote y arranca otro enseguida: en el primer instante el estado ya no dice "Listo"', `${primero} → ${await pe.eval(TOCAR('#mr-chapter-go'))}`, '✅ Listo: 3 capítulos guardados → Preparando el lote…');
+    await pe.waitFor(`/Cancelar/.test(document.querySelector('#mr-chapter-go').textContent)`, 'que arranque el segundo lote', 10000).catch(() => {});
+    await pe.eval(`document.querySelector('#mr-chapter-go').click()`);                 // se cancela: queda una cola para reanudar
+    const cancelado = String(await lote.fin(pe, 120000).catch(e => e.message)).split('\n')[0].replace(/\d+ capítulos? guardados?/, 'N guardados');
+    await pe.waitFor(`(() => { const r = document.querySelector('#mr-cola-reanudar'); return !!r && !r.hidden && !r.closest('[hidden]'); })()`, 'la barra con Reanudar', 10000).catch(() => {});
+    eq('  y al tocar Reanudar, tampoco sigue a la vista el final del lote cancelado', `${cancelado} → ${await pe.eval(TOCAR('#mr-cola-reanudar'))}`, 'Cancelado: N guardados → Preparando el lote…');
+    await pe.waitFor(`/Cancelar/.test(document.querySelector('#mr-chapter-go').textContent)`, 'que arranque', 10000).catch(() => {});
+    const reanudado = String(await lote.fin(pe, 180000).catch(e => e.message)).split('\n')[0];
+    eq('  Reanudar termina lo que faltaba, y la cola queda vacía', `${/^✅ Listo: \d capítulos? guardados?$/.test(reanudado)} · ${colaComo(await b.storage('cola'))}`, 'true · sin cola');
+    // (2.11.1) Una cola a la que le falta un capítulo que mientras tanto se guardó de a uno: Reanudar
+    // no tiene nada que bajar, y la cola se tiene que cerrar en vez de quedar ofrecida para siempre
+    await pe.eval(`document.querySelector('#mr-chapter-close').click()`);
+    const estadoUrl = S + '/fx/estado/?caps=3';
+    await b.setStorage({ cola: { id: 'ya-guardado', fecha: Date.now(), serie: '', formatos: { pdf: true }, visible: false, sitio: '127.0.0.1', origen: estadoUrl, plantilla: '',
+      items: [{ url: S + '/fx/estado/leer/2', numero: 2, titulo: 'Capítulo 2', volumen: '', estado: 'pendiente', error: '' }] } });
+    await pedir(b, estadoUrl, 'batch');
+    await pe.waitFor(`(() => { const r = document.querySelector('#mr-cola-reanudar'); return !!r && !r.hidden && !r.closest('[hidden]'); })()`, 'la barra con Reanudar', 10000).catch(() => {});
+    await pe.eval(`document.querySelector('#mr-cola-reanudar').click()`);
+    const sinNada = await pe.waitFor(`(() => { const t = document.querySelector('#mr-chapter-status').textContent; return /ya estaba guardado|No hay capítulos/.test(t) ? t : ''; })()`, 'el resultado de Reanudar', 15000).catch(e => e.message);
+    await sleep(500);
+    eq('Reanudar una cola cuyo capítulo ya se guardó de a uno: lo dice y la cola se cierra', `${sinNada} · ${colaComo(await b.storage('cola'))} · ${await pe.eval(BARRA)}`,
+      'Lo que faltaba ya estaba guardado: no queda nada por bajar. · sin cola · sin barra');
+    await pe.close();
 
     // Cerrar la pestaña a mitad de un lote
     const lista2 = S + '/fx/corte/';
@@ -318,6 +357,35 @@ const AREAS = {
     eq('  y los otros capítulos se guardaron igual', `${await pdfDe(pdf('Serie Pide', 1), 3000)} · ${await pdfDe(pdf('Serie Pide', 3), 3000)} · cola: ${colaComo(await b.storage('cola'))}`,
       '6 × 420x640 · 6 × 420x640 · cola: 1 listo, 2 fallo (el sitio pidió esperar), 3 listo');
     estado.capitulo = null;
+
+    // (2.11.1) Las imágenes de un capítulo responden 503: tiene que pasar lo mismo que cuando lo
+    // responde su página. El sitio contesta 503 (con Retry-After: 1, para no alargar la prueba)
+    // a cada imagen del capítulo 2 que pide la extensión para guardarla.
+    let negadas = 0;
+    estado.imagen = (u, req) => (/^\/fx\/img\/imagenes\/2\//.test(u) && req.headers.accept === 'image/*' ? (negadas++, { status: 503, headers: { 'Retry-After': '1' } }) : null);
+    const p5 = await abrirLote(b, S + '/fx/imagenes/?caps=3', 3);
+    await p5.eval(`document.querySelector('#mr-chapter-all').click(); document.querySelector('#mr-chapter-go').click()`);
+    let parado = '(no paró)', fin5 = '';
+    for (const hasta = Date.now() + 240000; Date.now() < hasta && !fin5; await sleep(120)) {
+      const t = await p5.eval(`document.querySelector('#mr-chapter-status')?.textContent || ''`).catch(() => '');
+      if (/pidió esperar, sigo en/.test(t)) parado = t.replace(/\d+ s/, 'N s');
+      if (/^(✅ )?(Listo|Cancelado|Parado)/.test(t)) fin5 = t;
+    }
+    eq('las imágenes de un capítulo responden 503: el lote para igual que cuando lo responde la página, y la falla dice que el sitio pidió esperar',
+      `${parado} · ${fin5.split('\n').filter(l => /^Listo|Capítulo 2/.test(l)).join(' / ')}`,
+      '(2/3) Capítulo 2: el sitio pidió esperar, sigo en N s… · Listo: 2 capítulos guardados · 1 con problemas / Capítulo 2: el sitio pidió esperar');
+    const quedo = () => fs.readdirSync(path.join(b.dl, 'MangaReader', 'Serie Imagenes')).sort().join(' | ');
+    eq('  no queda nada guardado a medias, la cola lo tiene como falla y el armador dejó de pedir apenas lo supo (4 páginas por intento, 6 pedidos cada una)',
+      `${quedo()} · cola: ${colaComo(await b.storage('cola'))} · ${negadas} pedidos negados`,
+      'Serie Imagenes 0001.pdf | Serie Imagenes 0003.pdf · cola: 1 listo, 2 fallo (el sitio pidió esperar), 3 listo · 48 pedidos negados');
+    estado.imagen = null;                                   // el sitio vuelve a andar
+    await p5.eval(`document.querySelector('#mr-cola-reintentar').click()`);
+    await p5.waitFor(`/Cancelar/.test(document.querySelector('#mr-chapter-go').textContent)`, 'que arranque el reintento', 10000).catch(() => {});
+    const fin6 = await lote.fin(p5, 180000).catch(e => e.message);
+    eq('  con el sitio arreglado, Reintentar lo baja: entero, con su nombre y sin copias al lado',
+      `${String(fin6).split('\n')[0]} · ${await pdfDe(pdf('Serie Imagenes', 2), 3000)} · ${quedo()} · cola: ${colaComo(await b.storage('cola'))}`,
+      '✅ Listo: 1 capítulo guardado · 6 × 420x640 · Serie Imagenes 0001.pdf | Serie Imagenes 0002.pdf | Serie Imagenes 0003.pdf · cola: sin cola');
+    await p5.close();
     await b.ext.eval(`chrome.storage.local.remove(['cola', 'ritmo'])`);
 
     // La página de opciones
@@ -442,9 +510,44 @@ const AREAS = {
       (await pg.eval(`document.querySelector('#mr-chapter-tpl').value + ' · a la vista para revisar: ' + document.querySelector('#mr-chapter-more').open`)).replace(S, ''), '/fx/rara/leer/{n} · a la vista para revisar: false');
     await pg.close();
 
+    // (2.11.1) Con un adaptador no queda nada del filtro automático: ni el lado mínimo, ni la carpeta
+    // con más imágenes, ni el mínimo de 3 páginas. Un capítulo en tiras de 420×200, cada una en su
+    // carpeta (el capítulo 2 tiene solo 2 tiras).
+    const tiras = (n) => `${S}/fx/tiras.html?capitulo=${n}`;
+    const verTiras = async () => {
+      const t = await b.cdp.open(tiras(1));
+      await t.waitFor(`document.readyState === 'complete' && document.images.length >= 5 && [...document.images].every(i => i.complete)`, 'el capítulo en tiras', 30000);
+      await pedir(b, tiras(1), 'save');
+      await t.waitFor(`!!document.querySelector('#mr-save-count') && !/Recorriendo|Buscando/.test(document.querySelector('#mr-save-count').textContent)`, 'el diálogo', 40000);
+      return t;
+    };
+    await poner(null);
+    let t = await verTiras();
+    eq('un capítulo en tiras más bajas que el lado mínimo, sin adaptador: la detección automática no encuentra páginas',
+      (await t.eval(`document.querySelectorAll('#mr-save .mr-thumb').length + ' miniaturas · ' + document.querySelector('#mr-save-count').textContent`)).split(' · ').slice(0, 2).join(' · '), '0 miniaturas · No encontré páginas');
+    await t.close();
+    await poner({ contenedor: '#visor-tiras', patron: S + '/fx/tiras.html?capitulo={n}' });
+    t = await verTiras();
+    await t.waitFor(`document.querySelectorAll('#mr-save .mr-thumb').length >= 5`, 'las tiras en el diálogo', 15000).catch(() => {});
+    eq('con el adaptador entran las 5 tiras: el tamaño no las deja afuera',
+      await t.eval(`document.querySelectorAll('#mr-save .mr-thumb.on').length + ' de ' + document.querySelectorAll('#mr-save .mr-thumb').length + ' tildadas'`), '5 de 5 tildadas');
+    await pedir(b, tiras(1), 'batch');
+    await t.waitFor(`!!document.querySelector('#mr-chapter-tpl')`, 'el diálogo de varios capítulos');
+    await lote.rango(t, 1, 2);
+    await t.waitFor(`/Descargar 2/.test(document.querySelector('#mr-chapter-go').textContent)`, 'los dos capítulos marcados', 10000).catch(() => {});
+    await t.eval(`document.querySelector('#mr-chapter-go').click()`);
+    const finT = await lote.fin(t, 180000).catch(e => e.message);
+    const pdfT = (n) => pdfDe(path.join(b.dl, 'MangaReader', 'Serie Tiras', `Serie Tiras 000${n}.pdf`), 3000);
+    eq('  y un lote con ese adaptador las cuenta aunque cada una esté en otra carpeta, y guarda también el capítulo de solo 2 tiras',
+      `${String(finT).split('\n').slice(0, 2).join(' / ')} · ${await pdfT(1)} · ${await pdfT(2)}`, '✅ Listo: 2 capítulos guardados · 5 × 420x200 · 2 × 420x200');
+    await t.close();
+
     await poner({ contenedor: '#visor-raro >>' });
     pg = await abrir();
     eq('un selector inválido no rompe nada: en esa página sigue la detección automática', await pg.eval(TILDADAS), '3 páginas y 20 señuelos tildados · 26 miniaturas');
+    // (2.11.1) y se avisa: si no, parece que el adaptador no hace nada
+    eq('  y el diálogo avisa que el adaptador no se pudo usar', ((await pg.eval(`document.querySelector('#mr-save-warn-text').textContent`)).match(/el adaptador de este sitio tiene un selector inválido[^·]*/) || ['(no avisa)'])[0].trim(),
+      'el adaptador de este sitio tiene un selector inválido: busqué las páginas como siempre');
     await poner(null);
 
     // La sección de opciones, con esa pestaña del sitio abierta
@@ -532,6 +635,15 @@ const AREAS = {
     eq('pegar 5 links desordenados con 2 ya guardados: quedan 3, ordenados', await pg.eval(FILAS), '1,3,5');
     eq('  y el aviso dice que descartó 2', (await pg.eval(`document.querySelector('#mr-chapter-links-msg').textContent`)).match(/\d+ descartados? porque ya l[oa]s? tenías guardados?/)?.[0] || '(no lo dice)',
       '2 descartados porque ya los tenías guardados');
+    // (2.11.1) Con "Saltear los que ya guardé" destildado los querés bajar de nuevo: entran todos
+    const pegar = (saltear) => pg.eval(`(() => { const s = document.querySelector('#mr-chapter-skip'); if (s.checked !== ${saltear}) s.click();
+      document.querySelector('#mr-chapter-links').value = ${JSON.stringify(pegado)}; document.querySelector('#mr-chapter-links-go').click(); })()`);
+    await pegar(false);
+    eq('con "Saltear los que ya guardé" destildado, los ya guardados entran igual: van los 5', `${await pg.eval(FILAS)} · ${await pg.eval(`document.querySelector('#mr-chapter-go').textContent`)}`, '1,2,3,4,5 · Descargar 5 capítulos');
+    const dicho = await pg.eval(`document.querySelector('#mr-chapter-links-msg').textContent`);
+    eq('  y no aparece el aviso de descartados', /descartad/.test(dicho) ? dicho : 'sin aviso: ' + dicho.split('.')[0], 'sin aviso: Tomé 5 links: capítulos 1 a 5, con el número que trae cada link');
+    await pegar(true);                                      // tildada de nuevo, como estaba
+    eq('  al tildarla otra vez vuelven a quedar afuera', await pg.eval(FILAS), '1,3,5');
     await pg.eval(`document.querySelector('#mr-chapter-invertir').click()`);
     eq('Invertir da vuelta la lista (se baja primero lo de arriba)', await pg.eval(FILAS), '5,3,1');
     await pg.eval(`document.querySelector('#mr-chapter-ordenar').click()`);

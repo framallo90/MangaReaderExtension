@@ -4,7 +4,7 @@ Dos herramientas para guardar capítulos de manga y cómics como **PDF**, **CBZ*
 
 | | Qué es | Versión | Dónde está |
 |---|---|---|---|
-| 🧩 **La extensión** | Se usa desde Chrome, sobre la página que tenés abierta | 2.11.0 | `manga-reader-ext(ver 23-11-2026)/manga-reader-ext` |
+| 🧩 **La extensión** | Se usa desde Chrome, sobre la página que tenés abierta | 2.11.1 | `manga-reader-ext(ver 23-11-2026-2)/manga-reader-ext` |
 | 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.10.1 | `programa/` |
 
 Funcionan por separado y comparten el mismo código para detectar páginas, armar nombres y generar los archivos. Son de uso personal, están en español y todo corre en tu máquina, sin servidor.
@@ -29,7 +29,7 @@ JavaScript plano (Manifest V3), sin dependencias ni compilación.
 | 🧭 **Adaptadores por sitio** | Donde el filtro no acierta, le decís con selectores CSS dónde están las páginas, y lo probás antes de guardarlo |
 | 🪟 **Lectores en un iframe** | Encuentra las páginas aunque estén en un marco aparte, incluso de otro sitio |
 | ⏯ **Cola del lote** | Queda guardada: si se corta o algo falla, se reanuda o se reintenta. El ícono muestra el avance y al terminar llega una notificación |
-| 🐢 **Ritmo** | Pausa entre capítulos, descansos y espera automática cuando el sitio responde "esperá" (429) |
+| 🐢 **Ritmo** | Pausa entre capítulos, descansos y espera automática cuando el sitio responde "esperá" (429 o 503), con la página de un capítulo o con sus imágenes |
 | ⌨️ **Teclado** | Los diálogos se usan sin mouse: Tab, flechas entre las miniaturas, espacio para incluir o quitar |
 | 🗂 **Nombre y carpetas automáticos** | `Serie/Saga/Serie 0012`, con ceros adelante para que ordenen bien. Se cambia con una plantilla (`{serie}/{volumen}/{serie} {numero}`) |
 | ✔ **Registro de guardados** | Avisa lo que ya guardaste, lo saltea en los lotes y muestra los capítulos que te faltan |
@@ -255,6 +255,19 @@ Lo que todavía le falta y cómo está armado: [programa/README.md](programa/REA
 
 Lo más nuevo arriba. El historial completo de la extensión está en la sección 15 de [DOCUMENTACION.md](DOCUMENTACION.md).
 
+### 23-11-2026 · Extensión 2.11.1
+
+Cierre de la 2.11: una revisión, sin funciones nuevas. La carpeta es `manga-reader-ext(ver 23-11-2026-2)`.
+
+- **Un 503 vale lo mismo que un 429, lo responda la página del capítulo o sus imágenes.** Antes, si eran las imágenes, se reintentaban unos segundos y después contaba como una falla común: el lote seguía pidiéndole al sitio. Ahora el lote para un minuto (una vez), reintenta ese capítulo y, si sigue igual, lo deja en la cola con "el sitio pidió esperar" para **Reintentar**.
+- **Un capítulo de un lote no se guarda a medias por eso.** Apenas una página queda afuera porque el sitio pidió esperar, el armador deja de pedir las demás y no arma nada: cuando se reintenta sale entero y con su nombre, sin un `nombre (1)` al lado. Guardando de a uno se sigue guardando lo que bajó, y el aviso dice el motivo.
+- **Reintentar y Reanudar ya no dejan a la vista el final del lote anterior.** El estado cambia a "Preparando el lote…" en el momento del clic (como ya pasaba al arrancar un lote común), y un segundo clic apurado no cancela lo que recién arrancó. Si todo lo que le faltaba a una cola ya lo guardaste de a uno, Reanudar lo dice y la cierra en vez de quedar ofrecida para siempre.
+- **Con un adaptador no queda nada del filtro automático.** Seguían valiendo el lado mínimo, la carpeta con más imágenes y el mínimo de 3 páginas: un capítulo en tiras (más bajas que 250 px), o con cada página en su carpeta, no se encontraba aunque el adaptador las señalara. Y un adaptador con un selector inválido ahora se avisa en el diálogo.
+- **Limpieza:** se sacó el manejador de un mensaje (`count`) que ya nadie mandaba.
+- **Pruebas:** 17 comprobaciones más en Node (497) y 15 más en el navegador (`tests/e2e_211.js`, 96); 8 de esas 15 fallan contra la 2.11.0. Quedó probada la casilla "Saltear los que ya guardé" destildada (los links ya guardados entran igual y no hay aviso de descartados), que andaba pero no tenía prueba. Las dos comprobaciones de `e2e.js` que dependían de que la versión trajera `ajustes.js` ahora comparan siempre, contra el texto de la versión que se corre.
+- **A mano y contra un sitio real:** el pedido a GitHub del aviso de versión nueva se hizo de verdad (`tests/probar_version.js`: respondió 200 y leyó la 2.11.0, también desde el popup), y la sección 11 de la documentación trae los pasos para probar a mano los botones de la notificación y lo que se corrió contra un sitio real.
+- **Falta:** los botones de la notificación siguen sin poder apretarse desde una prueba (los dibuja Windows); no se provocó un 503 en un sitio real; y la extensión no lee `Retry-After` de la página de un capítulo, solo de las imágenes (para el lote usa la parada de un minuto).
+
 ### 23-11-2026 · Extensión 2.11.0
 
 Diez cambios y tres menores. La carpeta es `manga-reader-ext(ver 23-11-2026)`.
@@ -443,6 +456,7 @@ node tests/lote_largo.js    # un lote de decenas de capítulos seguidos
 - El programa tiene las suyas: `cd programa` y `npm run prueba`.
 - Las pruebas en navegador necesitan el Chromium de Playwright (`%LOCALAPPDATA%\ms-playwright\chromium-*`) o el de la variable `CHROMIUM`. El Chrome común ya no acepta cargar extensiones por línea de comandos.
 - `node tests/probar_sitio.js "<dirección>"` informa qué detecta la extensión en una página, sin dejar archivos.
+- `node tests/probar_version.js` hace de verdad el pedido a GitHub del aviso de versión nueva y dice qué contestó (con `--navegador`, además desde el popup). No es parte de ninguna suite: depende de la red.
 - Las dos pruebas en navegador aceptan la carpeta de otra versión como argumento: `node tests/e2e_211.js "manga-reader-ext(ver 22-11-2026-7)"` muestra qué de lo nuevo fallaba antes.
 - Las páginas de prueba de la 2.11 están en `tests/fixtures/`.
 - Todas las descargas de las pruebas van a una carpeta temporal que se borra al terminar.
