@@ -292,6 +292,37 @@ const AREAS = {
       `${r.pausa} · ${r.descansoCada} · ${r.descansoSeg} · ${r.concurrencia} · campos: ${await b.ext.eval(`document.getElementById('ritmoPausa').value + ' y ' + document.getElementById('ritmoConc').value`)}`, '10 · 10 · 45 · 2 · campos: 10 y 2');
     await b.ext.eval(`chrome.storage.local.remove('ritmo')`);
   },
+
+  // ═══ 5. Insignia del ícono y notificación al terminar ═══
+  async insignia({ b, S, eq, estado }) {
+    console.log('\n── 2.11 · Insignia y notificación del lote');
+    await b.ext.eval(`chrome.storage.local.remove('cola')`);
+    await b.setStorage({ ritmo: { pausa: 0 } });
+    await b.ext.eval(`chrome.action.setBadgeText({ text: '' })`);
+    estado.rotos = new Set(['aviso/2']);
+    const pg = await abrirLote(b, S + '/fx/aviso/?caps=3', 3);
+    await pg.eval(`document.querySelector('#mr-chapter-all').click(); document.querySelector('#mr-chapter-go').click()`);
+    // Mientras corre se mira la insignia cada tanto: no se ven todos los pasos, pero todos los que se ven son "n/3"
+    const vistas = new Set();
+    let fin = '';
+    for (const hasta = Date.now() + 180000; Date.now() < hasta && !fin; await sleep(120)) {
+      vistas.add(await b.ext.eval(`chrome.action.getBadgeText({})`));
+      fin = await pg.eval(`(() => { const s = document.querySelector('#mr-chapter-status'); return s && /^(✅ )?(Listo|Cancelado|Parado)/.test(s.textContent) ? s.textContent : ''; })()`).catch(() => '');
+    }
+    await sleep(500);
+    const pasos = [...vistas].filter(Boolean);
+    eq('mientras corre el lote la insignia dice cuántos van, y termina en el total',
+      `${pasos.length >= 2 && pasos.every(t => /^[0-3]\/3$/.test(t)) ? 'pasos n/3' : 'vistas: ' + pasos.join(',')} · al final ${await b.ext.eval(`chrome.action.getBadgeText({})`)}`, 'pasos n/3 · al final 3/3');
+    eq('  roja, porque un capítulo falló', (await b.ext.eval(`chrome.action.getBadgeBackgroundColor({})`)).slice(0, 3).join(','), '231,76,60');
+    const avisos = await b.ext.eval(`new Promise(r => chrome.notifications.getAll(n => r(Object.keys(n || {}))))`).catch(e => ['error: ' + e.message]);
+    eq('  y queda la notificación del lote', avisos.join(',') || '(ninguna)', 'mr-lote');
+    await pg.eval(`document.querySelector('#mr-chapter-close').click()`);
+    await sleep(600);
+    eq('al cerrar el diálogo la insignia se limpia', JSON.stringify(await b.ext.eval(`chrome.action.getBadgeText({})`)), '""');
+    await pg.close();
+    estado.rotos = new Set();
+    await b.ext.eval(`chrome.storage.local.remove(['cola', 'ritmo']); chrome.notifications.clear('mr-lote')`);
+  },
 };
 
 // Corre las áreas pedidas (todas, o las de SOLO) y devuelve cuántas se cortaron

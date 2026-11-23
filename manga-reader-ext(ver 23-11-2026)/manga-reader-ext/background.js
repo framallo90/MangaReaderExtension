@@ -106,6 +106,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     colaFin: () => colaFin(msg),
     colaReintentar: () => colaReintentar(msg),
     colaDescartar: () => colaDescartar(),
+    insigniaLimpiar: () => insigniaLimpiar(),
     // Un iframe no sabe cómo se llama el capítulo: el título y la dirección son los de la página
     contexto: () => chrome.tabs.sendMessage(sender.tab.id, { action: 'contexto' }, { frameId: 0 }).then(r => ({ contexto: r?.contexto || null })),
   };
@@ -228,6 +229,7 @@ async function runBuild({ urls, formats, title, meta, path }, sender) {
     if (!r?.ok) throw new Error(r?.error || 'No se pudo armar el archivo');
 
     const out = { pages: r.pages, failed: r.failed || [], files: [], imgs: 0, imgsFailed: 0, imgError: '' };
+    let ultima = null;                                    // la última descarga que salió bien: "Mostrar la carpeta" la busca
     for (const f of r.files) {
       const filename = f.kind === 'img' ? `MangaReader/${path}/${f.name}` : `MangaReader/${path}.${f.kind}`;
       try {
@@ -236,6 +238,7 @@ async function runBuild({ urls, formats, title, meta, path }, sender) {
         const res = await waitDownload(saved.id);
         if (res.state !== 'timeout' && blobs.delete(saved.id)) revoke([f.url]);
         if (res.state === 'interrupted') throw new Error(res.error || 'descarga interrumpida');
+        ultima = saved.id;
         if (f.kind === 'img') out.imgs++;
         else out.files.push({ kind: f.kind, sizeKB: f.sizeKB, savedAs: saved.filename !== filename ? saved.filename : '' });
       } catch (e) {
@@ -244,6 +247,7 @@ async function runBuild({ urls, formats, title, meta, path }, sender) {
         else out.files.push({ kind: f.kind, error: e.message });
       }
     }
+    if (ultima != null) chrome.storage?.local.set({ ultimaDescarga: ultima }).catch(() => {});
     return out;
   } finally {
     jobs.delete(jobId);
@@ -295,23 +299,37 @@ async function colaNueva(msg) {
       ...(i.armado ? { armado: true } : {}), ...(i.fixed ? { fixed: true } : {}), estado: 'pendiente', error: '' })),
   };
   await conCola(() => cola);
+  insignia(cola);
   return { id: cola.id };
 }
 
 async function colaMarca({ id, numero, estado, error }) {
-  await conCola((c) => {
+  let cambio = false;
+  const cola = await conCola((c) => {
     const it = c && c.id === id ? c.items.find(i => i.numero === numero) : null;     // otra cola (ya descartada): no se toca esta
     if (!it || !['pendiente', 'listo', 'fallo'].includes(estado)) return undefined;
     it.estado = estado;
     it.error = estado === 'fallo' ? String(error || 'falló') : '';
+    cambio = true;
     return c;
   });
+  if (cambio) insignia(cola);
   return {};
 }
 
-// Terminó el lote: si no quedó nada pendiente ni con falla, la cola ya no hace falta
-async function colaFin({ id }) {
-  await conCola((c) => (c && c.id === id && c.items.every(i => i.estado === 'listo') ? null : undefined));
+// Terminó el lote: si no quedó nada pendiente ni con falla, la cola ya no hace falta.
+// motivo: 'listo', 'parado' o 'cancelado' (ahí no se avisa: lo canceló quien lo está mirando).
+async function colaFin({ id, motivo }) {
+  let vista = null;                                       // la cola como quedó, antes de borrarla
+  await conCola((c) => {
+    if (!c || c.id !== id) return undefined;
+    vista = JSON.parse(JSON.stringify(c));
+    return c.items.every(i => i.estado === 'listo') ? null : undefined;
+  });
+  if (vista) {
+    insignia(vista, true);
+    if (motivo !== 'cancelado') avisarFin(vista);
+  }
   return {};
 }
 
@@ -321,7 +339,68 @@ async function colaReintentar({ id }) {
     for (const i of c.items) if (i.estado === 'fallo') { i.estado = 'pendiente'; i.error = ''; }
     return c;
   });
+  if (cola) insignia(cola);
   return { cola };
+}
+
+// ── Insignia y aviso del lote ─────────────────────────
+// Un lote largo corre en pestañas de fondo: sin esto es a ciegas. La insignia del ícono dice
+// cuántos van ("12/40") y al final queda verde o roja; la notificación avisa que terminó.
+const COLOR = { corre: '#667eea', bien: '#2ecc71', mal: '#e74c3c' };
+const AVISO = 'mr-lote';
+
+function insignia(cola, fin = false) {
+  if (!chrome.action) return;
+  const hechos = cola.items.filter(i => i.estado !== 'pendiente').length;
+  const fallos = cola.items.filter(i => i.estado === 'fallo').length;
+  chrome.action.setBadgeText({ text: `${hechos}/${cola.items.length}` });
+  chrome.action.setBadgeBackgroundColor({ color: !fin ? COLOR.corre : fallos ? COLOR.mal : COLOR.bien });
+}
+
+// Se limpia cuando se cierra el diálogo de varios capítulos: ya no hay lote a la vista
+function insigniaLimpiar() {
+  chrome.action?.setBadgeText({ text: '' });
+  return Promise.resolve({});
+}
+
+function avisarFin(cola) {
+  if (!chrome.notifications) return;
+  const total = cola.items.length;
+  const listos = cola.items.filter(i => i.estado === 'listo').length;
+  const fallos = cola.items.filter(i => i.estado === 'fallo').length;
+  const pend = total - listos - fallos;
+  chrome.notifications.create(AVISO, {
+    type: 'basic', iconUrl: chrome.runtime.getURL ? chrome.runtime.getURL('icons/icon128.png') : 'icons/icon128.png',
+    title: fallos ? 'Manga Reader: lote terminado con fallas' : 'Manga Reader: lote terminado',
+    message: `${listos} de ${total} capítulos guardados` + (fallos ? ` · ${fallos} con fallas` : '') + (pend ? ` · ${pend} sin bajar` : '') + (cola.serie ? ` · ${cola.serie}` : ''),
+    // (qué botones hay sale de la cola guardada: así el clic se entiende aunque el service worker se haya dormido)
+    buttons: [...(fallos ? [{ title: 'Reintentar los que fallaron' }] : []), { title: 'Mostrar la carpeta' }],
+  });
+}
+
+if (chrome.notifications?.onButtonClicked) {
+  chrome.notifications.onButtonClicked.addListener(async (id, indice) => {
+    if (id !== AVISO) return;
+    const st = await chrome.storage.local.get(['cola', 'ultimaDescarga']);
+    const hayFallos = !!st.cola && st.cola.items.some(i => i.estado === 'fallo');
+    const accion = hayFallos ? ['reintentar', 'carpeta'][indice] : 'carpeta';
+    chrome.notifications.clear(id);
+    if (accion === 'carpeta') { if (st.ultimaDescarga != null) chrome.downloads.show(st.ultimaDescarga); return; }
+    reintentarDesdeAviso(st.cola).catch(() => {});
+  });
+}
+
+// "Reintentar los que fallaron" desde la notificación: se vuelve a la página de la serie (la
+// misma pestaña si sigue abierta) y el diálogo de varios capítulos retoma la cola.
+async function reintentarDesdeAviso(cola) {
+  const igual = (u) => String(u || '').split('#')[0].replace(/\/(?=\?|$)/, '');
+  let tab = (await chrome.tabs.query({})).find(t => igual(t.url) === igual(cola.origen));
+  if (tab) await chrome.tabs.update(tab.id, { active: true });
+  else {
+    tab = await chrome.tabs.create({ url: cola.origen, active: true });
+    for (let i = 0; i < 100 && (await chrome.tabs.get(tab.id)).status !== 'complete'; i++) await sleep(300);
+  }
+  return tellTab(tab.id, { action: 'batch', reintentar: true });
 }
 
 async function colaDescartar() {

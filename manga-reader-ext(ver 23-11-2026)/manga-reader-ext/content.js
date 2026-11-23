@@ -1467,7 +1467,7 @@
 
   function closeChapterDialog() {
     if (batchRunning) { batchStop = true; bg({ action: 'batchCancel' }).catch(() => {}); }
-    if (chapterEl) { chapterEl.remove(); chapterEl = null; }
+    if (chapterEl) { chapterEl.remove(); chapterEl = null; bg({ action: 'insigniaLimpiar' }).catch(() => {}); }      // ya no hay lote a la vista
     chapters = [];
   }
 
@@ -1633,7 +1633,8 @@
     }
 
     batchRunning = false;
-    await bg({ action: 'colaFin', id: colaId }).catch(() => {});      // si salió todo, la cola se borra; si no, queda ofrecida
+    // Si salió todo, la cola se borra; si no, queda ofrecida. De paso se avisa que terminó.
+    await bg({ action: 'colaFin', id: colaId, motivo: batchStop ? 'cancelado' : halt ? 'parado' : 'listo' }).catch(() => {});
     mostrarCola();
     if (chapterWidth !== startWidth) {
       const pad = (await store.get(['batchPad'])).batchPad || {};
@@ -1858,7 +1859,8 @@
     switch (msg?.action) {
       case 'ping': sendResponse({ ok: true }); return;
       case 'save': openSaveDialog(); sendResponse({ ok: true }); return;
-      case 'batch': openChapterDialog(); sendResponse({ ok: true }); return;
+      // (reintentar: viene del botón de la notificación del lote, y el diálogo retoma lo que falló)
+      case 'batch': openChapterDialog().then(() => { if (msg.reintentar) seguirCola(true); }); sendResponse({ ok: true }); return;
       case 'count': sendResponse({ ok: true, n: countCandidates() }); return;
       // Lo pide un iframe de esta página: el capítulo que tiene adentro es el de acá
       case 'contexto':

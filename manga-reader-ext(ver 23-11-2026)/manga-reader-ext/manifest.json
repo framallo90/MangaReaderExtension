@@ -4,7 +4,7 @@
   "version": "2.11.0",
   "description": "Guarda capítulos de manga como PDF, CBZ o imágenes, de a uno o varios seguidos, sin las páginas de publicidad.",
   "minimum_chrome_version": "116",
-  "permissions": ["activeTab", "storage", "downloads", "contextMenus", "offscreen", "scripting"],
+  "permissions": ["activeTab", "storage", "downloads", "contextMenus", "offscreen", "scripting", "notifications"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js" },
   "action": {

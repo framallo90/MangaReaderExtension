@@ -24,7 +24,7 @@ const MARCOS = (MANIFEST.content_scripts[0].all_frames === true);
 // guardado: lo que hay en chrome.storage.local al empezar
 function setup({ build, results = {}, invalidName = false, onTabMessage, marcos = [[0, 0]], guardado = {} } = {}) {
   const onChanged = ev(); let nextId = 1, jobN = 0, offscreen = 0;
-  const items = {}, log = [], revoked = [], tabLog = [], t = { closed: 0, onRemove: null };
+  const items = {}, log = [], revoked = [], tabLog = [], t = { closed: 0, onRemove: null, insignias: [], colores: [], avisos: [], avisosCerrados: [], mostradas: [], abiertas: [] };
   // chrome.storage.local de mentira. Cada lectura y cada escritura tardan un instante, como las
   // de verdad: así se nota si dos cambios seguidos se pisan.
   const datos = JSON.parse(JSON.stringify(guardado)), escrituras = [];
@@ -54,9 +54,13 @@ function setup({ build, results = {}, invalidName = false, onTabMessage, marcos 
     contextMenus: { onClicked: ev(), removeAll: f => f && f(), create() {} },
     commands: { onCommand: ev() },
     storage: { local, onChanged: ev() },
+    // La insignia del ícono y las notificaciones: se anota lo que se les pide
+    action: { setBadgeText: (o) => { t.insignias.push(o.text); }, setBadgeBackgroundColor: (o) => { t.colores.push(o.color); } },
+    notifications: { onButtonClicked: ev(), create: (id, o) => { t.avisos.push({ id, ...o }); }, clear: (id) => { t.avisosCerrados.push(id); } },
     offscreen: { createDocument: async () => { offscreen++; }, closeDocument: async () => { t.closed++; offscreen = 0; } },
     downloads: {
       onChanged,
+      show: (id) => { t.mostradas.push(id); },
       search: async ({ id }) => [items[id]],
       download: async (o) => {
         if (invalidName && /[^\x20-\x7E]/.test(o.filename)) throw new Error('Invalid filename');
@@ -72,6 +76,7 @@ function setup({ build, results = {}, invalidName = false, onTabMessage, marcos 
       // (el marco de arriba es el 0 y no se anota: "msg 9 save" va arriba, "msg 9#3 save" al marco 3)
       sendMessage: async (tabId, m, o) => { tabLog.push(`msg ${tabId}${o?.frameId ? '#' + o.frameId : ''} ${m.action}`); return onTabMessage ? onTabMessage(tabId, m, o?.frameId || 0) : { ok: true }; },
       create: async (o) => { tabLog.push(`create ${o.url} active=${o.active}`); return { id: 50 }; },
+      query: async () => t.abiertas,                       // las pestañas que hay abiertas: [{ id, url }]
       get: async (id) => ({ id, status: 'complete' }),
       remove: async (id) => { tabLog.push(`remove ${id}`); if (t.onRemove) t.onRemove(id); },
       update: async (id) => { tabLog.push(`update ${id}`); },
@@ -316,6 +321,50 @@ const brief = (r) => `páginas=${r.pages} fallidas=[${r.failed}] archivos=[${r.f
     await t4.ctx.batchChapter({ ...CHAP, url: ITEMS[0].url, numero: 1, cola: q.id }, SENDER);
     await wait(20);
     eq('el capítulo que se guarda bien queda listo en la cola aunque la pestaña del lote se haya cerrado', como(t4.datos.cola), '1 listo, 2 pendiente, 3 pendiente, 4 pendiente');
+
+    // ── Insignia y notificación del lote ──
+    if (/function insignia\(/.test(src)) {
+      const aviso = (a) => (!a ? 'sin aviso' : `${a.title} · ${a.message} · [${a.buttons.map(x => x.title).join(' | ')}]`);
+      const clic = async (x, indice) => { x.ctx.chrome.notifications.onButtonClicked.emit('mr-lote', indice); await wait(30); };
+      // Un lote de 4 que termina con una falla
+      const x = setup({ marcos: [[0, 0]] });
+      const q1 = await pedido(x, NUEVA);
+      for (const n of [1, 2, 3, 4]) await pedido(x, { action: 'colaMarca', id: q1.id, numero: n, estado: n === 3 ? 'fallo' : 'listo', error: 'HTTP 404' });
+      eq('la insignia dice cuántos van mientras corre el lote', x.insignias.join(', '), '0/4, 1/4, 2/4, 3/4, 4/4');
+      await pedido(x, { action: 'colaFin', id: q1.id, motivo: 'listo' });
+      eq('  y queda roja si al terminar hubo fallas', `${x.insignias[x.insignias.length - 1]} ${x.colores[x.colores.length - 1]} (mientras corría: ${x.colores[0]})`, '4/4 #e74c3c (mientras corría: #667eea)');
+      eq('notificación al terminar: el resumen y los dos botones', aviso(x.avisos[0]),
+        'Manga Reader: lote terminado con fallas · 3 de 4 capítulos guardados · 1 con fallas · S · [Reintentar los que fallaron | Mostrar la carpeta]');
+      x.datos.ultimaDescarga = 77;
+      await clic(x, 1);
+      eq('  "Mostrar la carpeta" abre la carpeta de la última descarga', `${x.mostradas.join(',')} · aviso cerrado: ${x.avisosCerrados.length}`, '77 · aviso cerrado: 1');
+      x.tabLog.length = 0;
+      x.abiertas = [{ id: 4, url: 'https://otro.com/' }, { id: 9, url: 'https://s.com/serie' }];
+      await clic(x, 0);
+      eq('  "Reintentar los que fallaron" vuelve a la pestaña de la serie y le pide que retome la cola', x.tabLog.filter(l => !l.startsWith('cuenta')).join(' | '), 'update 9 | msg 9 batch');
+      x.tabLog.length = 0;
+      x.abiertas = [];
+      await clic(x, 0);
+      eq('  si esa pestaña ya no está, la abre', x.tabLog.filter(l => !l.startsWith('cuenta')).join(' | '), 'create https://s.com/serie active=true | msg 50 batch');
+      // Uno que sale entero
+      const y = setup({});
+      const q2 = await pedido(y, { ...NUEVA, items: ITEMS.slice(0, 2), serie: '' });
+      for (const n of [1, 2]) await pedido(y, { action: 'colaMarca', id: q2.id, numero: n, estado: 'listo' });
+      await pedido(y, { action: 'colaFin', id: q2.id, motivo: 'listo' });
+      eq('sin fallas: insignia verde y un solo botón', `${y.insignias[y.insignias.length - 1]} ${y.colores[y.colores.length - 1]} · ${aviso(y.avisos[0])}`,
+        '2/2 #2ecc71 · Manga Reader: lote terminado · 2 de 2 capítulos guardados · [Mostrar la carpeta]');
+      y.datos.ultimaDescarga = 5;
+      await clic(y, 0);
+      eq('  y ese botón es el de la carpeta', y.mostradas.join(','), '5');
+      await pedido(y, { action: 'insigniaLimpiar' });
+      eq('la insignia se limpia al cerrar el diálogo', JSON.stringify(y.insignias[y.insignias.length - 1]), '""');
+      // Cancelado por quien lo está mirando: no hace falta avisarle
+      const z = setup({});
+      const q3 = await pedido(z, NUEVA);
+      await pedido(z, { action: 'colaMarca', id: q3.id, numero: 1, estado: 'listo' });
+      await pedido(z, { action: 'colaFin', id: q3.id, motivo: 'cancelado' });
+      eq('un lote cancelado no manda notificación, y la cola queda con lo que faltaba', `${aviso(z.avisos[0])} · ${como(z.datos.cola)}`, 'sin aviso · 1 listo, 2 pendiente, 3 pendiente, 4 pendiente');
+    }
   }
   fin();
 })();
