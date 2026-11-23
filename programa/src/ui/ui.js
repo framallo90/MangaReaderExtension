@@ -59,9 +59,13 @@ async function ir(url, nivel = ruta.length, buscarCatalogo = false, nombre = '',
     }
     $('url').value = r.url;
     // La serie: al entrar a un título desde una lista se propone su nombre, para que todos sus
-    // capítulos se guarden con el mismo. En un capítulo queda la que venía; en un listado, ninguna.
-    if (r.listas.some(l => l.tipo === 'capitulos')) { if (nombre) proponerSerie(nombre); }
-    else if (!r.capitulo) proponerSerie('');
+    // capítulos se guarden con el mismo. Si no se entró por un título y la página es un
+    // capítulo, se propone la que dice su título (la misma con la que se guardaría). Al
+    // arrancar de nuevo desde arriba (otra dirección, un favorito) la puesta sola se va.
+    if (nivel === 0) proponerSerie('');
+    if (nombre && r.listas.some(l => l.tipo === 'capitulos')) proponerSerie(nombre);
+    else if (r.capitulo?.serie && !$('serie').value.trim()) proponerSerie(r.capitulo.serie);
+    else if (!r.capitulo && !r.listas.some(l => l.tipo === 'capitulos')) proponerSerie('');
     mostrar(r);
     if (entre) estado(`Entré al catálogo que encontré en la portada ("${entre}"). ` + ayuda(r) + ' Para volver a la portada, usá la ruta de arriba.', 'bien');
   } catch (e) {
@@ -242,7 +246,8 @@ function dibujar() {
     $('enDiscoTexto').textContent = (!tengo.size && !antes.size ? `De ${$('serie').value.trim()} todavía no tenés ninguno de estos ${total}.`
       : !antes.size ? (enDisco.cuantosFaltan ? `Ya tenés ${tengo.size} de ${total}.${falta}` : `Ya tenés los ${total}.`)
       : `Ya tenés ${tengo.size} de ${total} en la carpeta, y ${antes.size === 1 ? 'otro ya lo bajaste antes (no está ahí)' : `otros ${antes.size} ya los bajaste antes (no están ahí)`}.${falta || ' No te falta ninguno.'}`) +
-      (otra.length ? ` (Los encontré en «${otra.join('», «')}».)` : '');
+      (otra.length ? ` (Los encontré en «${otra.join('», «')}».)` : '') +
+      (enDisco.parecidas.length ? ` En tu colección hay algo de nombre parecido: «${enDisco.parecidas.join('», «')}».` : '');
     $('marcarFaltan').hidden = !enDisco.cuantosFaltan || (!tengo.size && !antes.size);
   }
   // En una lista de títulos: de cuáles ya tenés algo
@@ -274,12 +279,15 @@ function dibujar() {
       if (l.tipo === 'titulos') tapa.addEventListener('click', abrir);
     }
     const ya = !!tengo && tengo.has(i.numero), fecha = antes.get(i.numero), tuyo = tuyos?.get(i.url);
-    const marca = ya ? el('span', { className: 'esta', textContent: '✔ ya está', title: 'Ya está en la carpeta o en tu colección' })
+    const otro = ya ? enDisco.enOtro.get(i.numero) : '';       // está, pero en otro formato que el tildado
+    const marca = ya ? el('span', { className: 'esta', textContent: otro ? `✔ ya está en ${FORMATO[otro] || otro.toUpperCase()}` : '✔ ya está',
+        title: 'Ya está en la carpeta o en tu colección' + (otro ? ', en otro formato que el que tenés tildado' : '') })
       : fecha ? el('span', { className: 'esta antes', textContent: '✔ ya lo bajaste', title: `Lo bajaste el ${fecha}. Ya no está en la carpeta.` })
+      : tuyo?.parecida ? el('span', { className: 'esta parecida', textContent: '≈ parecido', title: `En tu colección hay «${tuyo.parecida}»: puede ser lo mismo con otro nombre` })
       : tuyo ? el('span', { className: 'esta', textContent: tuyo.bajados ? `✔ ${plural(tuyo.bajados, 'bajado', 'bajados')}` : '✔ en tu colección',
           title: [tuyo.bajados ? `Ya bajaste ${plural(tuyo.bajados, 'capítulo', 'capítulos')} de este título` : '', tuyo.carpeta ? `Está en «${tuyo.carpeta}»` : ''].filter(Boolean).join('. ') })
       : null;
-    filas.push(el('label', { className: 'fila' + (ya || fecha || tuyo ? ' ya' : ''), title: mosaico ? i.texto : i.url }, caja, tapa,
+    filas.push(el('label', { className: 'fila' + (ya || fecha || (tuyo && !tuyo.parecida) ? ' ya' : ''), title: mosaico ? i.texto : i.url }, caja, tapa,
       i.numero !== undefined && i.numero !== null ? el('span', { className: 'num', textContent: String(i.numero) }) : null,
       el('span', { className: 'txt', textContent: i.texto }), marca, entrar));
   }
@@ -329,6 +337,8 @@ function refrescar() {
   $('revBajar').disabled = !hayFormato || !revision || !revision.elegidas.size;
 }
 
+const FORMATO = { pdf: 'PDF', cbz: 'CBZ', imgs: 'imágenes', 'pdf+cbz': 'PDF y CBZ', 'cbz+pdf': 'PDF y CBZ' };
+
 // ── Lo que ya está en la carpeta ──
 // De la lista de capítulos a la vista, cuáles ya se bajaron. Hace falta saber la serie (la del
 // cuadro "Serie"): se mira su carpeta, con cualquier nombre de archivo que tengan adentro.
@@ -343,7 +353,7 @@ function mirarDisco(pausa = 0) {
     try {
       const r = await mr.disco({ serie, numeros, formatos: opciones().formatos });
       if (clave !== claveDisco()) return;            // mientras tanto cambió la lista o la serie
-      enDisco = { clave, tengo: new Set(r.tengo), bajados: new Map(r.bajados.map(b => [b.numero, b.fecha])), faltan: r.faltan, cuantosFaltan: r.cuantosFaltan, carpetas: r.carpetas };
+      enDisco = { clave, tengo: new Set(r.tengo), enOtro: new Map(r.enOtro.map(o => [o.numero, o.formato])), bajados: new Map(r.bajados.map(b => [b.numero, b.fecha])), parecidas: r.parecidas || [], faltan: r.faltan, cuantosFaltan: r.cuantosFaltan, carpetas: r.carpetas };
       dibujar();
     } catch {}
   }, pausa);

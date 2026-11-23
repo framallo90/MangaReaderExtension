@@ -100,10 +100,10 @@ module.exports = async function probar(api) {
     const soloPdf = { pdf: true, cbz: false, imgs: false };
     const enPdf = api.revisarDisco({ serie: 'Gama', numeros: [1, 2, 3, 4, 5, 6], carpeta: tmp, formatos: soloPdf });
     eq('lo que ya está de una serie: por número, con cualquier nombre de archivo y en carpetas que se llaman casi igual',
-      `tengo ${enPdf.tengo} · faltan ${enPdf.faltan} (${enPdf.cuantosFaltan}) · ${enPdf.carpetas.join(', ')}`, 'tengo 1,2 · faltan 3–6 (4) · Gama, Gama Manga');
+      `tengo ${enPdf.tengo} · faltan ${enPdf.faltan} (${enPdf.cuantosFaltan}) · ${enPdf.carpetas.join(', ')}`, 'tengo 1,2,3,4 · faltan 5–6 (2) · Gama, Gama Manga');
     eq('  otra serie que empieza igual no cuenta ("Gama Dos")', enPdf.tengo.includes(5), false);
-    eq('  cada formato por separado: en CBZ está el 3 (guardado con plantilla, en la carpeta de su tomo) y en imágenes el 4',
-      `${api.revisarDisco({ serie: 'gama', numeros: [1, 2, 3, 4], carpeta: tmp, formatos: { pdf: false, cbz: true, imgs: false } }).tengo} · ${api.revisarDisco({ serie: 'Gama', numeros: [1, 2, 3, 4], carpeta: tmp, formatos: { pdf: false, cbz: false, imgs: true } }).tengo}`, '3 · 4');
+    eq('  cuenta cualquier formato, y dice cuáles están en otro que el pedido (el 3 en CBZ, guardado con plantilla en la carpeta de su tomo; el 4 en imágenes)',
+      enPdf.enOtro.map(o => `${o.numero} en ${o.formato}`).join(', ') + ' · pidiendo CBZ: ' + api.revisarDisco({ serie: 'gama', numeros: [1, 2, 3, 4], carpeta: tmp, formatos: { pdf: false, cbz: true, imgs: false } }).enOtro.map(o => o.numero), '3 en cbz, 4 en imgs · pidiendo CBZ: 1,2,4');
     eq('  sin saber la serie no se marca nada', api.revisarDisco({ serie: '', numeros: [1, 2], carpeta: tmp, formatos: soloPdf }).tengo.length, 0);
     api.encolar([{ url: S + '/leer/alfa-2/', texto: 'Capítulo 2', numero: 2 }], { carpeta: tmp, serie: 'Gama', formatos: soloPdf });
     eq('al bajar, lo que ya está con otro nombre se saltea en vez de duplicarse', estados(await api.colaVacia()) + ' · ' + ls('Gama'),
@@ -175,6 +175,10 @@ module.exports = async function probar(api) {
     const tit = api.revisarTitulos({ nombres: ['Gama', 'Zeta Capítulo 5 hace 2 horas', 'Con Plantilla', 'Nada que ver'], carpeta: tmp });
     eq('en un catálogo: de qué títulos ya tenés algo, por el registro o por una carpeta de tu colección', tit.map(t => (t ? `${t.bajados} bajados${t.carpeta ? ' en ' + aColeccion(t.carpeta) : ''}` : '-')).join(' | '),
       '0 bajados en Gama | 0 bajados en colección/Comics/Zeta | 2 bajados | -');
+    const cerca = api.revisarTitulos({ nombres: ['Gama Dos Color', 'Gam'], carpeta: tmp });
+    eq('una carpeta de nombre parecido se avisa como pista, sin darla por tenida', cerca.map(t => (t ? `${t.bajados} bajados · parecida: ${t.parecida}` : '-')).join(' | '), '0 bajados · parecida: Gama Dos | -');
+    const sinCarpeta = api.revisarDisco({ serie: 'Gama Dos Color', numeros: [5], carpeta: tmp, formatos: soloPdf });
+    eq('  y en la lista de capítulos de esa serie no marca nada: solo deja la pista', `tengo ${sinCarpeta.tengo.length} · faltan ${sinCarpeta.faltan} · parecidas: ${sinCarpeta.parecidas}`, 'tengo 0 · faltan 5 · parecidas: Gama Dos');
     api.encolar([{ url: S + '/leer/alfa-2/', texto: 'x', numero: 7 }], { carpeta: tmp, serie: 'Gama', formatos: soloPdf });
     eq('al bajar, lo que ya está en tu colección también se saltea', estados(await api.colaVacia()), 'Gama/Gama 0007: ya estaba (ya está en la carpeta)');
     api.limpiar();
@@ -309,6 +313,13 @@ module.exports = async function probar(api) {
     await hasta(`!!document.querySelector('#lista .fila .esta.antes')`, 'la marca del registro');
     eq('  lo que se bajó y ya no está en la carpeta queda marcado igual, por el registro', await en(`[...document.querySelectorAll('#lista .fila')].map(f => f.querySelector('.num').textContent + ' ' + (f.querySelector('.esta')?.textContent || '-')).join(' | ') + ' · ' + document.querySelector('#enDiscoTexto').textContent`),
       '1 ✔ ya está | 2 ✔ ya está | 3 ✔ ya lo bajaste | 4 ✔ ya está · Ya tenés 3 de 4 en la carpeta, y otro ya lo bajaste antes (no está ahí). No te falta ninguno.');
+    // Si se tilda otro formato, lo que ya está sigue marcado, y dice en cuál está
+    await en(`document.querySelector('#fCbz').click(); document.querySelector('#fPdf').click()`);
+    await hasta(`/en PDF/.test(document.querySelector('#lista').textContent)`, 'la marca del otro formato');
+    eq('  lo que está en otro formato que el tildado sigue contando como que ya está, y dice en cuál', await en(`[...document.querySelectorAll('#lista .fila')].map(f => f.querySelector('.num').textContent + ' ' + (f.querySelector('.esta')?.textContent || '-')).join(' | ')`),
+      '1 ✔ ya está | 2 ✔ ya está | 3 ✔ ya lo bajaste | 4 ✔ ya está en PDF');
+    await en(`document.querySelector('#fPdf').click(); document.querySelector('#fCbz').click()`);
+    await hasta(`!/en PDF/.test(document.querySelector('#lista').textContent)`, 'las marcas con PDF tildado de nuevo');
     await capturar('programa');
 
     await en(`document.querySelector('#verPegar').click(); document.querySelector('#links').value = ${JSON.stringify(`Capítulos\n02: ${S}/leer/alfa-2/\n${S}/leer/alfa-1/`)}; document.querySelector('#usarLinks').click()`);
@@ -396,6 +407,7 @@ module.exports = async function probar(api) {
     // Revisar las páginas de un capítulo: todas a la vista, con lo que el filtro tomó por publicidad
     await en(`document.querySelector('#url').value = ${JSON.stringify(S + '/leer/avisos-1/')}; document.querySelector('#analizar').click()`);
     await hasta(`!document.querySelector('#capitulo').hidden && /Avisos/.test(document.querySelector('#capNombre').textContent)`, 'el capítulo con un aviso');
+    eq('al abrir un capítulo directo, la serie de su título queda puesta sola (y la que había quedado de antes se fue)', await en(`document.querySelector('#serie').value + ' ' + document.querySelector('#serie').classList.contains('auto')`), 'Avisos true');
     await en(`document.querySelector('#capRevisar').click()`);
     await hasta(`document.querySelectorAll('#revLista .pag').length === 7`, 'las páginas para revisar');
     const paginasRev = () => en(`[...document.querySelectorAll('#revLista .pag')].map(p => p.querySelector('.pag-n').textContent + (p.querySelector('.pag-m') ? '[' + p.querySelector('.pag-m').textContent + ']' : '')).join(' ') + ' · ' + document.querySelector('#revCuenta').textContent + ' · ' + document.querySelector('#revBajar').textContent`);

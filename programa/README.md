@@ -4,7 +4,7 @@ Explora una página web por niveles (títulos → capítulos → páginas) y gua
 
 Todo corre en tu máquina: no hay servidor ni cuenta. Es independiente de la extensión de Chrome y usa su mismo código para detectar páginas, armar nombres y generar los archivos.
 
-**Estado: versión 0.7.0.** Funciona de punta a punta sobre los sitios de prueba. Los cambios de cada versión están en las [Actualizaciones](../README.md#actualizaciones) del README principal.
+**Estado: versión 0.7.1.** Funciona de punta a punta sobre los sitios de prueba. Los cambios de cada versión están en las [Actualizaciones](../README.md#actualizaciones) del README principal.
 
 ## Cómo abrirlo
 
@@ -64,7 +64,7 @@ Cuando la lista es de capítulos y se sabe de qué serie son (el cuadro **Serie*
 - **Marcar los que faltan** tilda justo esos.
 - **Se fija en el número, no en el nombre exacto.** Mira la carpeta de la serie y todo lo que tenga adentro (carpetas de saga o de tomo, archivos guardados con otra plantilla), y también las carpetas que se llaman igual salvo por mayúsculas, acentos o palabras de relleno: "One Piece" y "One Piece Manga" son la misma.
 - **No compara series por parecido:** "Dragon Ball" y "Dragon Ball Super" son dos. Si lo hiciera, marcaría como bajados capítulos que no tenés.
-- **Cada formato se mira aparte:** con PDF tildado, un capítulo que solo está en CBZ figura como que falta.
+- **Cuenta cualquier formato:** si lo tenés en CBZ y está tildado PDF, figura igual como que ya está, y dice **✔ ya está en CBZ**. Al descargar, en cambio, "Saltear" sí mira el formato tildado: si tildás a propósito uno que tenés en otro formato, se baja.
 
 Con **Saltear lo que ya está en la carpeta**, al descargar se usa el mismo criterio: lo que ya está con otro nombre no se baja de nuevo.
 
@@ -84,15 +84,18 @@ El registro vive en `descargas.json`, al lado de la configuración. Anota lo que
 En **Tu colección** (a la derecha) se agregan otras carpetas donde mirar lo que ya tenés, además de la de descargas: donde guardás tus mangas, cómics o libros.
 
 - **Se busca la carpeta de la serie por su nombre**, hasta dos niveles adentro: sirve tanto `Mangas/One Piece` como `One Piece` suelto.
-- **Los capítulos se reconocen** si el archivo dice "Capítulo 12" o lleva el número con cuatro cifras (`One Piece 0012`). Un "Tomo 12" no se toma por el capítulo 12.
+- **Los capítulos se reconocen** si el archivo dice "Capítulo 12" o "#12", o lleva el número con tres cifras o más (`One Piece 0012`, `Avengers 012`). No cuentan un año entre paréntesis ("(2018)") ni el número de un tomo: "Tomo 12" no es el capítulo 12.
 - **Aunque no reconozca los capítulos**, en un catálogo el título aparece con **✔ en tu colección** y dice en qué carpeta está.
 - Lo que está en tu colección también se saltea al descargar.
+- **Nombres parecidos:** si no hay una carpeta con el nombre de la serie pero sí una que empieza igual ("Dragon Ball Super" y "Dragon Ball Super Manga Color"), el programa lo avisa con **≈ parecido** en el catálogo y con una línea en la lista de capítulos. Es solo una pista para que mires: no marca nada como tenido ni saltea nada.
 
 **Con Google Drive.** El programa no entra a tu cuenta de Google: usa la carpeta que Google Drive deja en tu máquina.
 
 1. Instalá [Google Drive para ordenadores](https://www.google.com/drive/download/) e iniciá sesión. Aparece una unidad nueva, por ejemplo `G:\Mi unidad`.
 2. En el programa, en **Tu colección**, agregá la carpeta donde están tus mangas (por ejemplo `G:\Mi unidad\Mangas`). Desde ahí las listas marcan lo que ya tenés.
-3. Si querés que lo nuevo vaya directo al Drive, elegí esa carpeta también en **Carpeta**: lo que se guarda ahí lo sube Google Drive solo.
+3. Si querés que lo nuevo vaya directo al Drive, elegí una carpeta del Drive en **Carpeta**: lo que se guarda ahí lo sube Google Drive solo.
+
+Una forma cómoda de ordenarlo: una carpeta del Drive solo para lo que baja el programa (por ejemplo `Descargas Manga Reader`) como **Carpeta**, y las carpetas donde después lo acomodás (`Manga`, `Comics`, `Libros`) en **Tu colección**. Al mover algo de una a las otras, el programa lo sigue encontrando, y el registro lo recuerda aunque le cambies el nombre.
 
 ### Favoritos
 
@@ -118,7 +121,7 @@ La lista vive en `links.json`, dentro de la carpeta de datos del programa (en Wi
 ### Nombres y carpetas
 
 - Los archivos salen como `Serie/Saga/Serie 0012.pdf`, igual que en la extensión.
-- **Serie:** al entrar a un título desde una lista (con la flecha › o tocando su tapa), el programa pone su nombre en el cuadro, con borde violeta. Así todos los capítulos de esa serie se guardan con el mismo nombre, en vez de depender del título de cada página, que a veces cambia y termina en dos carpetas. Si no es el que va, se escribe otro y el programa no lo vuelve a tocar.
+- **Serie:** al entrar a un título desde una lista (con la flecha › o tocando su tapa), el programa pone su nombre en el cuadro, con borde violeta. Así todos los capítulos de esa serie se guardan con el mismo nombre, en vez de depender del título de cada página, que a veces cambia y termina en dos carpetas. Si no es el que va, se escribe otro y el programa no lo vuelve a tocar. Si abrís un capítulo directo, sin pasar por una lista, pone la serie que dice el título de esa página. Al analizar otra dirección o abrir un favorito, la serie puesta sola se borra.
 - **Serie vacía:** la serie sale del título de cada capítulo.
 - El número es el de la lista. Si la lista no tiene número, sale del título del capítulo.
 - **Saltear lo que ya está en la carpeta** mira el disco. Si lo destildás, no pisa nada: guarda `nombre (1).pdf`.
@@ -203,7 +206,7 @@ Baja de a un capítulo, con una pausa entre uno y otro. Cada renglón dice en qu
 npm run prueba
 ```
 
-Corren dentro de Electron contra un sitio de prueba servido en la máquina. Son 132 comprobaciones:
+Corren dentro de Electron contra un sitio de prueba servido en la máquina. Son 136 comprobaciones:
 
 - **Explorar:** portada, catálogo paginado, directorio que carga al bajar, serie y capítulo.
 - **Portada con tapas:** que no pase por capítulo (y que un capítulo con tapas al final lo siga siendo), que cada título traiga su tapa y que la miniatura se pida con el Referer del sitio.

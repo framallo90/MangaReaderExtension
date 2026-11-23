@@ -143,7 +143,8 @@ function iniciar({ tapas = false } = {}) {
   });
   return new Promise((resolve) => srv.listen(0, '127.0.0.1', () => resolve({
     url: `http://127.0.0.1:${srv.address().port}`, pedidos,
-    cerrar: () => new Promise(r => srv.close(r)),
+    // (closeAllConnections: una conexión que el navegador dejó abierta sin usar haría esperar para siempre)
+    cerrar: () => new Promise(r => { srv.close(r); srv.closeAllConnections(); }),
   })));
 }
 

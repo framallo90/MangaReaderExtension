@@ -5,7 +5,7 @@ Dos herramientas para guardar capítulos de manga y cómics como **PDF**, **CBZ*
 | | Qué es | Versión | Dónde está |
 |---|---|---|---|
 | 🧩 **La extensión** | Se usa desde Chrome, sobre la página que tenés abierta | 2.10.0 | `manga-reader-ext(ver 22-11-2026-7)/manga-reader-ext` |
-| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.7.0 | `programa/` |
+| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.7.1 | `programa/` |
 
 Funcionan por separado y comparten el mismo código para detectar páginas, armar nombres y generar los archivos. Son de uso personal, están en español y todo corre en tu máquina, sin servidor.
 
@@ -245,6 +245,14 @@ Lo que todavía le falta y cómo está armado: [programa/README.md](programa/REA
 # Actualizaciones
 
 Lo más nuevo arriba. El historial completo de la extensión está en la sección 15 de [DOCUMENTACION.md](DOCUMENTACION.md).
+
+### 23-11-2026 · Programa 0.7.1
+
+- **"Ya está" cuenta cualquier formato.** Si un capítulo está en CBZ y tenés tildado PDF, figura igual como que ya lo tenés y dice "✔ ya está en CBZ". Antes aparecía como faltante.
+- **La serie se completa sola también al abrir un capítulo directo**, con la que dice el título de la página. Al analizar otra dirección, la puesta sola se borra.
+- **En tu colección se reconocen más números de capítulo:** "#12" y los de tres cifras ("Avengers 012"), sin contar el año entre paréntesis.
+- **Pistas de nombres parecidos:** si en tu colección no hay una carpeta con el nombre de la serie pero sí una que empieza igual, lo avisa ("≈ parecido"), sin darla por tenida.
+- Probado contra una carpeta real de Google Drive (`G:\Mi unidad`), además del sitio de prueba.
 
 ### 23-11-2026 · Programa 0.7.0
 

@@ -194,3 +194,5 @@ aside .barra button { padding: 6px 9px; font-size: 12px; }
 .biblioteca .g-quitar { flex: none; border: none; background: none; padding: 0 6px; color: #8fa6d8; }
 .biblioteca .g-quitar:hover { color: #ff8a7a; }
 #agregarBiblioteca { align-self: flex-start; padding: 5px 9px; font-size: 12px; }
+
+.fila .esta.parecida { color: #f1c40f; }

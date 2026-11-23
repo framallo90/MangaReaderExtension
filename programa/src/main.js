@@ -366,15 +366,34 @@ function carpetasDe(raiz, recordar) {
 }
 // Las carpetas de una serie, en todas las raíces: [{ dir, nombre }] (`nombre` es para mostrar:
 // el de la carpeta si está en descargas, o su ruta desde la colección: "Mi unidad/Mangas/One Piece")
-function carpetasDeSerie(carpeta, clave) {
-  const base = path.resolve(carpeta), lista = [];
-  for (const raiz of raices(carpeta)) {
-    for (const dir of carpetasDe(raiz, raiz !== base).get(clave) || []) {
+// (`mapas` es lo que devuelve mapasDe: se pasa cuando se consultan muchas series seguidas, para
+// no volver a listar las carpetas por cada una)
+function mapasDe(carpeta) {
+  const base = path.resolve(carpeta);
+  return raices(carpeta).map(raiz => ({ raiz, propia: raiz === base, porClave: carpetasDe(raiz, raiz !== base) }));
+}
+function carpetasDeSerie(carpeta, clave, mapas = mapasDe(carpeta)) {
+  const lista = [];
+  for (const { raiz, propia, porClave } of mapas) {
+    for (const dir of porClave.get(clave) || []) {
       const rel = path.relative(raiz, dir).split(path.sep).join('/');
-      lista.push({ dir, nombre: raiz === base && !rel.includes('/') ? rel : `${path.basename(raiz) || raiz}/${rel}` });
+      lista.push({ dir, nombre: propia && !rel.includes('/') ? rel : `${path.basename(raiz) || raiz}/${rel}` });
     }
   }
   return lista;
+}
+// Carpetas de nombre parecido al de una serie: uno empieza con el otro ("Dragon Ball Super" y
+// "Dragon Ball Super Manga Color"). No quiere decir que ya la tengas: es una pista para mirar.
+// Nunca se usa para saltear nada.
+function parecidas(carpeta, clave, mapas = mapasDe(carpeta)) {
+  if (clave.length < 5) return [];
+  const nombres = new Set();
+  for (const { porClave } of mapas) {
+    for (const [k, dirs] of porClave) {
+      if (k !== clave && k.length >= 5 && (k.startsWith(clave) || clave.startsWith(k))) nombres.add(path.basename(dirs[0]));
+    }
+  }
+  return [...nombres].slice(0, 3);
 }
 
 // Capítulos de una serie que ya están en el disco: número → qué hay ('pdf', 'cbz', 'imgs').
@@ -383,12 +402,14 @@ function enDisco(carpeta, serie) {
   const clave = claveSerie(serie), porNumero = new Map();
   if (!clave) return { porNumero, carpetas: [] };
   const anotar = (nombre, tipo) => {
-    // El número: el que sigue a "capítulo" o, si no, el primero de 4 o 5 cifras (así los guarda este
-    // programa), sin contar los que traiga el nombre de la serie ("2001 Nights 0005"). Un
-    // "Tomo 12" no es el capítulo 12: no se cuenta.
+    // El número: el que sigue a "capítulo" o a "#" o, si no, el primero de 3 a 5 cifras ("0012" como
+    // los guarda este programa, "012" como vienen muchos cómics), sin contar los que traiga el
+    // nombre de la serie ("2001 Nights 0005"), un año entre paréntesis ("(2018)") ni el de un
+    // tomo: "Tomo 012" no es el capítulo 12.
     let n = nombre.replace(/\.(?:pdf|cbz|cbr|zip|epub)$/i, '').replace(/ \(\d+\)$/, '');
     if (sinAcentos(n).startsWith(sinAcentos(serie))) n = n.slice(String(serie).length);
-    const m = n.match(/(?:cap[ií]tulo|chapter|cap\.?|ch\.?|#)\s*(\d{1,5}(?:\.\d+)?)/i) || n.match(/(?<![\d.])(\d{4,5}(?:\.\d+)?)(?!\d)/);
+    const m = n.match(/(?<![a-záéíóúñ])(?:cap[ií]tulo|chapter|cap\.?|ch\.?|#)\s*(\d{1,5}(?:\.\d+)?)/i) ||
+      n.match(/(?<![\d.(])(?<!(?:tomo|vol\.?|volumen|volume|libro|book)\s*)(?<!\b[vt])(\d{3,5}(?:\.\d+)?)(?![\d)])/i);
     if (!m) return;
     const numero = parseFloat(m[1]);
     if (!porNumero.has(numero)) porNumero.set(numero, new Set());
@@ -473,28 +494,38 @@ function quitarDelRegistro(clave) {
 }
 
 // Para la lista de capítulos de una serie: cuáles ya están (en el disco o en tu colección),
-// cuáles se bajaron alguna vez aunque ya no estén, y cuáles faltan
+// cuáles se bajaron alguna vez aunque ya no estén, y cuáles faltan.
+// Un capítulo "ya está" si está en cualquier formato: quien lo tiene en CBZ no lo quiere ver
+// como faltante por tener tildado PDF. `enOtro` dice, de los que están, cuáles están solo en
+// un formato distinto del pedido, y en cuál ("cbz"), para avisarlo en la lista. (Al descargar,
+// en cambio, "saltear" sí mira el formato pedido: si tildás uno a propósito, se baja.)
 function revisarDisco({ serie, numeros, carpeta, formatos } = {}) {
   const f = { ...config.formatos, ...(formatos || {}) };
   const lista = (Array.isArray(numeros) ? numeros : []).filter(Number.isFinite);
   const { porNumero, carpetas } = enDisco(carpeta || config.carpeta, String(serie || ''));
   const clave = claveSerie(serie);
   const anotados = new Map(registro.filter(r => clave && r.clave === clave && r.numero != null).map(r => [r.numero, r.fecha.slice(0, 10)]));
-  const tengo = lista.filter(n => tieneTodo(porNumero.get(n), f));
-  const bajados = lista.filter(n => !tieneTodo(porNumero.get(n), f) && anotados.has(n)).map(n => ({ numero: n, fecha: anotados.get(n) }));
-  const faltan = lista.filter(n => !tieneTodo(porNumero.get(n), f) && !anotados.has(n));
-  return { tengo, bajados, faltan: enRangos(faltan), cuantosFaltan: faltan.length, carpetas };
+  const tengo = lista.filter(n => porNumero.has(n));
+  const enOtro = tengo.filter(n => !tieneTodo(porNumero.get(n), f)).map(n => ({ numero: n, formato: [...porNumero.get(n)].join('+') }));
+  const bajados = lista.filter(n => !porNumero.has(n) && anotados.has(n)).map(n => ({ numero: n, fecha: anotados.get(n) }));
+  const faltan = lista.filter(n => !porNumero.has(n) && !anotados.has(n));
+  // Si no hay una carpeta de esta serie, las de nombre parecido (por si es la misma con otro nombre)
+  const cerca = carpetas.length || !clave ? [] : parecidas(carpeta || config.carpeta, clave);
+  return { tengo, enOtro, bajados, faltan: enRangos(faltan), cuantosFaltan: faltan.length, carpetas, parecidas: cerca };
 }
 // Para una lista de títulos (un catálogo): de cuáles ya tenés algo. Devuelve, en el mismo
 // orden, null o { bajados: capítulos en el registro, carpeta: dónde está en tu colección }
 function revisarTitulos({ nombres, carpeta } = {}) {
   const cuantos = new Map();
   for (const r of registro) cuantos.set(r.clave, (cuantos.get(r.clave) || 0) + 1);
+  const donde = carpeta || config.carpeta, mapas = mapasDe(donde);        // las carpetas se listan una sola vez para toda la lista
   return (Array.isArray(nombres) ? nombres : []).map((nombre) => {
     const clave = claveSerie(soloSerie(nombre));
     if (!clave) return null;
-    const bajados = cuantos.get(clave) || 0, dirs = carpetasDeSerie(carpeta || config.carpeta, clave);
-    return bajados || dirs.length ? { bajados, carpeta: dirs.length ? dirs[0].nombre : '' } : null;
+    const bajados = cuantos.get(clave) || 0, dirs = carpetasDeSerie(donde, clave, mapas);
+    if (bajados || dirs.length) return { bajados, carpeta: dirs.length ? dirs[0].nombre : '' };
+    const cerca = parecidas(donde, clave, mapas);                           // nada con ese nombre: ¿algo parecido?
+    return cerca.length ? { bajados: 0, carpeta: '', parecida: cerca[0] } : null;
   });
 }
 
@@ -780,7 +811,7 @@ app.whenReady().then(async () => {
       const interfaz = await ui.webContents.executeJavaScript('typeof mr + " · " + document.querySelectorAll("button").length + " botones"');
       await prepararArmador();
       const arma = await armador.webContents.executeJavaScript('typeof armar');
-      console.log(`HUMO OK · interfaz: ${interfaz} · armador: ${arma} · núcleo: ${nucleo.version} · datos: ${app.getPath('userData')}`);
+      console.log(`HUMO OK · interfaz: ${interfaz} · armador: ${arma} · núcleo: ${nucleo.version} · datos: ${app.getPath('userData')} · colección: ${config.bibliotecas.length} carpeta(s), ${config.bibliotecas.filter(c => fs.existsSync(c)).length} a la vista`);
       app.exit(0);
     } catch (e) {
       console.log('HUMO FALLA · ' + (e.stack || e));
