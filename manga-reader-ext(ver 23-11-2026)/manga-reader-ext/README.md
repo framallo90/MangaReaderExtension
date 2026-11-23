@@ -1,4 +1,4 @@
-# 📖 Manga Reader v2.10 — Guardar capítulos, de a uno o varios seguidos
+# 📖 Manga Reader v2.11 — Guardar capítulos, de a uno o varios seguidos
 
 Guarda capítulos de manga como PDF, CBZ y/o imágenes sueltas, sin las páginas de publicidad, con nombre y carpetas automáticos.
 
@@ -6,6 +6,7 @@ Guarda capítulos de manga como PDF, CBZ y/o imágenes sueltas, sin las páginas
 
 1. `chrome://extensions/` → Modo desarrollador ON → **Cargar descomprimida** → elegir esta carpeta
 2. Si venís de una versión anterior: antes de quitar la tarjeta vieja, exportá tus guardados (ver "Guardados" más abajo), porque al quitarla se borran. No hace falta recargar las pestañas con F5.
+3. La 2.11 pide un permiso más, el de mostrar notificaciones: es para avisarte cuando termina un lote.
 
 ## Guardar un capítulo
 
@@ -17,6 +18,29 @@ Guarda capítulos de manga como PDF, CBZ y/o imágenes sueltas, sin las páginas
 - Al abrir el diálogo, la página se recorre sola hasta el final para que carguen todas las imágenes, y vuelve a donde estabas. Se apaga desde el ícono de la extensión.
 - **Guardar y siguiente ▶** (`Ctrl+Enter`): guarda y abre el capítulo que sigue, con el diálogo ya listo. Para bajar varios mirando cada uno.
 - `Esc` cierra.
+- El diálogo y la burbuja no dependen del estilo del sitio: aunque la página esconda los botones o desarme todo lo que no es suyo, se ven y andan igual. Si el sitio los saca de la página, vuelven a aparecer como estaban.
+
+### El orden de las páginas
+
+Las miniaturas salen en el orden en que están en el sitio, que no siempre es el de lectura. El orden en que las dejes es el del PDF, el del CBZ y el de la numeración de las imágenes sueltas.
+
+- **Arrastrá** una miniatura para cambiarla de lugar, o usá las flechitas **▲▼** que aparecen al pasar por encima.
+- **⇅ Invertir** da vuelta todo el capítulo.
+- **Ordenar por número** las acomoda por el número que trae el nombre de cada imagen (`007.jpg` va antes que `010.jpg`).
+
+### Con el teclado
+
+Los dos diálogos se pueden usar sin mouse, y un lector de pantalla los anuncia como diálogos.
+
+- `Tab` recorre los controles sin salirse del diálogo.
+- Con el foco en una miniatura: las **flechas** pasan a la de al lado, `Inicio` y `Fin` van a la primera y a la última, la **barra espaciadora** la incluye o la quita, y `Alt` + flecha izquierda o derecha la cambia de lugar.
+- Al cerrar con `Esc`, el foco vuelve a donde estaba en la página.
+
+### Lectores en un iframe
+
+Hay sitios que ponen las páginas en un marco aparte (un iframe), a veces de otro sitio. La extensión mira la página y todos sus marcos: la burbuja y el diálogo aparecen en el que tiene las páginas, y el nombre del capítulo sale igual del título de la página. Si las mismas imágenes están en la página y en el marco, se cuentan una sola vez.
+
+- Desde un marco no se ofrece **Guardar y siguiente**.
 
 ## Descargar varios capítulos
 
@@ -33,6 +57,30 @@ Cada capítulo se abre solo en una pestaña al lado, se guarda con el mismo filt
 - Si 3 capítulos seguidos salen "sin páginas", el lote **para solo** en vez de seguir abriendo pestañas. Si pasó al principio, abrí **Dirección y nombre de los capítulos** y revisá que la dirección sea la de un capítulo, con `{n}` donde va el número. Si la dirección está bien, probá tildar **Abrir cada capítulo a la vista**.
 - Si la dirección del capítulo termina en un archivo sin el número al final (`…-104-espanol.html`) y la página no tiene links a los capítulos, el diálogo avisa que no encontró los otros y deja la dirección vacía, en vez de inventar una.
 - En sitios donde la dirección no lleva el número sino un código (MANGA Plus: `/viewer/2010289` es el capítulo 104), el diálogo lo avisa y deja la dirección vacía: no hay forma de adivinar la de los otros capítulos.
+
+### La cola: reanudar y reintentar
+
+Lo que pide un lote y cómo le fue a cada capítulo queda guardado, no en la memoria de la pestaña. Si cerrás la pestaña, cancelás o algo falla, no se pierde qué faltaba.
+
+- Al abrir de nuevo el diálogo en ese sitio, arriba aparece **Reanudar (N)** con lo que quedó sin bajar.
+- Si al terminar hubo fallas: **Reintentar los N que fallaron** y **Descartar la cola**. Cada capítulo que falla guarda su motivo, y el lote sigue con los demás.
+- Cuando sale todo, la cola se borra sola.
+
+### Avance y aviso al terminar
+
+- El ícono de la extensión muestra cuántos capítulos van (`12/40`). Al terminar queda verde, o rojo si alguno falló; se limpia al cerrar el diálogo.
+- Al terminar llega una notificación con el resumen y dos botones: **Reintentar los que fallaron** y **Mostrar la carpeta**. Si cancelás vos, no avisa.
+
+### Ritmo de las descargas
+
+En ⚙️ → **Ritmo de las descargas** elegís la pausa entre capítulos (0 a 10 segundos; 1,5 si no tocás nada), un descanso más largo cada tantos capítulos, y cuántas imágenes se miden a la vez (2 a 8).
+
+- Si el sitio responde "esperá" (error 429) en una página, la extensión espera lo que el sitio pida y la reintenta sola, hasta 3 veces.
+- Si responde eso con el capítulo entero, el lote para un minuto, una sola vez, y lo reintenta. Si vuelve a fallar queda marcado con **el sitio pidió esperar**: bajá el ritmo y usá **Reintentar**.
+
+### Cuánto va a ocupar
+
+Cada capítulo guardado anota cuánto pesó. Con eso, antes de bajar un lote el diálogo dice más o menos cuánto va a ocupar, y avisa si pasa de 200 MB. Sin nada guardado de ese sitio todavía, no dice nada.
 
 ### Tomos
 
@@ -56,6 +104,9 @@ Si la lista no aparece sola, o ya tenés los links: en el mismo diálogo abrí *
 4. **Descargar**.
 
 Abajo del cuadro dice cuántos links tomó, qué números faltan en el medio y cuántos estaban repetidos.
+
+- Los links de capítulos que **ya tenías guardados** no entran, y dice cuántos descartó. Si los querés bajar de nuevo, destildá **Saltear los que ya guardé** antes de tocar **Usar estos links**.
+- **Ordenar por número** e **⇅ Invertir**, arriba de la lista: el orden de la lista es el orden en que se bajan (invertida, empieza por el último).
 
 ## Burbuja flotante
 
@@ -82,6 +133,22 @@ El diálogo muestra una miniatura por cada imagen encontrada. Las que no parecen
 - últimas páginas con un formato distinto al resto (créditos o avisos del scan)
 
 Clic en una miniatura para incluirla o quitarla. Pasá el mouse por encima para ver el motivo.
+
+## Adaptadores por sitio
+
+Para los sitios donde el filtro no acierta (toma tapas de otras series, o deja páginas afuera) le podés decir dónde están las páginas. ⚙️ → **Adaptadores por sitio**:
+
+| Campo | Qué va |
+|---|---|
+| Sitio | `sitio.com`, o cualquier dirección suya |
+| Contenedor | El bloque que tiene las páginas, como selector CSS (`#visor`) |
+| Imágenes | Cuáles son las páginas (`img.pagina`). Con el contenedor solo, son todas las imágenes de adentro |
+| Ignorar | Lo que hay que dejar afuera aunque coincida, separado por comas (`.aviso, .recomendados img`) |
+| Dirección de los capítulos | Con `{n}` donde va el número: queda puesta al abrir **Descargar varios capítulos** en ese sitio |
+
+- Con un adaptador, en ese sitio las páginas se buscan ahí y solo ahí: no se filtra nada más.
+- **Probar en esta página** cuenta lo que encuentra en la pestaña de ese sitio que tengas abierta y muestra las primeras 3 direcciones, sin guardar nada.
+- Un selector mal escrito se avisa ahí mismo y no se guarda. En la página no rompe nada: sigue el filtro de siempre.
 
 ## Formatos
 
@@ -114,11 +181,16 @@ Los tres se pueden combinar: cada página se baja una sola vez. CBR no está dis
 
 Ícono de la extensión → **⚙️ Guardados, sagas, sitios y opciones**:
 
-- **Capítulos guardados** por serie, con los que te faltan en el medio. **Exportar copia** baja el registro a un archivo y **Importar copia** lo recupera: usalo antes de cambiar de versión o de compu.
+- **Capítulos guardados** por serie, con los que te faltan en el medio. **Exportar copia** baja el registro a un archivo y **Importar copia** lo recupera: usalo antes de cambiar de versión o de compu. **Exportar CSV** baja solo el registro, como planilla, con las mismas columnas de la tabla.
 - **Sagas**: para que los capítulos de una serie se guarden en una carpeta por saga. Viene la de One Piece; las demás se cargan ahí, una por línea (`desde-hasta Nombre`).
 - **Mis sitios de manga y cómics**: pegar tu lista entera, y agregar, editar y quitar de a uno.
 - **Sitios donde la burbuja no aparece**.
-- **Cómo se guardan los archivos**: la plantilla del nombre y las carpetas (abajo).
+- **Cómo se guardan los archivos**: la plantilla del nombre y las carpetas, y la carpeta de las descargas (abajo).
+- **Ritmo de las descargas** y **Adaptadores por sitio** (más arriba).
+
+### Versión nueva
+
+La extensión no se actualiza sola. Una vez por día, al abrir el ícono, mira qué versión hay en el repositorio; si hay una más nueva aparece un punto naranja con el número. Tocándolo se abre el repositorio.
 
 ### Cómo se guardan los archivos
 
@@ -138,5 +210,12 @@ Por defecto, `Serie/Saga/Serie 0012`. En opciones podés escribir otra plantilla
 - Debajo se ve cómo quedaría un capítulo bajado en un lote y uno guardado de a uno.
 - Si un dato está vacío no queda nada en su lugar: ni la carpeta, ni el guion que lo separaba.
 - Dejá `{numero}` en el nombre: sin él, todos los capítulos de una serie se llamarían igual.
+
+### Carpeta de las descargas
+
+Todo se guarda adentro de una carpeta de Descargas: `MangaReader`, si no elegís otra. En la misma sección de opciones podés cambiarla, y puede llevar `{sitio}`, `{serie}` y `{anio}`, con `/` para subcarpetas. Por ejemplo, `Manga/{sitio}` deja todo en `Descargas/Manga/sitio.com/…`.
+
+- Debajo del campo se ve cómo quedaría, y los dos diálogos muestran la carpeta real antes de guardar.
+- Tiene que quedar adentro de Descargas (Chrome no deja guardar en otro lado): no acepta `..`, ni una ruta completa como `C:\Manga`. Si igual llega mal escrita desde una copia importada, se guarda en `MangaReader` en vez de fallar.
 
 El atajo se cambia en `chrome://extensions/shortcuts`. La referencia completa está en `DOCUMENTACION.md`.

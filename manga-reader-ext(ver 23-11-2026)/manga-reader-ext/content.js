@@ -1763,6 +1763,9 @@
     batchStop = false;
     for (const c of chapters) { c.state = ''; c.note = ''; }
     renderChapters();
+    // El estado cambia ya, antes de guardar la cola (que es una ida y vuelta al service worker):
+    // si no, por un instante sigue a la vista el "Listo" del lote anterior, como si no hubiera arrancado.
+    setChapterStatus('Preparando el lote…', 'working');
 
     const problems = [];
     let okCount = 0, calls = 0, empty = 0, halt = '';

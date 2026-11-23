@@ -1,6 +1,6 @@
 # Manga Reader — Documentación técnica y de uso
 
-**Versión:** 2.10.0 · **Tipo:** extensión de Chrome (Manifest V3) · **Idioma de la interfaz:** español
+**Versión:** 2.11.0 · **Tipo:** extensión de Chrome (Manifest V3) · **Idioma de la interfaz:** español
 
 ---
 
@@ -429,6 +429,59 @@ Desde el ícono de la extensión → **📚 Sitios de manga y cómics**. Es **tu
 - **Tus sitios** llevan la etiqueta TUYO y van por nombre dentro de su sección: en Descargables si los marcaste con **Se puede descargar**, y si no en Para leer. Además de pegar la lista, se agregan de a uno desde opciones o con **＋ Agregar esta página a mis sitios** (agrega la portada del sitio de la pestaña abierta, con el nombre que sale del título, en Para leer; después se edita en opciones).
 - **Sitios incluidos: ninguno.** Hasta la 2.8.4 la extensión traía una lista propia (85 sitios en la 2.8, recortada a 23 en la 2.8.2). Se sacó en la 2.8.5 a pedido: la lista es la del usuario. El arreglo `SITIOS` de `sitios.js` quedó vacío y el código sigue aceptando sitios incluidos por si vuelven. Lo que se había relevado sigue en `research_notes/Lista de sitios manga y cómics/`.
 
+### 4.12 Marcos: el lector en un iframe (2.11)
+
+El script corre en la página y en cada uno de sus iframes (`all_frames`). Cada marco cuenta sus candidatas con `countCandidates`, y el service worker les pregunta a todos de una vez (`contarMarcos`, con `chrome.scripting.executeScript({ allFrames: true })`).
+
+- **A quién se le habla** (`tellTab`): `save` y `autoSave` van al marco con más candidatas (`marcoCon`); `batch`, a la página, porque la lista de capítulos está ahí. Si empatan gana el de más arriba: con las mismas imágenes en la página y en un iframe se guarda una sola vez.
+- **La burbuja en un solo marco:** el marco que parece un capítulo manda `candidato` antes de mostrarla; el service worker cuenta de nuevo, le contesta si gana y a los demás les manda `ceder`. No anota quién ganó: así no depende de seguir despierto. Una página sin iframes no pregunta nada.
+- **De quién es el capítulo:** en un iframe, el nombre, el número, la dirección para el registro y el sitio son los de la página de arriba. Se piden con `contexto` (`pedirArriba`), que funciona aunque el iframe sea de otro origen, y los usan `nombreAca`, `capituloAca`, `claveAca` y `sitioAca`.
+- **Un lote:** la espera a que el capítulo se arme mira el marco que más tiene (no la suma), y el progreso y las notas vuelven al marco que los pidió (`frameId`).
+
+### 4.13 La cola del lote, la insignia y el aviso (2.11)
+
+La cola es lo que pidió el último lote y cómo le fue a cada capítulo. Vive en `chrome.storage.local.cola` (ver la sección 8) y la escribe solo el service worker, de a un cambio por vez (`conCola`): cada cambio lee, modifica y escribe, y dos a la vez se pisarían.
+
+- **Se escribe** al encolar (`colaNueva`) y en cada cambio de estado (`colaMarca`): `pendiente`, `listo` o `fallo`, este último con su motivo. El capítulo que sale bien lo anota además el propio service worker al terminar `batchChapter`: vale aunque la pestaña del lote ya se haya cerrado. Los que fallan los anota la pestaña, que sabe si quedaba otra forma de la dirección por probar.
+- **Al terminar** (`colaFin`): si quedó todo `listo` se borra; si no, queda. El diálogo de varios capítulos la ofrece al abrirse en ese sitio (`mostrarCola`): **Reanudar (N)** con lo pendiente, **Reintentar los N que fallaron** (`colaReintentar` los pasa a pendiente) y **Descartar la cola**.
+- **Al seguir** (`seguirCola`), la lista del diálogo pasa a ser lo que falta. Los capítulos cuya dirección se había armado con el número (`armado`) se vuelven a armar, por si el sitio usa ceros adelante; lo que se saltea por estar ya guardado se da por listo.
+- **Insignia** (`insignia`): `hechos/total` en el ícono mientras corre (azul), verde o roja al terminar; se limpia al cerrar el diálogo (`insigniaLimpiar`).
+- **Notificación** (`avisarFin`): el resumen y los botones "Reintentar los que fallaron" (si hubo fallas) y "Mostrar la carpeta". Qué botón es cuál se saca de la cola guardada, no de la memoria: el clic se entiende aunque el service worker se haya dormido. Reintentar vuelve a la pestaña de la serie (o la abre) y le pide `batch` con `reintentar`. Un lote cancelado a mano no avisa.
+
+### 4.14 Ritmo, esperas y carpeta base (2.11)
+
+Las reglas están en `ajustes.js` y son las mismas para opciones, las pestañas, el armador y el service worker.
+
+- **Ritmo** (`ritmo`, `normalizarRitmo`): pausa entre capítulos (0 a 10 s; 1,5), descanso cada N capítulos (apagado) de tantos segundos, e imágenes que se miden a la vez (2 a 8; 6). `pausaAntes(hechos, ritmo)` da los milisegundos antes de cada capítulo. Lo que se pasa de los límites queda en el límite.
+- **Una página que responde 429 o 503** (`fetchRetry`, `esperaReintento`): se espera lo que diga `Retry-After` (segundos o una fecha, con tope de un minuto) o 2, 4 y 8 segundos, y se reintenta hasta 3 veces. Esas esperas no gastan los reintentos comunes.
+- **El capítulo entero responde 429:** si es la página, lo ve el service worker después de cargarla (`performance.getEntriesByType('navigation')[0].responseStatus`) y contesta "HTTP 429: el sitio pidió esperar"; si son todas las imágenes, lo dice el armador. El lote para `ritmo.espera429` segundos (60), una sola vez, y lo reintenta; si vuelve a fallar queda en falla con "el sitio pidió esperar".
+- **Carpeta base** (`carpetaBase`, `validarCarpeta`, `aplicarCarpeta`): la carpeta de Descargas donde va todo, con `{sitio}`, `{serie}` y `{anio}`. No acepta `..`, `.`, una barra adelante, una letra de unidad ni marcadores desconocidos. Si igual llega mal (una copia importada), al guardar vale `MangaReader`: no es motivo para no guardar.
+
+### 4.15 Adaptadores por sitio (2.11)
+
+`adaptadores` guarda, por host, `{ contenedor, imagenes, ignorar: [], patron }`. Se editan en opciones.
+
+- `imagenesDeLaPagina` decide de qué imágenes se parte: las del adaptador (`imagenesConAdaptador`) o, si no hay o sus selectores no sirven, todas las de la página. La usan `collectPages`, `countCandidates` y `looksLikeChapter`, que la buscan con `typeof`: el programa de escritorio usa esas tres funciones sin el resto del archivo, y ahí no existe.
+- **Con un adaptador no se filtra nada** (`hayAdaptador`): lo que señalan sus selectores son las páginas. `flagNonPages` no corre, y para la burbuja alcanzan 3 imágenes grandes, estén en la carpeta que estén.
+- `contenedor` puede coincidir con varios bloques; `imagenes` se busca adentro del contenedor, o en toda la página si no hay; si señala un bloque en vez de una imagen, se toman las de adentro; `ignorar` saca lo que coincida o esté adentro de algo que coincida.
+- `patron` (con `{n}`) queda puesto como dirección de los capítulos al abrir el diálogo de varios capítulos.
+- **Selector inválido:** opciones lo avisa y no lo guarda (`selectoresInvalidos`). Si igual llega a una página, `imagenesDeLaPagina` lo ataja y sigue la detección automática.
+- **Probar en esta página:** opciones manda `probarAdaptador`; el service worker busca la pestaña de ese host que se usó último, lo prueba en cada marco y devuelve lo del que más encontró: cuántas imágenes y las primeras 3 direcciones.
+- Al cambiar el adaptador con el diálogo de guardar abierto, se busca de nuevo y la selección empieza de cero.
+
+### 4.16 Orden de las páginas y teclado (2.11)
+
+- **Orden:** el de `pages` es el del PDF, el del CBZ y el de la numeración de las imágenes. `moverPagina` (arrastrar una miniatura, o ▲▼), `ordenarPaginas('invertir' | 'numero')`. `numeroDeImagen` saca el número del nombre del archivo (el último que tenga). Con `ordenManual` puesto, una búsqueda posterior respeta el orden y agrega lo nuevo al final.
+- **Teclado:** los dos diálogos llevan `role="dialog"`, `aria-modal` y `aria-label`; `atraparFoco` hace que Tab no salga del diálogo; `recordarFoco` y `devolverFoco` devuelven el foco a donde estaba en la página. Entre miniaturas, `flechasMiniaturas`: flechas (la de arriba y la de abajo saltan una fila de 5), Inicio y Fin; Alt + flecha izquierda o derecha la cambia de lugar. La barra espaciadora no necesita código: cada miniatura es un botón, y dice su estado con `aria-pressed`.
+- **Varios capítulos:** "Ordenar por número" e "Invertir" (`ordenarCapitulos`, `alReves`): el orden de la lista es el orden en que se bajan.
+- **Links pegados:** `quitarGuardados` saca los que ya están en el registro (salvo que se haya destildado "Saltear los que ya guardé") y el mensaje dice cuántos.
+
+### 4.17 Menores de la 2.11
+
+- **Registro en CSV** (`registroCsv`, en `opciones.js`): Serie, Capítulo, Número, Fecha, Páginas, Dirección y "Guardado como", separado por punto y coma y con BOM, que es lo que abre bien Excel en español.
+- **Tamaño estimado de un lote** (`estimarLote`): cada capítulo guardado anota `kb`; el promedio de los de ese sitio (o de esa serie, si hay dos o más) por la cantidad a bajar. Desde `AVISO_TAMANO_KB` (200 MB) se avisa.
+- **Versión nueva** (`versionRemota`): una vez por día, al abrir el popup, se lee el `README.md` de la rama `main` del repositorio (dice cuál es la carpeta de la última versión) y el `manifest.json` de esa carpeta, que es el que manda. Si es más nueva que la instalada (`compararVersiones`), aparece un punto en el popup.
+
 ---
 
 ## 5. Arquitectura
@@ -441,9 +494,10 @@ Desde el ícono de la extensión → **📚 Sitios de manga y cómics**. Es **tu
 | `agrupar.js` | Criterio para agrupar capítulos por tomo (`SECCION_RE`, `tomosDe`). Lo comparte el programa de escritorio | En cada pestaña |
 | `plantilla.js` | Plantilla de nombres: reemplazo de marcadores y limpieza de la ruta (`aplicarPlantilla`) | En cada pestaña y en la página de opciones |
 | `sagas.js` | Tabla de sagas incluida | En cada pestaña y en la página de opciones |
-| `content.js` | Detección de páginas, filtro, nombre, diálogos, burbuja, guardado automático de un capítulo del lote | En cada pestaña (content script) |
-| `styles.css` | Estilos de los diálogos y la burbuja | Inyectado en cada pestaña |
-| `background.js` | Menú contextual, atajo, inyección del script, descargas, coordinación del armado y de los lotes | Service worker |
+| `estilos.js` | La hoja de estilos de los diálogos y la burbuja, como texto (`MR_CSS`): `content.js` la adopta adentro del shadow root. Desde la 2.11 reemplaza a `styles.css`, que se inyectaba en la página | En cada pestaña |
+| `ajustes.js` | Las reglas de los ajustes (`MR_AJUSTES`): ritmo y esperas, adaptadores, carpeta base, estimación de tamaño y versión nueva. Sin interfaz ni `chrome.*`. Desde la 2.11 | En cada pestaña, en opciones, en el popup, en el documento offscreen y en el service worker (`importScripts`) |
+| `content.js` | Detección de páginas, filtro, adaptadores, nombre, diálogos, burbuja, guardado automático de un capítulo del lote. Corre en la página y en cada uno de sus iframes | En cada pestaña (content script, `all_frames`) |
+| `background.js` | Menú contextual, atajo, inyección del script, a qué marco se le habla, descargas, la cola del lote, la insignia y la notificación | Service worker |
 | `offscreen.html` / `offscreen.js` | Baja las páginas y arma PDF, CBZ e imágenes | Documento offscreen (invisible) |
 | `popup.html` / `popup.js` | Botones, opciones rápidas y la lista de sitios | Ventana del ícono |
 | `sitios.js` | Lista de sitios de manga y cómics incluida, y funciones para filtrarla y validar los tuyos | En el popup y en la página de opciones |
@@ -496,6 +550,17 @@ El documento se crea al primer guardado y se cierra solo cuando no quedan trabaj
 | `{action:'autoSave', formats, serie, numero, strict, fixed, volumen, titulo}` | background → content (capítulo) | Guardarse solo. `volumen` y `titulo` son el tomo y el nombre del capítulo en la lista del lote: solo los usa la plantilla de nombres |
 | `{action:'batchNote', text}` | content (capítulo) → background → content (lote) | Texto de avance ("bajando páginas 9/15") |
 | `{action:'batchCancel'}` | content (lote) → background | Cerrar la pestaña del capítulo en curso |
+| `{action:'candidato'}` | content (un marco) → background | "Parezco un capítulo: ¿la burbuja va acá?". Responde `{gana}`; a los demás marcos les manda `{action:'ceder'}` (2.11) |
+| `{action:'contexto'}` | content (iframe) → background → content (página) | El nombre, el capítulo, la dirección y el sitio de la página de arriba: `{contexto:{nombre, capitulo, clave, sitio, titulo}}` (2.11) |
+| `{action:'colaNueva', items, serie, formatos, visible, sitio, origen, plantilla}` | content (lote) → background | Guardar la cola del lote; responde `{id}` (2.11) |
+| `{action:'colaMarca', id, numero, estado, error}` | content (lote) → background | Anotar cómo le fue a un capítulo (`pendiente`, `listo`, `fallo`) |
+| `{action:'colaFin', id, motivo}` | content (lote) → background | Terminó el lote: borra la cola si salió todo, pinta la insignia y avisa (salvo `motivo:'cancelado'`) |
+| `{action:'colaReintentar', id}` / `{action:'colaDescartar'}` | content (lote) → background | Pasar los `fallo` a `pendiente` (responde `{cola}`) / borrar la cola |
+| `{action:'insigniaLimpiar'}` | content → background | Se cerró el diálogo de varios capítulos: se limpia la insignia |
+| `{action:'batch', reintentar:true}` | background → content | Desde el botón de la notificación: abrir el diálogo y retomar lo que falló |
+| `{action:'probarAdaptador', host, adaptador}` | opciones → background → content | Qué encuentra un adaptador en la pestaña abierta de ese sitio: `{n, urls, error, pagina}` (2.11) |
+
+Desde la 2.11 el service worker le habla a un marco en particular (`chrome.tabs.sendMessage(tabId, msg, { frameId })`): `save` y `autoSave` van al que tiene más candidatas; `batch`, a la página; el progreso y las notas del lote vuelven al marco que los pidió. `count` ya no es un mensaje: `contarMarcos` les pregunta a todos los marcos de una vez con `chrome.scripting.executeScript({ allFrames: true })`.
 
 El campo `target` evita que el documento offscreen procese mensajes de las pestañas y que el service worker procese los del offscreen.
 
@@ -503,7 +568,10 @@ El campo `target` evita que el documento offscreen procese mensajes de las pesta
 
 - `content.js` está envuelto en una función y **hay una sola copia viva por pestaña**: al arrancar pregunta `window.__mangaReaderAlive()`. Si hay una copia que sigue conectada a la extensión, no hace nada. Si la que hay quedó de antes de actualizar la extensión (ya sin conexión), la limpia con `window.__mangaReaderCleanup()` (saca sus listeners y lo que insertó) y ocupa su lugar. Por eso alcanza con inyectarlo de nuevo y no hace falta F5.
 - `agrupar.js` y `plantilla.js` también van envueltos en una función y dejan lo suyo en `globalThis`: un `const` suelto daría error al cargarlos por segunda vez en la misma pestaña. Cuando el service worker inyecta el script en una pestaña que no lo tiene, inyecta **los mismos archivos y en el mismo orden** que declara `content_scripts` en el manifest (`CONTENT_FILES` en `background.js`); `tests/test_descargas.js` comprueba que las dos listas coincidan.
-- Todo lo que inserta en la página usa los IDs `#mr-save`, `#mr-chapter` y `#mr-fab`, y los estilos están limitados a esos contenedores, para no romper el sitio.
+- Todo lo que inserta en la página va adentro de **un solo elemento, `#mr-host`, con shadow root abierto** (2.11). Adentro están `#mr-save`, `#mr-chapter` y `#mr-fab`, con su hoja de estilos adoptada ahí mismo (`estilos.js`): el CSS del sitio no los alcanza y el de ellos no toca al sitio. El host lleva su estilo en línea con `!important`, porque él sí está en la página. Para entrar desde afuera: `document.querySelector('#mr-host').shadowRoot`.
+- Si el sitio saca el host de `<body>` (hay páginas que barren lo que no pusieron), un `MutationObserver` lo repone con lo que tenía adentro. Con tope: más de `HOST_VUELTAS` veces en 2 segundos es una pelea, y se reintenta recién al rato.
+- `OURS` sigue nombrando los tres IDs además del host: sirve para limpiar lo que dejó una versión anterior a la 2.11.
+- El script corre en la página y en cada iframe (`all_frames`). `enMarco` dice si está en uno; ahí el nombre, la dirección y el sitio del capítulo se piden a la página de arriba (`pedirArriba`), y la burbuja se muestra solo si el service worker dice que ese marco es el que tiene más páginas.
 - Los diálogos detienen la propagación de las teclas (`keydown`, `keyup`, `keypress`), así los atajos del sitio no se disparan mientras escribís.
 
 ---
@@ -570,7 +638,7 @@ Salen de la misma bajada que el PDF y el CBZ: cada página es el archivo origina
 
 ## 8. Datos que guarda la extensión
 
-Todo se guarda en `chrome.storage.local`, solo en tu navegador. No se envía nada a ningún servidor.
+Todo se guarda en `chrome.storage.local`, solo en tu navegador. No se envía nada a ningún servidor. Lo único que la extensión pide afuera por su cuenta, desde la 2.11 y una vez por día, es el `README.md` y el `manifest.json` del repositorio en GitHub, para saber si hay una versión nueva: en ese pedido no viaja ningún dato tuyo.
 
 | Clave | Contenido | Ejemplo |
 |---|---|---|
@@ -578,7 +646,7 @@ Todo se guarda en `chrome.storage.local`, solo en tu navegador. No se envía nad
 | `saveCbz` | ¿CBZ tildado? (por defecto no) | `false` |
 | `saveImgs` | ¿Imágenes tildado? (por defecto no) | `false` |
 | `saveFolders` | Última carpeta usada por sitio | `{"one-piece-fans2.com": "One Piece/11 Saga Final"}` |
-| `savedChapters` | Registro de guardados. Con una plantilla de nombres propia, cada capítulo lleva además `serie` y `numero` | `{"One Piece/11 Saga Final/One Piece 1134": {ts, pages: 15, url}}` |
+| `savedChapters` | Registro de guardados. Con una plantilla de nombres propia, cada capítulo lleva además `serie` y `numero`. Desde la 2.11, también `kb`: lo que pesó (para estimar los lotes) | `{"One Piece/11 Saga Final/One Piece 1134": {ts, pages: 15, url, kb: 8400}}` |
 | `fabEnabled` | ¿Mostrar la burbuja? (por defecto sí) | `true` |
 | `fabBlockedHosts` | Sitios donde la burbuja no aparece | `["ejemplo.com"]` |
 | `fabPos` | Posición de la burbuja (px desde la derecha y desde abajo) | `{"r": 24, "b": 24}` |
@@ -588,6 +656,12 @@ Todo se guarda en `chrome.storage.local`, solo en tu navegador. No se envía nad
 | `batchPad` | Dígitos mínimos del número de capítulo en la dirección, por sitio | `{"one-piece-fans2.com": 2}` |
 | `batchVisible` | ¿"Abrir cada capítulo a la vista" tildado? | `false` |
 | `esquemaNombres` | Plantilla de nombres propia (2.10). No existe mientras se usa la predeterminada | `"{serie}/{volumen}/{serie} {numero}"` |
+| `cola` | La cola del último lote (2.11): qué se pidió y cómo le fue a cada capítulo. Se borra sola cuando sale todo | `{id, fecha, serie, formatos, visible, sitio, origen, plantilla, items: [{url, numero, titulo, volumen, estado: "fallo", error: "HTTP 404"}]}` |
+| `ritmo` | Ritmo de las descargas (2.11). No existe mientras se usa el de siempre | `{"pausa": 1.5, "descansoCada": 0, "descansoSeg": 30, "concurrencia": 6, "espera429": 60}` |
+| `adaptadores` | Adaptadores por sitio (2.11), por host | `{"sitio.com": {"contenedor": "#visor", "imagenes": "", "ignorar": [".aviso"], "patron": "https://sitio.com/leer/{n}"}}` |
+| `carpetaBase` | Carpeta de Descargas donde va todo (2.11). No existe mientras es `MangaReader` | `"Manga/{sitio}"` |
+| `ultimaDescarga` | El id de la última descarga que salió bien: lo usa "Mostrar la carpeta" de la notificación (2.11) | `77` |
+| `versionVista` | Cuándo se miró por última vez qué versión hay en el repositorio, y cuál era (2.11) | `{"ts": 1795000000000, "version": "2.11.0"}` |
 | `misSitios` | Tus sitios de manga y cómics (`descargable` desde la 2.8.3) | `[{"nombre": "Mi sitio", "url": "https://…", "tipo": "manga", "idiomas": ["es"], "descripcion": "…", "descargable": true}]` |
 | `sitiosFiltro` | Último filtro de la lista de sitios y secciones plegadas | `{"tipo": "manga", "idioma": "es", "plegadas": ["leer"]}` (en la 2.8: `{"tipo", "soloEs", "soloGuardar"}`) |
 
@@ -602,11 +676,12 @@ Al desinstalar la extensión (o quitar su tarjeta para cargar otra versión), es
 | Permiso | Para qué |
 |---|---|
 | `<all_urls>` (host) | Inyectar los diálogos en cualquier sitio de manga y bajar las imágenes de otros dominios o CDNs sin bloqueos de CORS |
-| `downloads` | Guardar los archivos en `Descargas/MangaReader` con carpetas |
+| `downloads` | Guardar los archivos en `Descargas/MangaReader` (o en la carpeta base elegida) con carpetas, y abrir la carpeta de la última descarga desde la notificación |
+| `notifications` | Avisar cuando termina un lote, con los botones para reintentar lo que falló y para abrir la carpeta (2.11) |
 | `offscreen` | Crear el documento invisible que arma PDF y CBZ |
 | `storage` | Recordar preferencias, carpetas, guardados, sagas y la burbuja |
 | `contextMenus` | Las opciones del clic derecho |
-| `scripting` | Inyectar el script en las pestañas abiertas antes de instalar o actualizar (para no pedir F5) |
+| `scripting` | Inyectar el script en las pestañas abiertas antes de instalar o actualizar (para no pedir F5) y, desde la 2.11, preguntarle a cada marco de la pestaña cuántas páginas tiene |
 | `activeTab` | Comunicarse con la pestaña actual desde el popup |
 
 ---
@@ -617,7 +692,7 @@ Al desinstalar la extensión (o quitar su tarjeta para cargar otra versión), es
 |---|---|---|
 | 250 px | `MIN_SIDE` (content) | Tamaño mínimo de ancho y alto para considerar una imagen como página |
 | 8 s | `probeSize` | Espera máxima para medir una imagen sin cargar |
-| 6 | `PROBE_CONCURRENCY` (content) | Imágenes sin cargar que se miden a la vez |
+| 6 | `PROBE_CONCURRENCY` (content) | Imágenes sin cargar que se miden a la vez. Desde la 2.11 es el valor por defecto: el que vale sale de las opciones (`ritmo.concurrencia`, de 2 a 8) |
 | 3 | `flagNonPages` | Últimas páginas que se revisan por formato distinto |
 | 0,4 · 2/3 | `flagNonPages` | Mediana de ancho/alto mínima y proporción de páginas parecidas para aplicar esa regla |
 | 300 px | `atBottom` | Margen para considerar que llegaste al final |
@@ -626,6 +701,7 @@ Al desinstalar la extensión (o quitar su tarjeta para cargar otra versión), es
 | 4 | `FETCH_CONCURRENCY` (offscreen) | Descargas de páginas en paralelo |
 | 30 s | `fetchBytes` | Tiempo máximo por página al bajarla |
 | 2 · 700 ms | `FETCH_RETRIES`, `fetchRetry` | Reintentos por página y espera entre uno y otro (700 ms, después 1400 ms) |
+| 3 · 2, 4 y 8 s · 60 s | `WAIT_RETRIES` (offscreen), `esperaReintento` (ajustes) | Veces que se espera y reintenta una página que respondió 429 o 503; cuánto se espera si el sitio no lo dice en `Retry-After`; y el tope de lo que se le hace caso (2.11) |
 | 14 400 pt | `PDF_MAX_SIDE` | Lado máximo de una página del PDF |
 | 0,92 | `pdfImage` | Calidad JPG al convertir WebP/GIF/AVIF para el PDF |
 | 60 s + 20 s/página | `saveCore` | Tiempo máximo para bajar y armar un capítulo |
@@ -635,7 +711,14 @@ Al desinstalar la extensión (o quitar su tarjeta para cargar otra versión), es
 | 40 | `FAB_MAX_TRIES` (content) | Revisiones de la burbuja antes de dejar de mirar la página |
 | 5 px | burbuja | Movimiento mínimo para que cuente como arrastre |
 | 60 s | "Guardar y siguiente" | Cuánto vale la marca para abrir el diálogo en el capítulo siguiente |
-| 1,5 s | `BATCH_PAUSE` (content) | Respiro entre capítulos de un lote |
+| 1,5 s | `BATCH_PAUSE` (content) | Respiro entre capítulos de un lote. Desde la 2.11 es el valor por defecto: el que vale sale de las opciones (`ritmo.pausa`, de 0 a 10 s) |
+| 0 · 30 s | `RITMO_DEFECTO` (ajustes) | Descanso cada tantos capítulos (0 = apagado) y cuánto dura (2.11) |
+| 60 s | `RITMO_DEFECTO.espera429` (ajustes) | Lo que para el lote, una sola vez, cuando un capítulo entero responde 429 (2.11) |
+| 20 en 2 s | `HOST_VUELTAS` (content) | Veces que se repone `#mr-host` si la página lo saca; pasado eso se reintenta cada 2 s (2.11) |
+| 200 MB | `AVISO_TAMANO_KB` (ajustes) | Tamaño estimado de un lote a partir del cual se avisa antes de empezar (2.11) |
+| 24 h | `UN_DIA` (popup) | Cada cuánto se mira si hay una versión nueva en el repositorio (2.11) |
+| `MangaReader` | `CARPETA_DEFECTO` (ajustes) | Carpeta de Descargas donde va todo si no se eligió otra (2.11) |
+| 5 columnas | `flechasMiniaturas` (content) | Lo que salta la flecha arriba o abajo entre las miniaturas (2.11) |
 | 3 | `BATCH_MAX_EMPTY` (content) | Capítulos seguidos "sin páginas" después de los cuales el lote para |
 | 2 | `collectPages` | Imágenes `blob:` de 250×250 o más (o cargando) a partir de las cuales lo que queda a la vista viene destildado (las páginas del capítulo no tienen dirección para bajar) |
 | 1900–2099 · 1–12 · 1–31 | `isDateArchive` (content) | Año, mes y día con los que una dirección `…/AAAA/MM/` o `…/AAAA/MM/DD/` se toma como archivo por fecha y no como capítulo |
@@ -662,11 +745,12 @@ Corren sobre el código real de la versión, sin dependencias. Sin argumento usa
 | Archivo | Qué prueba | Casos |
 |---|---|---|
 | `test_nombres.js` | Serie, saga y número a partir del título y la dirección (también `[#104] Serie`, códigos largos en la dirección y títulos que terminan en otro número); `pageKey` | 51 |
-| `test_capitulos.js` | Partir direcciones en molde + número, ceros adelante, lista de capítulos (links, desplegable, portada sin número, dirección con un código del sitio, título que no coincide con la dirección, listado con código y links, archivo por mes o por día de un blog en links y desplegables, dirección terminada en un archivo), capítulo siguiente, y capítulos a partir de links pegados (número adelante, en el link o por orden; repetidos; texto alrededor) | 94 |
+| `test_capitulos.js` | Partir direcciones en molde + número, ceros adelante, lista de capítulos (links, desplegable, portada sin número, dirección con un código del sitio, título que no coincide con la dirección, listado con código y links, archivo por mes o por día de un blog en links y desplegables, dirección terminada en un archivo), capítulo siguiente, y capítulos a partir de links pegados (número adelante, en el link o por orden; repetidos; texto alrededor), y esos links sin los que ya están guardados (`quitarGuardados`, 2.11) | 98 |
 | `test_filtro.js` | Filtro de publicidad, con webtoon y lector con links al CDN | 9 |
-| `test_descargas.js` | Service worker con `chrome.*` simulado: guardado, descargas cortadas, nombres con acentos, liberación de memoria, inyección del script (los mismos archivos que carga el manifest), un capítulo de un lote (con su tomo y su nombre) y su cancelación | 31 |
+| `test_descargas.js` | Service worker con `chrome.*` simulado: guardado, descargas cortadas, nombres con acentos, liberación de memoria, inyección del script (los mismos archivos que carga el manifest), un capítulo de un lote (con su tomo y su nombre) y su cancelación. Desde la 2.11, además: a qué marco va cada pedido (el lector en un iframe, `Alt+S`, la burbuja en un solo marco), la carpeta base, la cola en `chrome.storage` (encolar, cada cambio, dos a la vez, reintentar, descartar) y la insignia y la notificación (la secuencia `0/4 … 4/4`, los colores, el texto, los botones y lo que hace cada uno) | 68 |
 | `test_offscreen.js` | Cabeceras JPG, PNG sin recomprimir (los píxeles vuelven idénticos), estructura del PDF y del ZIP, `ComicInfo.xml` | 44 |
-| `test_opciones.js` | Sagas (texto ↔ tabla), capítulos faltantes, agrupado por serie, importar copia (con mis sitios y la plantilla), y lo guardado con una plantilla propia agrupado por su serie | 25 |
+| `test_opciones.js` | Sagas (texto ↔ tabla), capítulos faltantes, agrupado por serie, importar copia (con mis sitios y la plantilla), y lo guardado con una plantilla propia agrupado por su serie; el registro en CSV y el peso de cada capítulo en una copia importada (2.11) | 31 |
+| `test_ajustes.js` | `ajustes.js` (2.11): el ritmo y sus límites, la pausa y el descanso entre capítulos, la espera ante un 429 o un 503 (`Retry-After` en segundos o como fecha, 2-4-8 s, tope), los adaptadores (limpieza, sitio escrito de cualquier forma, selectores inválidos), la carpeta base (lo que se acepta y lo que no), la estimación del tamaño de un lote, las versiones y la lectura de la que hay en el repositorio con internet simulada; y la bajada de una página (`fetchRetry` de `offscreen.js`) con el sitio y el reloj simulados | 43 |
 | `test_sitios.js` | Que cada sitio incluido esté bien cargado (campos, dirección, tipo, idiomas, descripción, sin repetidos; desde la 2.8.5 no hay ninguno), filtros por tipo, idioma y texto, la división descargables / para leer, sitios del usuario y la lectura de una lista pegada (nombre, dirección, descripción, tipo e idioma detectados; títulos de grupo; repetidos) | 59 |
 | `test_tomos.js` | `agrupar.js`: qué títulos nombran un tomo, encabezado vigente, grupos (`tomosDe`: mínimo de tomos y de capítulos, orden, que devuelva los capítulos de la lista y no copias) y el tomo que `collectChapters` le anota a cada capítulo (títulos de la página, capítulo repetido en "Últimos capítulos", grupos de un desplegable) | 35 |
 | `test_esquema.js` | `plantilla.js`: marcadores, marcadores sin valor (carpeta, guion, paréntesis), limpieza para Windows, avisos; y en `content.js`, los datos de cada capítulo y que sin plantilla o con la predeterminada el nombre sea el de siempre | 42 |
@@ -694,6 +778,24 @@ Carga la extensión en un Chromium sin interfaz (el que instala Playwright) y la
 - **Tomos y plantilla de nombres (2.10):** la página de una serie con sus capítulos bajo "Tomo 1" y "Tomo 2", un bloque de "Últimos capítulos" que repite uno y un capítulo suelto debajo de otro título. La lista trae los 6 sin repetir y aparecen las pestañas; Tomos muestra los dos tomos con su rango y "Sin volumen"; tildar un tomo marca sus 3 capítulos, destildar uno lo deja a medias y destildar otro tomo no toca los demás. Con la plantilla `{serie}/{volumen}/{serie} {numero} - {titulo}` el diálogo muestra el ejemplo (con `(serie)` mientras la serie es automática, y con la escrita si se escribe), el tomo se baja a su carpeta con el nombre de cada capítulo (serie automática), queda anotado con su serie y su número, y el capítulo suelto se guarda sin carpeta vacía ni guion colgando. Guardando de a uno, la misma plantilla da el nombre sin esos huecos; otra plantilla (por sitio y año) vale en la pestaña abierta sin recargarla. En opciones se ve la plantilla guardada, la vista previa de los dos casos, los guardados agrupados por serie, los avisos de choque y de marcador desconocido, y volver a la predeterminada borra la clave. Por último, en una página sin tomos el diálogo no muestra las pestañas.
 
 Cuando había lista incluida (2.8.2 a 2.8.4), sus 23 direcciones respondieron bien el 21-11-2026. Además se abrieron en un navegador desde Argentina las dudosas: DC Universe Infinite dice que no está disponible en la región (por eso salió), Marvel carga su lector con el catálogo (`marvelcomicsapp.com`; `marvel.webtoon.com` es solo la página del lanzamiento) y MangaToon, Manta y MANGA MILLION muestran su catálogo para leer en la web.
+
+### Lo nuevo de la 2.11 en el navegador (`node tests/e2e_211.js`)
+
+`e2e.js` lo corre al final; solo tarda mucho menos, y con `SOLO=cola,ritmo` corre las áreas que se pidan. Con la carpeta de otra versión como argumento muestra qué fallaba antes. Las páginas de prueba están en `tests/fixtures/` y las sirve el mismo archivo, en dos puertos (el segundo hace de "otro sitio"); además sirve series enteras (`/fx/<serie>/` y `/fx/<serie>/leer/<n>`) a las que la prueba les puede romper un capítulo o una imagen. Cada área va en su bloque: si una se corta, se anota y siguen las demás. Son 81 comprobaciones.
+
+| Área | Qué se prueba | Qué fallaba con la 2.10.0 |
+|---|---|---|
+| `shadow` | Una página con `button { display: none }`, `div { display: flex }` e `img { max-width: 20px }`: el diálogo se abre, la grilla sigue en grilla, las miniaturas se ven y Guardar se puede tocar. Otra que saca de `<body>` lo ajeno cada 500 ms: a los 3 s el diálogo sigue, con lo escrito | El botón de la burbuja y el de Guardar quedaban ocultos; el diálogo desaparecía con el primer barrido |
+| `iframes` | El lector en un iframe del mismo origen y en uno de otro (segundo puerto): una sola burbuja, el diálogo con el nombre del capítulo de la página, 6 páginas guardadas y el registro con la dirección de la página. Las mismas imágenes en la página y en el iframe: 6 páginas, no 12. Un lote de dos capítulos así | No había burbuja, el diálogo se abría en la página con 0 páginas, no se guardaba nada |
+| `cola` | 4 capítulos, dos dan 404: la cola queda en storage con el motivo; con el sitio arreglado, Reintentar baja esos dos y la cola se borra. Se cierra la pestaña a mitad de un lote: al volver ofrece Reanudar y termina | No había cola ni nada que ofrecer |
+| `ritmo` | Una imagen que responde 429 con `Retry-After` (y que castiga a quien insiste antes de tiempo): el capítulo sale completo. Un capítulo entero con 429: el lote para, lo reintenta una vez y queda con "el sitio pidió esperar". La sección de opciones y sus límites | El capítulo salía con 5 páginas; el otro quedaba como "Sin páginas" sin reintento |
+| `insignia` | La insignia `n/3` mientras corre, roja al fallar uno, la notificación creada y la limpieza al cerrar el diálogo | No había insignia ni permiso de notificaciones |
+| `orden` | Tres páginas de tamaños distintos: Invertir da 3, 2, 1 en el PDF y en el CBZ; Ordenar por número, ▲▼; arrastrar la primera al final da 2, 3, 1 en el PDF | No existían los controles |
+| `adaptadores` | 6 páginas en un bloque propio y 20 señuelos: sin adaptador, 3 páginas y los 20 señuelos; con adaptador (por contenedor, o por imágenes e ignorar), exactamente las 6. La dirección de los capítulos ya puesta. Un selector inválido no rompe. La sección de opciones, con "Probar en esta página" | Guardaba 23 imágenes aunque el adaptador estuviera cargado |
+| `carpeta` | `Manga/{sitio}/{serie}` desde opciones: el archivo queda ahí y el diálogo lo muestra. `../x`: opciones avisa y no la guarda; forzada en storage, se guarda igual en `MangaReader` | No existía la opción |
+| `pegar` | 5 links desordenados con 2 ya guardados: quedan 3, ordenados, y dice que descartó 2. Invertir, Ordenar, y el lote baja en el orden de la lista | Quedaban los 5 y no había cómo invertir |
+| `teclado` | Con teclas de verdad (mandadas por el protocolo de depuración): `role="dialog"`, nombres en los controles, el foco no sale con 30 Tab, flechas entre miniaturas, espacio, Esc y el foco de vuelta en la página. Lo mismo en el diálogo de varios capítulos | Sin `role`, el foco se escapaba, las flechas no movían nada y al cerrar el foco quedaba en `body` |
+| `menores` | El peso anotado al guardar, la estimación de un lote y el aviso de 200 MB, "Exportar CSV" y el punto de versión nueva en el popup | No anotaba el peso ni existía lo demás |
 
 ### Prueba en el sitio real (`node tests/probar_sitio.js`)
 
@@ -729,6 +831,13 @@ El 22-11-2026, con la 2.8.4 y con ventana (pestañas en segundo plano como en el
 - **"Abrir cada capítulo a la vista"** solo se probó con `chrome.*` simulado.
 - **La pestaña "Tomos" y la plantilla de nombres (2.10)** se probaron en el sitio de prueba local, no en un sitio real. Si en un sitio los tomos no aparecen, es porque sus títulos no están en un encabezado (`<h1>`–`<h6>`, `<summary>`) o no nombran un tomo; ahí el lote funciona igual, por la pestaña Capítulos.
 - **Lotes de cientos de capítulos** (se probaron 70 seguidos) y la apertura de los CBZ en una app lectora de tablet.
+- **De la 2.11:**
+  - **`Alt+S` apretado de verdad.** Es un atajo del navegador y la prueba no lo puede apretar: se prueba el mismo pedido que hace el atajo (en el navegador) y que el atajo llegue al marco del lector (con `chrome.*` simulado).
+  - **Los botones de la notificación con un clic real.** Que la notificación se crea se ve en el navegador; lo que hace cada botón, con `chrome.*` simulado.
+  - **El chequeo de versión contra GitHub.** Se prueba con internet simulada y con el README de este repositorio; el pedido real no se hizo desde las pruebas.
+  - **La pausa de 60 s** cuando un capítulo entero responde 429: la prueba la acorta a 2 s desde `ritmo.espera429`.
+  - **Arrastrar con el mouse.** La prueba dispara los mismos eventos (`dragstart`, `dragover`, `drop`), no mueve un puntero.
+  - **Todo lo de la 2.11 en un sitio real.** Se probó contra las páginas de `tests/fixtures/`.
 
 ---
 
@@ -742,14 +851,17 @@ El 22-11-2026, con la 2.8.4 y con ventana (pestañas en segundo plano como en el
 - **Lectores que protegen las páginas** (imágenes `blob:` descifradas en el momento, como MANGA Plus): no se guardan. La extensión las reconoce solo para no guardar en su lugar el logo y los banners, y dice que no encontró páginas (sección 4.1). Los lectores que dibujan las páginas en un `<canvas>` y las imágenes puestas como fondo CSS no se detectan: ahí el diálogo dice "No encontré páginas".
 - **Solo Chrome de escritorio** (y navegadores Chromium que acepten extensiones descomprimidas).
 - **Referer:** las imágenes se bajan sin el Referer del sitio. En one-piece-fans2.com no hace falta (verificado); si otro servidor de imágenes lo exige, devuelve 403 y el guardado lo informa como "No se pudo leer ninguna página (HTTP 403)".
-- **Iframes:** el script no corre dentro de iframes; un lector que muestre las páginas dentro de uno no se detecta.
+- **Iframes (desde la 2.11 sí se detectan):** se guarda lo que hay en el marco con más páginas, no la suma de varios marcos. Desde un iframe no se ofrece "Guardar y siguiente". Un marco `about:blank` o `srcdoc` (sin dirección propia) no se mira. El recorrido automático mueve la ventana del marco, no la de la página.
+- **Adaptadores (2.11):** dicen dónde están las imágenes, no enseñan atributos nuevos de carga diferida: si la página guarda la dirección real en un atributo que la extensión no conoce, el adaptador no la encuentra.
+- **Estimación de tamaño (2.11):** es un promedio de lo ya guardado de ese sitio con los formatos de ese momento; sin nada guardado no se estima, y lo guardado antes de la 2.11 no cuenta porque no anotaba el peso.
+- **Versión nueva (2.11):** sale de la tabla del `README.md` del repositorio; si el repositorio no es público, o esa tabla cambia de forma, no hay aviso.
 - **El recorrido de la página mueve la ventana, no un panel interno.** En un lector que tenga su propio scroll adentro, no carga nada nuevo.
 - **Varios capítulos:**
   - Si la dirección de cada capítulo incluye algo que cambia de uno a otro además del número (por ejemplo la fecha en que se publicó, `/2025/02/…`), no hay un molde con `{n}` que sirva para todos: solo se pueden tomar de links.
   - Hace falta que la dirección de cada capítulo lleve su número, o que la página tenga links o un desplegable con los capítulos. En un sitio con direcciones tipo `/leer/a8f3c2` o con un código del sitio (`/viewer/2010289`) y sin lista, no hay forma de armarlas.
   - Los links de capítulos con un código de más de 5 cifras en la dirección no se toman como capítulos.
   - Un capítulo con menos de 3 páginas no se guarda ("Sin páginas").
-  - La pestaña desde donde se inició tiene que quedar abierta y en la misma página; un lote por pestaña a la vez.
+  - La pestaña desde donde se inició tiene que quedar abierta y en la misma página; un lote por pestaña a la vez. Desde la 2.11, si se cierra, la cola guarda lo que faltaba y se reanuda al volver; hay una sola cola: un lote nuevo reemplaza a la anterior.
   - Los sitios que solo insertan las imágenes cuando la página está a la vista necesitan "Abrir cada capítulo a la vista".
   - Si la primera forma del número no existe (por ejemplo `/5` en un sitio que usa `/05`), ese primer intento cuesta unos 10 s, una sola vez por sitio.
 - **Con "Preguntar dónde guardar cada archivo" activado en Chrome**, cada archivo abre un cartel. Conviene desactivarlo para guardar imágenes sueltas o lotes.
@@ -788,7 +900,7 @@ sv('#mr-save-cbz').checked = st.saveCbz === true;    // cambiar a  !== false  pa
 
 ### Cambiar la carpeta base
 
-Buscar `MangaReader/` en `background.js` (`runBuild`, donde se arman las rutas reales) y en `content.js` (`refresh`, la vista previa).
+Desde la 2.11 es una opción: ⚙️ → "Cómo se guardan los archivos" → **Carpeta de las descargas** (ver 4.14). La de fábrica es `CARPETA_DEFECTO` en `ajustes.js`; la arma `carpetaBase` en `background.js` y la muestra `baseDe` en `content.js`, los dos con `aplicarCarpeta`.
 
 ### Ajustar el filtro
 
@@ -800,7 +912,7 @@ Los títulos se interpretan en `detectChapter` y las direcciones de capítulo en
 
 ### Agregar un archivo que corre en las pestañas
 
-Como `agrupar.js` o `plantilla.js`. Va en tres lugares: `content_scripts` de `manifest.json`, `CONTENT_FILES` de `background.js` (lo que se inyecta en las pestañas abiertas antes de actualizar) y `COMPARTIDOS` de `tests/extraer.js`. Tiene que ir envuelto en una función y dejar lo suyo en `globalThis`. Si el programa de escritorio lo necesita, sumarlo también a `programa/scripts/generar.js`.
+Como `agrupar.js`, `plantilla.js`, `estilos.js` o `ajustes.js`. Va en tres lugares: `content_scripts` de `manifest.json`, `CONTENT_FILES` de `background.js` (lo que se inyecta en las pestañas abiertas antes de actualizar) y `COMPARTIDOS` de `tests/extraer.js`. Tiene que ir envuelto en una función y dejar lo suyo en `globalThis`. Si el programa de escritorio lo necesita, sumarlo también a `programa/scripts/generar.js`.
 
 ### Después de cualquier cambio
 
@@ -868,3 +980,4 @@ Para probar un sitio nuevo sin dejar archivos: `node tests/probar_sitio.js "<dir
 | 2.9 | **Pegar los links de los capítulos.** En el diálogo de varios capítulos se pega una lista de links, de cualquier sitio y con el texto que traiga alrededor, y la extensión arma la lista con el número de cada uno: el que esté escrito adelante, el que trae el propio link (aunque esté en el medio del nombre) o el orden en que se pegaron, desde el número que se elija y también al revés. Avisa repetidos y números que faltan. Con la serie escrita, cada archivo sale con esa serie y el número de la lista, que manda sobre el título de la página |
 | 2.9.1 | **Se saca el aviso de páginas protegidas.** Ya no están el recuadro 🔒 del diálogo de guardar ni el corte del lote con ese mensaje. Esas páginas siguen sin guardarse: el diálogo dice que no encontró páginas del capítulo, y en un lote salen como "sin páginas" |
 | 2.10.0 | **Tomos y plantilla de nombres.** (1) **Pestaña "Tomos"** en el diálogo de varios capítulos: cuando la página separa los capítulos con títulos ("Tomo 3", "Volumen 2", "Saga de…") o con grupos en el desplegable, `collectChapters` le anota a cada capítulo el suyo y `tomosDe` los agrupa (al menos 2 tomos distintos y 2 capítulos por tomo; el resto va a "Sin volumen"). Cada tomo se marca entero con un clic, queda tildado a medias si solo algunos están marcados y muestra cuántos ya se guardaron. El criterio está en `agrupar.js`, que también usa el programa de escritorio. (2) **Plantilla de nombres** en opciones → "Cómo se guardan los archivos", con los marcadores `{serie} {saga} {volumen} {numero} {titulo} {anio} {sitio}`, cuatro plantillas armadas, vista previa de un capítulo de un lote y de uno suelto, y avisos si los nombres van a chocar o si un marcador no existe. Un marcador sin valor no deja la carpeta vacía, el guion ni los paréntesis; una barra dentro de un dato no crea carpetas; la predeterminada da exactamente el nombre de siempre. `{volumen}` y `{titulo}` salen de la lista del lote. El armado está en `plantilla.js`, compartido por el guardado y la vista previa. (3) El diálogo muestra un ejemplo de cómo va a quedar guardado el primer capítulo marcado. (4) Con una plantilla propia, el registro anota serie y número de cada capítulo para que la página de guardados siga agrupando bien, y la copia exportada lleva la plantilla. (5) El service worker inyecta los mismos archivos que declara el manifest (antes de publicarla, la versión inyectaba solo `sagas.js` y `content.js`, y en una pestaña abierta de antes el diálogo de varios capítulos se rompía). |
+| 2.11.0 | **Diez cambios y tres menores.** (1) **Shadow root:** el diálogo y la burbuja van adentro de un solo `#mr-host` con shadow root abierto y su hoja de estilos ahí (`estilos.js`, que reemplaza a `styles.css`); si la página saca el host, se repone. (2) **Iframes:** `all_frames`, y el service worker elige a qué marco hablarle según cuántas páginas cuenta cada uno; la burbuja queda en uno solo, y desde un iframe el capítulo es el de la página de arriba. (3) **Cola persistente:** `cola` en `chrome.storage`, con Reanudar, Reintentar los que fallaron y Descartar. (4) **Ritmo y esperas:** pausa, descanso y concurrencia en opciones; ante un 429 o un 503 se espera lo que diga `Retry-After` y se reintenta; si es el capítulo entero, el lote para una vez y lo reintenta. (5) **Insignia y notificación** del lote, con el permiso `notifications`. (6) **Orden de las páginas:** arrastrar, ▲▼, Invertir y Ordenar por número. (7) **Adaptadores por sitio**, con "Probar en esta página". (8) **Carpeta base** configurable, con `{sitio}`, `{serie}` y `{anio}`. (9) **Links pegados:** sin los ya guardados, y la lista se ordena o se invierte. (10) **Teclado y accesibilidad** de los diálogos. **Menores:** registro en CSV, tamaño estimado de un lote y aviso de versión nueva en el popup. `ajustes.js` reúne las reglas que comparten opciones, las pestañas, el armador y el service worker. Pruebas: `test_ajustes.js` y `tests/e2e_211.js` (81 comprobaciones en el navegador, medidas también contra la 2.10.0) |

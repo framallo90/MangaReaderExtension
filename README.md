@@ -4,7 +4,7 @@ Dos herramientas para guardar capítulos de manga y cómics como **PDF**, **CBZ*
 
 | | Qué es | Versión | Dónde está |
 |---|---|---|---|
-| 🧩 **La extensión** | Se usa desde Chrome, sobre la página que tenés abierta | 2.10.0 | `manga-reader-ext(ver 22-11-2026-7)/manga-reader-ext` |
+| 🧩 **La extensión** | Se usa desde Chrome, sobre la página que tenés abierta | 2.11.0 | `manga-reader-ext(ver 23-11-2026)/manga-reader-ext` |
 | 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.10.1 | `programa/` |
 
 Funcionan por separado y comparten el mismo código para detectar páginas, armar nombres y generar los archivos. Son de uso personal, están en español y todo corre en tu máquina, sin servidor.
@@ -25,6 +25,12 @@ JavaScript plano (Manifest V3), sin dependencias ni compilación.
 | 📦 **Descargar varios capítulos** | Un rango ("del 1 al 50"), los que tildes en la lista, o una lista de links pegada |
 | 📚 **Tomos** | Si la página separa los capítulos en tomos o sagas, los muestra agrupados y se marca un tomo entero con un clic |
 | 🧹 **Filtro de publicidad** | Deja afuera logos, banners, avisos y páginas de créditos; se corrige con un clic en las miniaturas |
+| 🔀 **Orden de las páginas** | Las miniaturas se arrastran o se mueven con ▲▼, se invierten o se ordenan por número: ese orden es el del PDF y el del CBZ |
+| 🧭 **Adaptadores por sitio** | Donde el filtro no acierta, le decís con selectores CSS dónde están las páginas, y lo probás antes de guardarlo |
+| 🪟 **Lectores en un iframe** | Encuentra las páginas aunque estén en un marco aparte, incluso de otro sitio |
+| ⏯ **Cola del lote** | Queda guardada: si se corta o algo falla, se reanuda o se reintenta. El ícono muestra el avance y al terminar llega una notificación |
+| 🐢 **Ritmo** | Pausa entre capítulos, descansos y espera automática cuando el sitio responde "esperá" (429) |
+| ⌨️ **Teclado** | Los diálogos se usan sin mouse: Tab, flechas entre las miniaturas, espacio para incluir o quitar |
 | 🗂 **Nombre y carpetas automáticos** | `Serie/Saga/Serie 0012`, con ceros adelante para que ordenen bien. Se cambia con una plantilla (`{serie}/{volumen}/{serie} {numero}`) |
 | ✔ **Registro de guardados** | Avisa lo que ya guardaste, lo saltea en los lotes y muestra los capítulos que te faltan |
 | 🔖 **Tu lista de sitios** | Accesos directos a tus sitios, divididos en descargables y para leer, con filtros |
@@ -249,6 +255,25 @@ Lo que todavía le falta y cómo está armado: [programa/README.md](programa/REA
 
 Lo más nuevo arriba. El historial completo de la extensión está en la sección 15 de [DOCUMENTACION.md](DOCUMENTACION.md).
 
+### 23-11-2026 · Extensión 2.11.0
+
+Diez cambios y tres menores. La carpeta es `manga-reader-ext(ver 23-11-2026)`.
+
+- **El diálogo y la burbuja, a salvo del sitio.** Van adentro de un shadow root: el estilo de la página ya no los desarma (un `button { display: none }` escondía el botón Guardar) y, si el sitio los saca, vuelven como estaban.
+- **Lectores en un iframe.** El script corre en la página y en sus marcos; la burbuja y el diálogo van al que tiene las páginas, aunque sea de otro sitio, y el nombre sale del título de la página. Las mismas imágenes en la página y en el marco cuentan una vez.
+- **La cola del lote queda guardada.** Si se cierra la pestaña o algo falla, al volver ofrece **Reanudar**; al terminar con fallas, **Reintentar los N que fallaron** o **Descartar la cola**. Cada falla guarda su motivo.
+- **Ritmo y espera.** Opciones para la pausa entre capítulos, un descanso cada tantos y las imágenes que se miden a la vez. Ante un 429 o un 503 espera lo que diga el sitio (`Retry-After`) y reintenta; si es el capítulo entero, el lote para un minuto una vez y lo reintenta.
+- **Insignia y notificación.** El ícono muestra `hecho/total` mientras corre el lote y queda verde o rojo; al terminar avisa, con botones para reintentar lo que falló y para abrir la carpeta. Pide un permiso nuevo: notificaciones.
+- **Orden de las páginas.** Arrastrar, ▲▼, **Invertir** y **Ordenar por número**. Es el orden del PDF, del CBZ y de la numeración de las imágenes.
+- **Adaptadores por sitio.** Contenedor, imágenes, lo que hay que ignorar y la dirección de los capítulos, por sitio y con **Probar en esta página**. Un selector mal escrito se avisa y no rompe nada.
+- **Carpeta base.** `MangaReader` se puede cambiar por otra, con `{sitio}`, `{serie}` y `{anio}`. No acepta `..` ni rutas completas.
+- **Pegar links.** Descarta los que ya tenías guardados y dice cuántos; la lista se puede ordenar por número o invertir, y en ese orden se baja.
+- **Teclado y accesibilidad.** Los diálogos se anuncian como tales, el foco no se escapa, las flechas recorren las miniaturas, el espacio las incluye o las quita, y al cerrar el foco vuelve a donde estaba.
+- **Menores:** el registro se exporta también en CSV; antes de un lote se estima cuánto va a ocupar (y avisa si pasa de 200 MB); y el popup muestra un punto cuando en el repositorio hay una versión más nueva.
+- **En el programa:** como comparte el armador de archivos con la extensión, también espera y reintenta una página que responde 429 o 503 (2, 4 y 8 segundos; lo que pida el sitio en `Retry-After` todavía no lo lee). Su página de prueba "inestable" pasó a fallar con un 500 para seguir probando el reintento a mano.
+- **Pruebas:** cada área se probó en un navegador real contra páginas armadas para eso (`tests/e2e_211.js`, que se puede correr solo) y contra la 2.10.0, para ver que lo nuevo fallaba antes.
+- **Falta:** desde un iframe no se ofrece "Guardar y siguiente"; `Alt+S` no se puede apretar desde las pruebas (se prueba el mismo pedido que hace el atajo); y los botones de la notificación se probaron con `chrome` simulado, no con un clic real.
+
 ### 23-11-2026 · Programa 0.10.1
 
 Cierra seis agujeros que la 0.10.0 dejó en los capítulos con link `#`:
@@ -399,6 +424,8 @@ Dentro de cada versión:
 | `popup.*`, `opciones.*` | El menú del ícono y la página de guardados, sagas, sitios y opciones |
 | `sagas.js`, `sitios.js` | Sagas incluidas y funciones de la lista de sitios |
 | `agrupar.js`, `plantilla.js` | Agrupado de capítulos por tomo y plantilla de nombres. Los dos se comparten con el programa |
+| `estilos.js` | La hoja de estilos del diálogo y de la burbuja, como texto: va adentro de su shadow root (desde la 2.11) |
+| `ajustes.js` | Las reglas de los ajustes (ritmo, esperas, adaptadores, carpeta base, versión nueva), las mismas para opciones, las pestañas, el armador y el service worker (desde la 2.11) |
 
 ---
 
@@ -409,12 +436,15 @@ No hacen falta dependencias: alcanza con Node 22 o más nuevo.
 ```bash
 bash tests/correr.sh        # sintaxis y pruebas en Node contra la última versión
 node tests/e2e.js           # navegador real, sobre sitios de prueba servidos en la máquina
+node tests/e2e_211.js       # solo lo que sumó la 2.11 (SOLO=cola,ritmo… para elegir áreas); e2e.js también lo corre
 node tests/lote_largo.js    # un lote de decenas de capítulos seguidos
 ```
 
 - El programa tiene las suyas: `cd programa` y `npm run prueba`.
 - Las pruebas en navegador necesitan el Chromium de Playwright (`%LOCALAPPDATA%\ms-playwright\chromium-*`) o el de la variable `CHROMIUM`. El Chrome común ya no acepta cargar extensiones por línea de comandos.
 - `node tests/probar_sitio.js "<dirección>"` informa qué detecta la extensión en una página, sin dejar archivos.
+- Las dos pruebas en navegador aceptan la carpeta de otra versión como argumento: `node tests/e2e_211.js "manga-reader-ext(ver 22-11-2026-7)"` muestra qué de lo nuevo fallaba antes.
+- Las páginas de prueba de la 2.11 están en `tests/fixtures/`.
 - Todas las descargas de las pruebas van a una carpeta temporal que se borra al terminar.
 
 ## Cómo se cambia algo

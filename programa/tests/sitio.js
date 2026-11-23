@@ -264,11 +264,14 @@ function iniciar({ tapas = false } = {}) {
       return +m[1] >= 1 && +m[1] <= 4 ? html(pagina(`Alfa Capítulo ${m[1]} | Sitio de prueba`, menu + imagenes('alfa/' + m[1], true))) : enviar('text/plain', 'no', 404);
     }
     // Un capítulo con una página que falla las tres primeras veces que se la pide: la primera
-    // bajada queda incompleta y al reintentar sale entera
+    // bajada queda incompleta y al reintentar sale entera.
+    // Falla con un 500 y no con un 503: desde la 2.11 de la extensión, el armador (que es el
+    // mismo) a un 503 o a un 429 los espera y los reintenta más veces, y con eso este capítulo
+    // saldría entero de entrada.
     if (u === '/leer/inestable-1/') return html(pagina('Inestable Capítulo 1 | Sitio de prueba', menu + imagenes('inestable/1', false)));
     if (/^\/img\/inestable\/1\/\d\.jpg$/.test(u)) {
       // (solo cuenta cuando la pide el armador, que manda "Accept: image/*"; a la página se la entrega siempre)
-      if (u.endsWith('/3.jpg') && req.headers.accept === 'image/*' && (pedidos.inestable = (pedidos.inestable || 0) + 1) <= 3) return enviar('text/plain', 'ocupado', 503);
+      if (u.endsWith('/3.jpg') && req.headers.accept === 'image/*' && (pedidos.inestable = (pedidos.inestable || 0) + 1) <= 3) return enviar('text/plain', 'falla', 500);
       return enviar('image/jpeg', JPG);
     }
     // Un capítulo con un aviso en el medio (una imagen que lleva a otro sitio)

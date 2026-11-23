@@ -621,7 +621,8 @@ function serve(req, res) {
           // (la serie de prueba se llama "Serie Protegida": se busca el texto del aviso, no esa palabra)
           await pr.eval(`document.querySelector('#mr-save-count').textContent + ' · ' + /🔒|protege|cifrad/i.test(document.querySelector('#mr-save').textContent) + ' · ' + getComputedStyle(document.querySelector('#mr-save-warn')).display`),
           'No encontré páginas del capítulo en esta página. · false · none');
-        eq('  el motivo de las miniaturas tampoco lo nombra', await pr.eval(`document.querySelector('#mr-save .mr-thumb').title`), 'Posible publicidad: no parece una página del capítulo · clic para incluir');
+        // (desde la 2.11 el cartel de cada miniatura sigue con cómo cambiarla de lugar: acá se mira el motivo)
+        eq('  el motivo de las miniaturas tampoco lo nombra', (await pr.eval(`document.querySelector('#mr-save .mr-thumb').title`)).split(' · arrastrala')[0], 'Posible publicidad: no parece una página del capítulo · clic para incluir');
       }
       eq('  nombre con "[#104] Serie"', await pr.eval(`document.querySelector('#mr-save-name').value`), 'Serie Protegida/Serie Protegida 0104');
       eq('  logo, banner y promoción vienen destildados',
@@ -807,9 +808,15 @@ function serve(req, res) {
       eq('  y quedan anotados como guardados, con su dirección', (await b.storage('savedChapters'))['Serie Pegada/Serie Pegada 0002']?.url, cap('01', '02'));
       eq('  no quedan pestañas abiertas', await b.tabCount(), tabsL + 1);
 
-      // Volver a pegar los mismos: figuran guardados y se saltean
+      // Volver a pegar los mismos. Hasta la 2.10 entraban a la lista como guardados y el lote los
+      // salteaba; desde la 2.11 los links ya guardados no entran, y lo dice.
       await pegarLinks([cap('01', '01'), cap('01', '02')].join('\n'));
-      eq('pegar links ya guardados: se saltean', await lote.filas(pl) + ' · ' + await pl.eval(`document.querySelector('#mr-chapter-go').textContent`), '1* [✔ guardado] | 2* [✔ guardado] · Descargar 0 capítulos');
+      if (fs.existsSync(path.join(EXT, 'ajustes.js'))) {
+        eq('pegar links ya guardados: no entran, y lo dice', await pl.eval(`document.querySelector('#mr-chapter-links-msg').textContent + ' · ' + document.querySelector('#mr-chapter-go').textContent`),
+          'Los 2 links que pegaste ya los tenías guardados: no hay nada para bajar. · Descargar 0 capítulos');
+      } else {
+        eq('pegar links ya guardados: se saltean', await lote.filas(pl) + ' · ' + await pl.eval(`document.querySelector('#mr-chapter-go').textContent`), '1* [✔ guardado] | 2* [✔ guardado] · Descargar 0 capítulos');
+      }
 
       // Links sin número, de otro sitio (localhost en vez de 127.0.0.1): se numeran en el orden pegado
       const OTRO = SITE.replace('127.0.0.1', 'localhost');

@@ -601,6 +601,9 @@ const AREAS = {
   // ═══ Menores: el registro en CSV, cuánto va a ocupar un lote y el aviso de versión nueva ═══
   async menores({ b, S, eq }) {
     console.log('\n── 2.11 · Menores: CSV del registro, tamaño estimado de un lote y versión nueva');
+    // La estimación promedia lo ya guardado de ese sitio, y las otras áreas guardaron capítulos del
+    // mismo sitio de prueba: se arranca con el registro vacío para que no dependa de cuáles corrieron antes
+    await b.setStorage({ savedChapters: {} });
     // Al guardar un capítulo queda anotado cuánto pesó
     const url = S + '/fx/peso/leer/1';
     const pg = await b.cdp.open(url);
