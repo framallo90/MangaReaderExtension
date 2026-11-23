@@ -186,7 +186,11 @@ ipcMain.on('mr:res', (_e, m) => {
   if (!p) return;
   pendientes.delete(m.id);
   clearTimeout(p.t);
-  m.ok ? p.res(m.valor) : p.rej(new Error(m.error || 'Error en la página'));
+  if (m.ok) return p.res(m.valor);
+  // La pila es la de la página, no la de esta línea: con la de acá, un error de allá parece de main.js
+  const error = new Error(m.error || 'Error en la página');
+  if (m.pila) error.stack = m.pila;
+  p.rej(error);
 });
 
 function pedir(win, cmd, args = {}, ms = 60000) {

@@ -5,7 +5,7 @@ Dos herramientas para guardar capítulos de manga y cómics como **PDF**, **CBZ*
 | | Qué es | Versión | Dónde está |
 |---|---|---|---|
 | 🧩 **La extensión** | Se usa desde Chrome, sobre la página que tenés abierta | 2.10.0 | `manga-reader-ext(ver 22-11-2026-7)/manga-reader-ext` |
-| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.10.0 | `programa/` |
+| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.10.1 | `programa/` |
 
 Funcionan por separado y comparten el mismo código para detectar páginas, armar nombres y generar los archivos. Son de uso personal, están en español y todo corre en tu máquina, sin servidor.
 
@@ -248,6 +248,19 @@ Lo que todavía le falta y cómo está armado: [programa/README.md](programa/REA
 # Actualizaciones
 
 Lo más nuevo arriba. El historial completo de la extensión está en la sección 15 de [DOCUMENTACION.md](DOCUMENTACION.md).
+
+### 23-11-2026 · Programa 0.10.1
+
+Cierra seis agujeros que la 0.10.0 dejó en los capítulos con link `#`:
+
+- **Un renglón sin link real ya no se queda con el del renglón de al lado.** Buscaba el link subiendo por la página: el capítulo 1 tomaba la dirección del 2 y el 2 desaparecía de la lista. Ahora busca solo dentro de su renglón (una fila de tabla, un ítem de lista, un artículo o el elemento que lleva el número) y, si no hay, el renglón se descarta.
+- **El número por atributo sale solo del renglón.** Un `data-number` puesto en el bloque que envuelve la lista ya no numera todo, y un `data-chapter-number="extra"` ya no tapa un `data-number` válido. Si el texto del renglón dice otro número, vale el texto: un `data-number` con la posición de la fila no pisa a "Capítulo 101". Y `data-number` solo, sin que nada nombre un capítulo, no cuenta: también lo llevan los puestos de un ranking de series.
+- **El link `#` puede ser un ícono.** Alcanza con que el renglón nombre el capítulo ("Capítulo 5" escrito al lado).
+- **Los botones "Empezar a leer" y "Último capítulo"** ya no dejan a su capítulo numerado por el código de la dirección, o afuera de la lista: cuando llega su renglón, le pasa el número y el nombre.
+- **Un capítulo subido varias veces** ya no hace que quede primera la lista "por número" (que numera por la dirección y lo trae repetido): para compararlas se cuentan los links, no los renglones.
+- **Los errores de una página llegan limpios.** La interfaz mostraba la pila entera ("at Object.buscar (…pagina.js:1246:25)"); ahora muestra el mensaje, y la pila queda aparte para diagnosticar.
+- **Pruebas:** `npm run prueba` hace 180 comprobaciones. `/capitulos-prueba/` ahora trae códigos en la dirección, los dos botones y un capítulo subido tres veces; `/capitulos-raros/` suma un renglón sin link real, y hay tres páginas nuevas (`/capitulos-envueltos/`, `/capitulos-ranking/` y `/mas-leidas/`). Las nuevas fallaban todas con la 0.10.0.
+- **Falta:** el renglón huérfano (con `#` y sin link real) se descarta por diseño, no se rescata. En un listado con miniaturas y links `#`, las imágenes se registran todas bajo la dirección de la página y se pisan: esos renglones quedan sin miniatura. Y sin atributo, un código corto en la dirección (hasta 5 cifras) sigue pasando por número de capítulo aunque el texto diga otro.
 
 ### 23-11-2026 · Programa 0.10.0
 

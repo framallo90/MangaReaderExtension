@@ -58,14 +58,26 @@ module.exports = async function probar(api) {
 
     console.log('\n── Capítulos con href hash y listas ocultas');
     const cp = await api.analizar(S + '/capitulos-prueba/');
-    const cps = lista(cp, 'capitulos');
-    const nums = cps.items.map(i => i.numero);
+    const capitulosDe = (r) => lista(r, 'capitulos')?.items || [];
+    const cps = capitulosDe(cp);
+    const nums = cps.map(i => i.numero);
     const esperado = [...Array(109)].map((_, i) => i + 1).join(',');
-    eq('hash + ocultos: 109 capítulos del 1 al 109 sin repetidos', `${nums.length} ${nums.join(',')}`, `109 ${esperado}`);
-    eq('  versiones: cada capítulo con una sola URL', cps.items.every(i => !i.versiones || i.versiones === 1), true);
+    eq('hash + ocultos, con códigos en la dirección: una sola lista de capítulos, primera entre todas', cp.listas.map(l => l.tipo).join(' '), 'capitulos titulos');
+    eq('  con los 109 capítulos, del 1 al 109 y sin repetidos', `${nums.length} ${nums.join(',')}`, `109 ${esperado}`);
+    const uno = (n) => { const i = cps.find(x => x.numero === n); return i ? `${n}=${i.url.replace(S, '')} "${i.texto}" x${i.versiones || 1}` : `${n}: no está`; };
+    eq('  los de los botones "Empezar a leer" y "Último capítulo" quedan con su número y su nombre, y el 50 (subido tres veces) una sola vez', [1, 103, 50].map(uno).join(' · '),
+      '1=/view_uploads/40001 "Capítulo 1" x1 · 103=/view_uploads/40103 "Capítulo 103" x1 · 50=/view_uploads/40050 "Capítulo 50" x3');
     const raros = await api.analizar(S + '/capitulos-raros/');
-    eq('  un data-chapter-number que no es un número no cuenta: queda el de la dirección', lista(raros, 'capitulos').items.map(i => i.numero).join(','), '1,2,3,900');
-    eq('  el botón href="#" de un menú no le cambia el nombre al primer link', raros.listas.find(l => l.tipo === 'titulos' && l.nombre === '/serie').items.map(i => i.texto).join(', '), 'Alfa, Beta, Delta');
+    eq('  un renglón "#" sin link real se descarta, sin quedarse con la dirección del de al lado; y con un data-chapter-number que no es un número vale el de la dirección',
+      capitulosDe(raros).map(i => `${i.numero}=${i.url.replace(S, '')}`).join(' '), '1=/view_uploads/40001 2=/view_uploads/40002 3=/view_uploads/40003 4=/view_uploads/4');
+    eq('  el botón href="#" de un menú no le cambia el nombre al primer link', raros.listas.find(l => l.tipo === 'titulos' && l.nombre === '/serie')?.items.map(i => i.texto).join(', '), 'Alfa, Beta, Delta');
+    const envueltos = await api.analizar(S + '/capitulos-envueltos/');
+    eq('  un data-number en el bloque que envuelve la lista no numera los renglones', capitulosDe(envueltos).map(i => i.numero).join(','), '1,2,3');
+    eq('  el link en un ícono "#" y el número escrito al lado: el renglón entra, con su nombre', capitulosDe(envueltos).map(i => i.texto).join(' | '), 'Capítulo 1: Parte 1 | Capítulo 2: Parte 2 | Capítulo 3: Parte 3');
+    eq('  data-number con la posición del renglón: vale el número que dice el texto', capitulosDe(await api.analizar(S + '/capitulos-ranking/')).map(i => i.numero).join(','), '101,102,103');
+    const leidas = await api.analizar(S + '/mas-leidas/');
+    eq('  un ranking de series con el puesto en data-number: son títulos, no capítulos', `${capitulosDe(leidas).length} capítulos · ${leidas.listas.find(l => l.tipo === 'titulos' && l.nombre === '/serie')?.items.map(i => i.texto).join(', ')}`,
+      '0 capítulos · Alfa, Beta, Delta, Zeta');
 
     const cap = await api.analizar(S + '/leer/alfa-2/');
     eq('capítulo: lo reconoce y propone el nombre', `${cap.capitulo.serie} ${cap.capitulo.numero} → ${cap.capitulo.nombre}`, 'Alfa 2 → Alfa/Alfa 0002');
@@ -283,6 +295,8 @@ module.exports = async function probar(api) {
     eq('buscar escribiendo en un cuadro suelto: quedan solo los links que aparecieron (los resultados), no el menú', b3.listas.map(l => `${l.tipo}: ${l.items.map(i => i.texto).join(', ')}`).join(' | '), 'titulos: Pi');
     eq('  sin nada que buscar, lo dice', await api.buscarEnSitio({ ...pt.buscador, texto: '  ' }).then(() => 'pasó', e => e.message), 'Escribí qué querés buscar');
     eq('  y una plantilla que no es una dirección no se usa', await api.buscarEnSitio({ plantilla: 'file:///c:/x?{q}', texto: 'a' }).then(() => 'pasó', e => e.message), 'El buscador de este sitio no se puede usar desde acá');
+    eq('  el error de una página llega con su mensaje limpio (es lo que muestra la interfaz) y la pila aparte',
+      await api.buscarEnSitio({ pagina: S + '/serie/alfa/', texto: 'a' }).then(() => 'pasó', e => `${e.message} · pila de la página: ${/pagina\.js/.test(e.stack || '')}`), 'No encontré el buscador de esta página · pila de la página: true');
 
     console.log('\n── Portada con tapas (sigue)');
     const bib = await api.analizar(T + '/biblioteca');

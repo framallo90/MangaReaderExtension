@@ -57,7 +57,8 @@ ${fs.readFileSync(path.join(__dirname, '..', 'src', 'pagina', 'explorar.js'), 'u
   ipcRenderer.on('mr:cmd', async (_e, m) => {
     let r;
     try { r = { ok: true, valor: await comandos[m.cmd](m.args || {}) }; }
-    catch (e) { r = { ok: false, error: String(e && e.stack || e) }; }
+    // El mensaje va limpio, porque es lo que termina mostrando la interfaz, y la pila aparte
+    catch (e) { r = { ok: false, error: String(e && e.message || e), pila: String(e && e.stack || '') }; }
     ipcRenderer.send('mr:res', { id: m.id, ...r });
   });
 })();

@@ -7,6 +7,12 @@
 //   /app/             un cuadro de búsqueda suelto: los resultados aparecen en la misma página
 //   /serie/alfa/      capítulos separados en "Volumen 1" y "Volumen 2", con el número en la dirección
 //   /serie/beta/      capítulos cuya dirección es un código: el número está solo en el texto del link
+//   /capitulos-prueba/     renglones cuyo link es "#", con el link real adentro y el número en un
+//                          atributo; una lista escondida, un capítulo subido tres veces y dos botones
+//   /capitulos-raros/      un menú con "#", un renglón sin link real y un atributo que no es un número
+//   /capitulos-envueltos/  la lista dentro de un bloque con data-number; el link es un ícono "#"
+//   /capitulos-ranking/    data-number con la posición del renglón, que no es el número del capítulo
+//   /mas-leidas/           un ranking de series con el puesto en data-number
 //   /leer/alfa-N/     capítulo con carga diferida de imágenes
 //   /leer/inestable-1/  capítulo con una página que falla al principio (para reintentar)
 //   /leer/avisos-1/   capítulo con un aviso en el medio (para revisar las páginas a mano)
@@ -164,16 +170,37 @@ const obraEnRenglones = pagina('Obra Dos — capítulos', `${menuTapas}<h1>Dos</
 <li><div>Capítulo 1 <a href="/ver-obra/900211">Leer</a></div></li>
 </ul>`);
 const bibliotecaTapas = pagina('Sitio de tapas — Biblioteca', `${menuTapas}<h1>Biblioteca</h1>${grilla(OBRAS)}`);
-const filaCap = (n) => `<li class="upload-link" data-chapter-number="${n}"><a href="#">Capítulo ${n}</a> <div class="chapter-detail" style="display:none"><a href="/view_uploads/${n}">Leer online</a></div></li>`;
+// Capítulos en renglones que se abren ahí mismo: el link del renglón es "#" y los links para leer
+// están adentro, escondidos. La dirección trae el código de la subida y no el número del capítulo,
+// que está en data-chapter-number. Los dos botones de arriba llevan a direcciones que también
+// están en su renglón, y el capítulo 50 está subido tres veces (una por grupo).
+const subida = (n) => 40000 + n;
+const filaCap = (n, otras = '') => `<li class="upload-link" data-chapter-number="${n}"><a href="#">Capítulo ${n}</a> <div class="chapter-detail" style="display:none"><a href="/view_uploads/${subida(n)}">Leer online</a>${otras}</div></li>`;
+const filaDePrueba = (n) => filaCap(n, n === 50 ? ' <a href="/view_uploads/41050">Grupo B</a> <a href="/view_uploads/42050">Grupo C</a>' : '');
 const capitulosPrueba = pagina('Capítulos de prueba hash y ocultos', `${menu}<h1>Capítulos de prueba</h1>
-<a href="/view_uploads/1">Empezar a leer</a> <a href="/view_uploads/103">Último capítulo</a>
-<ul id="visibles">${[...Array(10)].map((_, i) => filaCap(i + 1)).join('')}</ul>
-<ul id="ocultos" style="display:none">${[...Array(99)].map((_, i) => filaCap(i + 11)).join('')}</ul>`);
-// Lo que no es un renglón de capítulo: el botón href="#" de un menú desplegable (no le pone su
-// nombre al primer link del menú) y un renglón cuyo data-chapter-number no es un número
-const capitulosRaros = pagina('Capítulos de prueba: menú desplegable y número raro', `<nav><ul><li><a href="/">Inicio</a></li>
+<a href="/view_uploads/${subida(1)}">Empezar a leer</a> <a href="/view_uploads/${subida(103)}">Último capítulo</a>
+<ul id="visibles">${[...Array(10)].map((_, i) => filaDePrueba(i + 1)).join('')}</ul>
+<ul id="ocultos" style="display:none">${[...Array(99)].map((_, i) => filaDePrueba(i + 11)).join('')}</ul>`);
+// Lo que no es un renglón de capítulo o no se puede resolver: el botón href="#" de un menú
+// desplegable (no le pone su nombre al primer link del menú), un renglón "#" sin ningún link real
+// adentro (se descarta: no se queda con la dirección del de al lado) y uno cuyo
+// data-chapter-number no es un número (vale el número de su dirección)
+const capitulosRaros = pagina('Capítulos de prueba: menú desplegable, renglón sin link y número raro', `<nav><ul><li><a href="/">Inicio</a></li>
 <li class="dropdown"><a href="#">Series</a><ul><li><a href="/serie/alfa/">Alfa</a></li><li><a href="/serie/beta/">Beta</a></li><li><a href="/serie/delta/">Delta</a></li></ul></li></ul></nav>
-<ul>${[1, 2, 3].map(filaCap).join('')}<li class="upload-link" data-chapter-number="extra"><a href="#">Especial</a> <div class="chapter-detail" style="display:none"><a href="/view_uploads/900">Leer online</a></div></li></ul>`);
+<ul><li class="upload-link" data-chapter-number="9"><a href="#">Capítulo 9</a> <div class="chapter-detail" style="display:none">Todavía sin subidas</div></li>
+${[1, 2, 3].map(n => filaCap(n)).join('')}<li class="upload-link" data-chapter-number="extra"><a href="#">Especial</a> <div class="chapter-detail" style="display:none"><a href="/view_uploads/4">Leer online</a></div></li></ul>`);
+// La lista entera envuelta en un bloque con data-number (cuántos muestra): no es el número de
+// ningún capítulo. Los renglones no llevan atributo: el link es un ícono "#" con su nombre en
+// aria-label, y el número está escrito al lado.
+const capitulosEnvueltos = pagina('Capítulos de prueba: lista envuelta', `${menu}<h1>Envueltos</h1><div class="lista" data-number="6"><ul>${[1, 2, 3].map(n =>
+  `<li><a href="#" aria-label="Capítulo ${n}: Parte ${n}"><i></i></a> <span>Capítulo ${n}</span> <div style="display:none"><a href="/ver-envuelto/900000${n}">Leer online</a></div></li>`).join('')}</ul></div>`);
+// Renglones con data-number = su posición en la lista (1, 2, 3): el número del capítulo es el
+// que dice el texto
+const capitulosRanking = pagina('Capítulos de prueba: data-number con la posición', `${menu}<h1>Los últimos</h1><ul>${[101, 102, 103].map((n, i) =>
+  `<li data-number="${i + 1}"><a href="/ver-ranking/9000${n}">Capítulo ${n}</a></li>`).join('')}</ul>`);
+// Un ranking de series, sin tapas, con el puesto en data-number: son títulos para entrar
+const masLeidas = pagina('Sitio de prueba – Más leídas', `${menu}<h1>Más leídas</h1><ol>${['Alfa', 'Beta', 'Delta', 'Zeta'].map((s, i) =>
+  `<li data-number="${i + 1}">${serie(s)}</li>`).join('')}</ol>`);
 const lectorTapas = (n) => pagina(`Obra Uno Capítulo ${n} | Sitio de tapas`, menuTapas +
   [1, 2, 3, 4, 5, 6].map(k => `<a href="${n === 5 ? '/lector/6' : `/lector/${n}/pagina/${k}`}"><img width="420" height="640" style="display:block" src="/tapas/paginas/${n}/${k}.jpg"></a>`).join('\n') +
   (n === 5 ? `<h3>También te puede gustar</h3>${grilla(OBRAS.slice(1, 4))}` : ''));
@@ -228,6 +255,9 @@ function iniciar({ tapas = false } = {}) {
     if (u === '/serie/beta/') return html(serieBeta);
     if (u === '/capitulos-prueba/') return html(capitulosPrueba);
     if (u === '/capitulos-raros/') return html(capitulosRaros);
+    if (u === '/capitulos-envueltos/') return html(capitulosEnvueltos);
+    if (u === '/capitulos-ranking/') return html(capitulosRanking);
+    if (u === '/mas-leidas/') return html(masLeidas);
     let m = u.match(/^\/leer\/alfa-(\d+)\/$/);
     if (m) {
       pedidos.capitulos[u] = (pedidos.capitulos[u] || 0) + 1;

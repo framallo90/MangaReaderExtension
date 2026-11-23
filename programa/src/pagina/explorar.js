@@ -72,34 +72,51 @@
     }
     return '';
   }
+  // El renglón de un link, como bloque de la página: el más chico que lo contiene y puede ser una
+  // fila (una fila de tabla, un ítem de lista, un artículo, o el elemento que lleva el número del
+  // capítulo). Lo que está más arriba ya es de las filas de al lado: de ahí no se saca ni un link
+  // ni un número.
+  const RENGLON_SEL = 'li, tr, article, [data-chapter-number], [data-number]';
+  const renglonDe = (el) => el.parentElement && (el.parentElement.closest(RENGLON_SEL) || el.parentElement);
+  // Lo que dice ese renglón, si es corto como una fila (un <article> con la página entera no lo es)
+  const textoRenglon = (el) => { const r = renglonDe(el); return r && r.textContent.length <= 400 ? textoDe(r) : ''; };
   // Si el href de un renglón es un hash de esta misma página (#, #algo o la URL actual con
-  // fragmento), buscar dentro de ese renglón el primer link con una URL real del mismo sitio
-  // y devolverla. null si no hay ninguno: el renglón se descarta.
+  // fragmento), el link real de ese renglón: el primero del mismo sitio que viene después de él,
+  // sin salir del renglón. null si no hay ninguno, y el renglón se descarta. Es a propósito:
+  // buscándolo más arriba queda con la dirección del renglón de al lado, después se baja ese
+  // capítulo con el número de este, y el de al lado desaparece de la lista.
   function urlRealEnRenglón(el) {
-    const base = document.baseURI;
     const aqui = noSlash(location.href.split('#')[0]);
-    const mismoSitio = (u) => u.origin === location.origin;
-    for (let cont = el.parentElement, k = 0; cont && k < 10; cont = cont.parentElement, k++) {
-      for (const a of [...cont.querySelectorAll('a[href]')]) {
-        let u;
-        try { u = new URL(a.getAttribute('href'), base); } catch { continue; }
-        if (!/^https?:$/.test(u.protocol) || !mismoSitio(u)) continue;
-        const url = u.href.split('#')[0];
-        if (noSlash(url) === aqui) continue;      // otro hash de esta página, no sirve
-        return url;
-      }
-      if (cont.textContent.length > 3000) break;   // ya pasó del renglón
+    const renglon = renglonDe(el);
+    if (!renglon) return null;
+    const links = [...renglon.querySelectorAll('a[href]')];
+    for (const a of links.slice(links.indexOf(el) + 1)) {
+      let u;
+      try { u = new URL(a.getAttribute('href'), document.baseURI); } catch { continue; }
+      if (!/^https?:$/.test(u.protocol) || u.origin !== location.origin) continue;
+      const url = u.href.split('#')[0];
+      if (noSlash(url) !== aqui) return url;
+      // Otro "#" que nombra un capítulo: el bloque junta varias filas (una lista de <div> dentro
+      // de un <article>) y ahí empieza la siguiente
+      if (NUMERO_TEXTO_RE.test(textoDe(a))) return null;
     }
     return null;
   }
-  // Número de capítulo de un renglón: data-chapter-number, si no data-number.
-  // Solo si es un número ("12", "12.5"): con "extra" o "cap-12" el capítulo quedaría con número NaN.
+  // Número de capítulo que el renglón dice en un atributo: data-chapter-number o data-number,
+  // en el link o en su renglón. Cada atributo por su lado: un "extra" en uno no tapa al otro.
+  // - Solo números ("12", "12.5"): con "extra" o "cap-12" el capítulo quedaría con número NaN.
+  // - Si el link o su renglón dicen otro número, vale lo que dicen: un data-number con la posición
+  //   de la fila, o puesto en el bloque que envuelve la lista, no puede pisar al número real.
+  // - data-number a secas, sin que nada nombre un capítulo, no alcanza: también lo llevan los
+  //   puestos de un ranking de series.
   function numeroAttrDe(el) {
-    for (let e = el; e && e !== document.body; e = e.parentElement) {
-      const v = e.getAttribute('data-chapter-number') || e.getAttribute('data-number');
-      if (v) return /^\d{1,5}(?:\.\d+)?$/.test(v.trim()) ? v.trim() : null;
-    }
-    return null;
+    const renglon = renglonDe(el);
+    const numero = (attr) => [el, renglon].map(e => String(e?.getAttribute(attr) || '').trim()).find(s => /^\d{1,5}(?:\.\d+)?$/.test(s));
+    const propio = numero('data-chapter-number'), v = propio || numero('data-number');
+    if (!v) return null;
+    const dicho = [textoDe(el), renglon ? textoDe(renglon) : ''].map(t => (t.match(NUMERO_TEXTO_RE) || [])[1]).find(Boolean);
+    if (dicho) return parseFloat(dicho) === parseFloat(v) ? v : null;
+    return propio ? v : null;
   }
   // El texto de un link sin lo que tenga pegado adelante o atrás que no sea letra (un ícono, "»")
   const sinAdornos = (s) => String(s || '').replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
@@ -188,8 +205,9 @@
         // El href es un hash de esta página: buscar dentro del renglón el primer link con una
         // URL real del mismo sitio y usarla; si no hay, descartar el renglón.
         // Solo si nombra un capítulo: el botón de un menú desplegable y las pestañas también
-        // son href="#", y le pondrían su texto al primer link que tienen cerca.
-        if (!NUMERO_TEXTO_RE.test(textoDe(el)) && !numeroAttrDe(el)) continue;
+        // son href="#", y le pondrían su texto al primer link que tienen cerca. Lo puede nombrar
+        // el link o su renglón: a veces el link es un ícono y "Capítulo 5" está escrito al lado.
+        if (!NUMERO_TEXTO_RE.test(textoDe(el)) && !NUMERO_TEXTO_RE.test(textoRenglon(el)) && !numeroAttrDe(el)) continue;
         const real = urlRealEnRenglón(el);
         if (!real) continue;
         const ur = new URL(real, document.baseURI);
@@ -204,14 +222,21 @@
       const leido = leerLink(el);
       const texto = leido.nombre || limpio(el.getAttribute('aria-label')) || limpio(el.title) || limpio(el.querySelector('img')?.alt);
       const todo = leido.todo || texto;
+      const na = numeroAttrDe(el);
       const ya = porUrl.get(clave);
-      if (ya) { if (!ya.texto && texto) Object.assign(ya, { texto, todo, detalle: leido.detalle }); continue; }
+      if (ya) {
+        // La dirección ya se había visto, en un botón de arriba de la lista ("Empezar a leer",
+        // "Último capítulo") o en un link sin nombre. El renglón que llega ahora es el que sabe
+        // qué capítulo es: sin esto queda numerado por el código de su dirección, o sin número.
+        if (!ya.numeroAttr && na) { ya.numeroAttr = na; ya.nums = [na]; }
+        if ((!ya.texto && texto) || (NUMERO_TEXTO_RE.test(todo) && !NUMERO_TEXTO_RE.test(ya.todo))) Object.assign(ya, { texto, todo, detalle: leido.detalle });
+        continue;
+      }
       const s = splitChapterUrl(url);
       if (esPaginacion(u) || (s && (PAGINACION_RE.test(s.pre) || isDateArchive(s, texto)))) continue;   // paginación y archivo por fecha
       const p = partes(u);
       if (/^(?:19|20)\d{2}$/.test(p.nombre) && (!texto || texto.includes(p.nombre))) continue;   // archivo por año
       if (!p.nums.length && s && !u.pathname.endsWith(s.num)) p.nums = [s.num];        // ?capitulo=12
-      const na = numeroAttrDe(el);
       const nums = na ? [na] : p.nums;
       porUrl.set(clave, { url, texto, todo, detalle: leido.detalle, seccion, imagen: imagenes.get(clave) || '', filtro: esFiltro(u),
                           fila: NUMERO_TEXTO_RE.test(todo) ? '' : filaDe(el), numeroAttr: na, ...p, nums });
@@ -331,7 +356,10 @@
 
     // 3) Lo que la extensión saca de un desplegable o de la dirección del capítulo abierto
     const ch = collectChapters();
-    const mayor = Math.max(0, ...listas.filter(l => l.tipo === 'capitulos').map(l => l.items.length));
+    // Solo si trae más links que la lista más larga que ya hay. Se cuentan links y no renglones:
+    // un capítulo subido tres veces es un renglón con tres versiones, y contando renglones ganaba
+    // esta lista, que numera por la dirección y trae los repetidos como capítulos aparte.
+    const mayor = Math.max(0, ...listas.filter(l => l.tipo === 'capitulos').map(l => l.items.reduce((n, i) => n + (i.versiones || 1), 0)));
     if (ch.list.length >= 2 && ch.list.length > mayor && (ch.pat || ch.list.every(c => c.url))) {
       const items = ch.list.map(c => ({
         url: c.url || ch.pat.pre + (c.raw || numForms(c.numero, ch.width)[0]) + ch.pat.post,
