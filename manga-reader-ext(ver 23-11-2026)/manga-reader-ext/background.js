@@ -7,6 +7,9 @@
  * - Varios capítulos: abre cada uno en su pestaña, le pide que se guarde y la cierra
  */
 
+// Las reglas de los ajustes (carpeta base, ritmo…) son las mismas que usan opciones y las pestañas
+importScripts('ajustes.js');
+
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 // ── Context menu ──────────────────────────────────────
@@ -227,8 +230,19 @@ function closeOffscreenIfIdle() {
   if (!blobs.size && !jobs.size) chrome.offscreen.closeDocument().catch(() => {});
 }
 
-// Baja las páginas una vez y guarda lo pedido en MangaReader/<path>.pdf, .cbz y/o
-// MangaReader/<path>/pagina_NNN.<ext>. Devuelve:
+// La carpeta de Descargas donde va todo: "MangaReader", o la que diga la opción carpetaBase,
+// que puede llevar {sitio}, {serie} y {anio}. Si la opción no sirve (un ".." escrito a mano en
+// una copia importada), vale la de siempre: no es motivo para no guardar.
+async function carpetaBase(meta = {}, path = '') {
+  const tpl = (await chrome.storage.local.get(['carpetaBase'])).carpetaBase;
+  if (typeof tpl !== 'string' || !tpl.trim()) return MR_AJUSTES.CARPETA_DEFECTO;
+  let sitio = '';
+  try { sitio = new URL(meta.web).hostname; } catch {}
+  return MR_AJUSTES.aplicarCarpeta(tpl, { sitio, serie: meta.series || path.split('/')[0], anio: new Date().getFullYear() });
+}
+
+// Baja las páginas una vez y guarda lo pedido en <carpeta base>/<path>.pdf, .cbz y/o
+// <carpeta base>/<path>/pagina_NNN.<ext>. Devuelve:
 //   { pages, failed: [n…], files: [{kind, sizeKB, savedAs} | {kind, error}], imgs, imgsFailed, imgError }
 async function runBuild({ urls, formats, title, meta, path }, sender) {
   if (!urls?.length) throw new Error('No hay páginas para guardar');
@@ -252,8 +266,9 @@ async function runBuild({ urls, formats, title, meta, path }, sender) {
 
     const out = { pages: r.pages, failed: r.failed || [], files: [], imgs: 0, imgsFailed: 0, imgError: '' };
     let ultima = null;                                    // la última descarga que salió bien: "Mostrar la carpeta" la busca
+    const base = await carpetaBase(meta, path);
     for (const f of r.files) {
-      const filename = f.kind === 'img' ? `MangaReader/${path}/${f.name}` : `MangaReader/${path}.${f.kind}`;
+      const filename = f.kind === 'img' ? `${base}/${path}/${f.name}` : `${base}/${path}.${f.kind}`;
       try {
         const saved = await safeDownload({ url: f.url, filename, saveAs: false, conflictAction: 'uniquify' });
         blobs.set(saved.id, f.url);

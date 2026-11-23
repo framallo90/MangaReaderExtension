@@ -42,6 +42,20 @@ const { eq, fin } = probador();
     eq('  y si están todos bien, ninguno', A.selectoresInvalidos({ contenedor: '#visor', ignorar: '.a, .b' }, probar).length, 0);
   }
 
+  // ── Carpeta base de las descargas ──
+  if (A.aplicarCarpeta) {
+    const DATOS = { sitio: '127.0.0.1', serie: 'Sitio de prueba', anio: 2026 };
+    eq('carpeta base: "Manga/{sitio}/{serie}" se arma con el sitio y la serie', A.aplicarCarpeta('Manga/{sitio}/{serie}', DATOS), 'Manga/127.0.0.1/Sitio de prueba');
+    eq('  con {anio}, y con barras invertidas como separador', A.aplicarCarpeta('Leídos {anio}\\{serie}', DATOS), 'Leídos 2026/Sitio de prueba');
+    eq('  un dato vacío no deja carpeta, y los caracteres que Windows no acepta se sacan del dato', A.aplicarCarpeta('Manga/{sitio}/{serie}', { serie: 'Re:Zero / ¿Qué?' }), 'Manga/Re Zero ¿Qué');
+    eq('  la de siempre sigue siendo MangaReader', `${A.CARPETA_DEFECTO} · ${A.aplicarCarpeta('MangaReader', DATOS)} · ${A.validarCarpeta('MangaReader') === ''}`, 'MangaReader · MangaReader · true');
+    const malas = ['../x', 'Manga/../../x', '/home/yo', 'C:\\Manga', '\\\\servidor\\x', './x', '', 'Manga/{autor}', 'Manga?'];
+    eq('lo que intenta salir de Descargas o no se entiende se rechaza, diciendo por qué', malas.map(c => (A.validarCarpeta(c) ? 'no' : 'SÍ')).join(','), 'no,no,no,no,no,no,no,no,no');
+    eq('  y si igual llega (una copia importada), al guardar vale la de siempre', malas.map(c => A.aplicarCarpeta(c, DATOS)).join(','), Array(9).fill('MangaReader').join(','));
+    eq('  el motivo nombra lo que está mal', [A.validarCarpeta('../x'), A.validarCarpeta('C:\\Manga'), A.validarCarpeta('Manga/{autor}')].map(m => m.split(':')[0].slice(0, 34)).join(' | '),
+      'No puede llevar ".." ni "." | Tiene que ser una carpeta adentro  | No conozco {autor}');
+  }
+
   // ── La bajada de una página (offscreen.js), con el sitio y el reloj simulados ──
   // respuestas: lo que contesta el sitio en cada pedido de esa página, en orden
   const off = require(path.join(dir, 'offscreen.js'));

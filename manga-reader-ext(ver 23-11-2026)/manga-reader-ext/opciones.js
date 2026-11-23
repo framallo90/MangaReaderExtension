@@ -96,8 +96,8 @@ function mergeBackup(local, data) {
     }
   }
   const out = { savedChapters: saved };
-  for (const key of ['sagas', 'sagasText', 'saveFolders', 'batchPad', 'esquemaNombres', 'ritmo', 'adaptadores']) {
-    const tipo = key === 'sagasText' || key === 'esquemaNombres' ? 'string' : 'object';
+  for (const key of ['sagas', 'sagasText', 'saveFolders', 'batchPad', 'esquemaNombres', 'ritmo', 'adaptadores', 'carpetaBase']) {
+    const tipo = key === 'sagasText' || key === 'esquemaNombres' || key === 'carpetaBase' ? 'string' : 'object';
     if (local[key] == null && data[key] != null && typeof data[key] === tipo) out[key] = data[key];
   }
   if (Array.isArray(data.fabBlockedHosts)) {
@@ -128,7 +128,7 @@ if (typeof module !== 'undefined') {
 if (typeof document !== 'undefined') {
   const $ = (id) => document.getElementById(id);
   const store = chrome.storage.local;
-  const KEYS = ['savedChapters', 'sagas', 'sagasText', 'saveFolders', 'fabBlockedHosts', 'batchPad', 'misSitios', 'esquemaNombres', 'ritmo', 'adaptadores'];
+  const KEYS = ['savedChapters', 'sagas', 'sagasText', 'saveFolders', 'fabBlockedHosts', 'batchPad', 'misSitios', 'esquemaNombres', 'ritmo', 'adaptadores', 'carpetaBase'];
   const el = (tag, props = {}, ...kids) => {
     const e = Object.assign(document.createElement(tag), props);
     e.append(...kids);
@@ -412,7 +412,7 @@ if (typeof document !== 'undefined') {
     const tpl = $('tplNombre').value.trim() || PLANTILLA_DEFECTO;
     const anio = String(new Date().getFullYear());
     $('tplVista').replaceChildren(...TPL_MUESTRAS.flatMap(([cual, datos], i) => [
-      ...(i ? ['\n'] : []), el('span', { textContent: cual + ': ' }), `Descargas/MangaReader/${aplicarPlantilla(tpl, { ...datos, anio })}.pdf`]));
+      ...(i ? ['\n'] : []), el('span', { textContent: cual + ': ' }), `Descargas/${A.aplicarCarpeta($('carpetaBase').value.trim() || A.CARPETA_DEFECTO, { ...datos, anio })}/${aplicarPlantilla(tpl, { ...datos, anio })}.pdf`]));
     const raros = marcadoresDesconocidos(tpl);
     $('tplAviso').textContent = [
       plantillaColisiona(tpl) ? '⚠️ Sin {numero} ni {titulo}, todos los capítulos de una serie se llamarían igual.' : '',
@@ -449,6 +449,29 @@ if (typeof document !== 'undefined') {
     await store.remove('ritmo');
     verRitmo(A.normalizarRitmo(null));
     say('ritmoMsg', 'Quedó el ritmo de siempre.', true);
+  };
+
+  // ── Carpeta de las descargas ─────────────────────────
+  // La misma regla que usa el service worker al guardar (ajustes.js): lo que acá se rechaza es
+  // lo que allá no se usaría.
+  const verCarpeta = () => {
+    const tpl = $('carpetaBase').value.trim() || A.CARPETA_DEFECTO;
+    const mal = A.validarCarpeta(tpl);
+    $('carpetaVista').textContent = mal ? '' : `Descargas/${A.aplicarCarpeta(tpl, { sitio: 'sitio.com', serie: 'One Piece', anio: new Date().getFullYear() })}/…`;
+    $('carpetaMsg').textContent = mal ? '⚠️ ' + mal : '';
+    $('carpetaMsg').className = 'msg err';
+    refrescarVista();
+  };
+  $('carpetaBase').addEventListener('input', verCarpeta);
+  $('carpetaGuardar').onclick = async () => {
+    const tpl = $('carpetaBase').value.trim();
+    const mal = tpl ? A.validarCarpeta(tpl) : '';
+    if (mal) return say('carpetaMsg', '⚠️ ' + mal + ' No la guardé: sigue la de antes.', false);
+    const propia = tpl && tpl !== A.CARPETA_DEFECTO;            // la de siempre no se guarda
+    if (propia) await store.set({ carpetaBase: tpl }); else await store.remove('carpetaBase');
+    if (!tpl) $('carpetaBase').value = A.CARPETA_DEFECTO;
+    verCarpeta();
+    say('carpetaMsg', propia ? 'Carpeta guardada. Vale desde el próximo capítulo que guardes.' : 'Quedó la de siempre: MangaReader.', true);
   };
 
   // ── Adaptadores por sitio ────────────────────────────
@@ -522,6 +545,8 @@ if (typeof document !== 'undefined') {
     const st = await store.get(KEYS);
     verRitmo(A.normalizarRitmo(st.ritmo));
     renderAdaptadores(st.adaptadores);
+    $('carpetaBase').value = typeof st.carpetaBase === 'string' && st.carpetaBase.trim() ? st.carpetaBase : A.CARPETA_DEFECTO;
+    verCarpeta();
     saved = st.savedChapters || {};
     renderSaved();
     $('sagasText').value = typeof st.sagasText === 'string' && st.sagasText.trim() ? st.sagasText : includedText();

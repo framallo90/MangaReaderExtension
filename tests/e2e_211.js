@@ -468,6 +468,51 @@ const AREAS = {
     await pg.close();
     await b.ext.eval(`chrome.storage.local.remove('adaptadores')`);
   },
+
+  // ═══ 8. Carpeta base de las descargas ═══
+  async carpeta({ b, S, eq }) {
+    console.log('\n── 2.11 · Carpeta base de las descargas');
+    await b.ext.eval(`chrome.storage.local.remove('carpetaBase')`);
+    await b.ext.eval(`location.reload()`);
+    await b.ext.waitFor(`document.readyState === 'complete' && !!document.querySelector('#carpetaGuardar') && document.querySelector('#carpetaBase').value !== ''`, 'la carpeta en opciones');
+    const escribir = (v) => b.ext.eval(`(() => { const c = document.getElementById('carpetaBase'); c.value = ${JSON.stringify(v)}; c.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+    const ver = () => b.ext.eval(`document.getElementById('carpetaVista').textContent + ' · ' + document.getElementById('carpetaMsg').textContent`);
+    eq('opciones: sin nada guardado, la carpeta de siempre', await b.ext.eval(`document.getElementById('carpetaBase').value + ' → ' + document.getElementById('carpetaVista').textContent`), 'MangaReader → Descargas/MangaReader/…');
+    await escribir('Manga/{sitio}/{serie}');
+    eq('  al escribir "Manga/{sitio}/{serie}" muestra cómo quedaría', await ver(), 'Descargas/Manga/sitio.com/One Piece/… · ');
+    await b.ext.eval(`document.getElementById('carpetaGuardar').click()`);
+    await b.ext.waitFor(`/guardada/.test(document.getElementById('carpetaMsg').textContent)`, 'el guardado de la carpeta');
+    eq('  y se guarda', await b.storage('carpetaBase'), 'Manga/{sitio}/{serie}');
+
+    const guardarCapitulo = async (n) => {
+      const url = `${S}/fx/base/leer/${n}`;
+      const pg = await b.cdp.open(url);
+      await pg.waitFor(`document.readyState === 'complete'`, 'el capítulo');
+      await pedir(b, url, 'save');
+      await pg.waitFor(`document.querySelectorAll('#mr-save .mr-thumb.on').length >= 6 && !/Recorriendo|Buscando/.test(document.querySelector('#mr-save-count').textContent)`, 'el diálogo', 30000);
+      const destino = (await pg.eval(`document.querySelector('#mr-save-dest').textContent`)).split('\n')[0];
+      await pg.eval(`document.querySelector('#mr-save-go').click()`);
+      await pg.waitFor(`/success|error/.test(document.querySelector('#mr-save-status').className)`, 'el guardado', 60000);
+      const estado = (await pg.eval(`document.querySelector('#mr-save-status').className`)).replace('mr-save-status ', '');
+      await pg.close();
+      return { destino, estado };
+    };
+    const uno = await guardarCapitulo(1);
+    eq('con esa carpeta, el capítulo queda en Manga/<sitio>/<serie>/…, y el diálogo ya lo decía',
+      `${await pdfDe(path.join(b.dl, 'Manga', '127.0.0.1', 'Serie Base', 'Serie Base', 'Serie Base 0001.pdf'), 5000)} · ${uno.destino}`,
+      '6 × 420x640 · 📄 Descargas/Manga/127.0.0.1/Serie Base/Serie Base/Serie Base 0001.pdf');
+
+    await escribir('../x');
+    eq('"../x": la página de opciones avisa', (await ver()).replace(/^ · /, '').split(':')[0], '⚠️ No puede llevar ".." ni "."');
+    await b.ext.eval(`document.getElementById('carpetaGuardar').click()`);
+    await b.ext.waitFor(`/No la guardé/.test(document.getElementById('carpetaMsg').textContent)`, 'el aviso');
+    eq('  y no la guarda: sigue la de antes', await b.storage('carpetaBase'), 'Manga/{sitio}/{serie}');
+    await b.setStorage({ carpetaBase: '../x' });            // como si llegara mal desde una copia importada
+    const dos = await guardarCapitulo(2);
+    eq('  y si igual llega mal escrita, guardar no se rompe: va a la carpeta de siempre',
+      `${dos.estado} · ${await pdfDe(path.join(b.dl, 'MangaReader', 'Serie Base', 'Serie Base 0002.pdf'), 5000)}`, 'success · 6 × 420x640');
+    await b.ext.eval(`chrome.storage.local.remove('carpetaBase')`);
+  },
 };
 
 // Corre las áreas pedidas (todas, o las de SOLO) y devuelve cuántas se cortaron

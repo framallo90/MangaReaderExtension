@@ -94,7 +94,9 @@ function setup({ build, results = {}, invalidName = false, onTabMessage, marcos 
   };
   // El tiempo corre 500 veces más rápido para que la prueba no tarde (20 s → 40 ms),
   // conservando el orden de las esperas
-  const ctx = { chrome, console, clearTimeout, setInterval, clearInterval,
+  // (importScripts: así carga el service worker sus archivos compartidos, desde la 2.11)
+  const ctx = { chrome, console, clearTimeout, setInterval, clearInterval, URL,
+    importScripts: (...fs_) => { for (const f of fs_) vm.runInContext(fs.readFileSync(path.join(process.argv[2], f), 'utf8'), ctx); },
     setTimeout: (f, ms) => setTimeout(f, Math.ceil((ms || 0) / 500)), crypto: { randomUUID: () => 'job-' + (++jobN) } };
   vm.createContext(ctx);
   vm.runInContext(src + '\n;Object.assign(globalThis, { blobs, jobs, workers, owners });', ctx);
@@ -165,6 +167,23 @@ const brief = (r) => `páginas=${r.pages} fallidas=[${r.failed}] archivos=[${r.f
     await wait(5);
     eq('  se libera cuando termina', t.revoked.join(','), 'blob:pdf');
     eq('  sin listeners colgados', t.onChanged.count(), 1);
+  }
+
+  // ── Carpeta base (2.11): la opción carpetaBase en lugar de "MangaReader" ──
+  if (/function carpetaBase\(/.test(src)) {
+    const guardar = async (carpeta, meta = {}) => {
+      const t = setup({ build: { ok: true, pages: 2, failed: [], files: FILES.slice(0, 1).concat(FILES.slice(2, 3)) }, guardado: carpeta === undefined ? {} : { carpetaBase: carpeta } });
+      await t.ctx.runBuild({ ...REQ, formats: { pdf: true, imgs: true }, meta }, SENDER);
+      return t.log.join(' | ');
+    };
+    const META = { web: 'https://sitio.com/manga/s/1', series: 'Sitio de prueba' };
+    eq('carpeta base: sin la opción, la de siempre', await guardar(undefined, META), 'MangaReader/S/S 0001.pdf | MangaReader/S/S 0001/pagina_001.jpg');
+    eq('  "Manga/{sitio}/{serie}": el archivo y las imágenes van ahí adentro', await guardar('Manga/{sitio}/{serie}', META),
+      'Manga/sitio.com/Sitio de prueba/S/S 0001.pdf | Manga/sitio.com/Sitio de prueba/S/S 0001/pagina_001.jpg');
+    eq('  con {anio}', await guardar('Leídos {anio}', META), `Leídos ${new Date().getFullYear()}/S/S 0001.pdf | Leídos ${new Date().getFullYear()}/S/S 0001/pagina_001.jpg`);
+    eq('  si no se sabe la serie, se usa la primera carpeta del nombre; y un dato vacío no deja carpeta', await guardar('Manga/{sitio}/{serie}', {}), 'Manga/S/S/S 0001.pdf | Manga/S/S/S 0001/pagina_001.jpg');
+    eq('  una carpeta que intenta salir de Descargas ("../x") no rompe: vale la de siempre', await guardar('../x', META), 'MangaReader/S/S 0001.pdf | MangaReader/S/S 0001/pagina_001.jpg');
+    eq('  lo mismo con una ruta completa', await guardar('C:\\Manga', META), 'MangaReader/S/S 0001.pdf | MangaReader/S/S 0001/pagina_001.jpg');
   }
 
   // ── Hablarle a la pestaña ──

@@ -90,7 +90,40 @@
     return [n.contenedor, n.imagenes, ...n.ignorar].filter(Boolean).filter(s => { try { probar(s); return false; } catch { return true; } });
   }
 
+  // ── Carpeta base de las descargas ─────────────────────
+  // Todo se guarda adentro de una carpeta de Descargas: "MangaReader" si no se dice otra. Puede
+  // llevar {sitio}, {serie} y {anio}, y "/" para subcarpetas. Chrome solo deja escribir adentro
+  // de Descargas: una ruta que intenta salir ("..", "C:\…", "/home") hace fallar la descarga,
+  // así que acá no pasa.
+  const CARPETA_DEFECTO = 'MangaReader';
+  const CARPETA_MARCAS = ['sitio', 'serie', 'anio'];
+
+  // Por qué esa carpeta no sirve, o '' si está bien
+  function validarCarpeta(tpl) {
+    const t = texto(tpl);
+    if (!t) return 'Escribí una carpeta (o dejá la de siempre: MangaReader).';
+    if (/^[\\/]/.test(t) || /^[a-z]:/i.test(t)) return 'Tiene que ser una carpeta adentro de Descargas, no una ruta completa (sin "/" adelante ni "C:").';
+    const partes = t.split(/[\\/]/).map(texto);
+    if (partes.includes('..') || partes.includes('.')) return 'No puede llevar ".." ni ".": la carpeta va siempre adentro de Descargas.';
+    const raras = [...new Set((t.match(/\{[^{}]*\}/g) || []).filter(m => !CARPETA_MARCAS.includes(m.slice(1, -1))))];
+    if (raras.length) return `No conozco ${raras.join(', ')}: acá valen {sitio}, {serie} y {anio}.`;
+    if (/[<>:"|?*]/.test(t.replace(/\{[^{}]*\}/g, ''))) return 'Tiene caracteres que Windows no acepta en una carpeta (< > : " | ? *).';
+    return '';
+  }
+
+  // La carpeta ya armada para un capítulo: { sitio, serie, anio }. Si la plantilla no sirve, la de
+  // siempre (que una opción mal escrita no impida guardar). Un dato vacío no deja carpeta.
+  function aplicarCarpeta(tpl, datos = {}) {
+    if (validarCarpeta(tpl)) return CARPETA_DEFECTO;
+    const limpio = (s) => String(s ?? '').replace(/[<>:"\\/|?*\x00-\x1F]/g, ' ').replace(/\s+/g, ' ').trim().replace(/^\.+/, '').replace(/[.\s]+$/, '');
+    const partes = texto(tpl).split(/[\\/]/)
+      .map(p => limpio(p.replace(/\{(\w+)\}/g, (m, k) => limpio(datos[k]))))
+      .filter(Boolean);
+    return partes.join('/') || CARPETA_DEFECTO;
+  }
+
   globalThis.MR_AJUSTES = { RITMO_DEFECTO, normalizarRitmo, pausaAntes, esperaReintento, pidioEsperar,
-    normalizarAdaptador, adaptadorVacio, hostDe, selectoresInvalidos };
+    normalizarAdaptador, adaptadorVacio, hostDe, selectoresInvalidos,
+    CARPETA_DEFECTO, validarCarpeta, aplicarCarpeta };
   if (typeof module !== 'undefined') module.exports = globalThis.MR_AJUSTES;
 })();

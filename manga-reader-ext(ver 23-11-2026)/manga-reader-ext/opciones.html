@@ -76,8 +76,8 @@
     ul.marcadores { margin: 0 0 10px; padding-left: 20px; color: #b9c2d8; font-size: 13px; }
     ul.marcadores li { margin-bottom: 2px; }
     .vista-titulo { font-size: 12px; color: #a0c4ff; font-weight: 600; letter-spacing: .5px; margin-bottom: 4px; }
-    #tplVista { background: #0f1a33; border: 1px solid #2a3a5e; border-radius: 6px; padding: 8px 10px; font: 12px/1.6 Consolas, 'Courier New', monospace; color: #7ee2a8; white-space: pre-line; word-break: break-all; }
-    #tplVista span { color: #8fa6d8; }
+    #tplVista, #carpetaVista { background: #0f1a33; border: 1px solid #2a3a5e; border-radius: 6px; padding: 8px 10px; font: 12px/1.6 Consolas, 'Courier New', monospace; color: #7ee2a8; white-space: pre-line; word-break: break-all; }
+    #tplVista span, #carpetaVista span { color: #8fa6d8; }
     #tplAviso { margin-top: 6px; }
     #tplAviso:empty { display: none; }
   </style>
@@ -195,6 +195,17 @@
     <div class="vista-titulo">Así quedaría guardado</div>
     <div id="tplVista"></div>
     <div class="msg err" id="tplAviso"></div>
+
+    <h3>Carpeta de las descargas</h3>
+    <p>Todo se guarda adentro de una carpeta de Descargas: <code>MangaReader</code>, si no elegís otra. Puede llevar
+       <code>{sitio}</code>, <code>{serie}</code> y <code>{anio}</code>, y <code>/</code> para subcarpetas
+       (por ejemplo <code>Manga/{sitio}</code>). Tiene que quedar adentro de Descargas: Chrome no deja guardar en otro lado.</p>
+    <div class="bar">
+      <input type="text" id="carpetaBase" placeholder="MangaReader" spellcheck="false" autocomplete="off">
+      <button class="main" id="carpetaGuardar">Guardar carpeta</button>
+      <span class="msg" id="carpetaMsg"></span>
+    </div>
+    <div id="carpetaVista" class="vista-carpeta"></div>
   </section>
 
   <section id="ritmo">

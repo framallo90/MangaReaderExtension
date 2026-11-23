@@ -183,6 +183,11 @@
   let adaptadores = {};           // { host: { contenedor, imagenes, ignorar: [], patron } }
   let adaptadorRoto = '';         // el selector del adaptador que el navegador no entendió, si pasó
 
+  // La carpeta de Descargas donde queda un capítulo, para mostrarla antes de guardar. La arma el
+  // service worker con la misma regla (opción "carpeta base": MangaReader si no se dijo otra).
+  let carpetaTpl = '';
+  const baseDe = (serie) => MR_AJUSTES.aplicarCarpeta(carpetaTpl || MR_AJUSTES.CARPETA_DEFECTO, { sitio: sitioAca(), serie, anio: new Date().getFullYear() });
+
   // El de este sitio: el de la página o, en un iframe, también el de la página de arriba
   const adaptadorAca = () => adaptadores[location.hostname] || adaptadores[sitioAca()] || null;
 
@@ -1029,9 +1034,10 @@
     const path = sanitizePath(sv('#mr-save-name').value);
     const pdf = sv('#mr-save-pdf').checked, cbz = sv('#mr-save-cbz').checked, imgs = sv('#mr-save-imgs').checked;
     const lines = [];
-    if (pdf) lines.push(`📄 Descargas/MangaReader/${path}.pdf`);
-    if (cbz) lines.push(`📚 Descargas/MangaReader/${path}.cbz`);
-    if (imgs) lines.push(`🖼 Descargas/MangaReader/${path}/`);
+    const base = baseDe(capituloAca()?.serie || path.split('/')[0]);
+    if (pdf) lines.push(`📄 Descargas/${base}/${path}.pdf`);
+    if (cbz) lines.push(`📚 Descargas/${base}/${path}.cbz`);
+    if (imgs) lines.push(`🖼 Descargas/${base}/${path}/`);
     sv('#mr-save-dest').textContent = lines.join('\n') || 'Elegí al menos un formato';
 
     const onCount = pages.filter(p => p.on).length;
@@ -1543,7 +1549,7 @@
     // Sin serie escrita sale del título de cada capítulo: acá se muestra la de esta página, si
     // es un capítulo; desde un listado no se sabe todavía, y queda "(serie)" en su lugar
     const serie = sanitizeSegment(sc('#mr-chapter-serie').value.replace(/\//g, '-')) || detectChapter()?.serie || '';
-    el.textContent = !c ? '' : `Ejemplo: Descargas/MangaReader/${nameFor({ serie: serie || '(serie)', numero: c.numero, volumen: tomoOf(c), titulo: c.title || '' })}` +
+    el.textContent = !c ? '' : `Ejemplo: Descargas/${baseDe(serie || '(serie)')}/${nameFor({ serie: serie || '(serie)', numero: c.numero, volumen: tomoOf(c), titulo: c.title || '' })}` +
       (serie ? '' : ' · la serie sale del título de cada capítulo');
   }
 
@@ -1929,6 +1935,7 @@
     if (ch.sagas) userSagas = ch.sagas.newValue || {};
     if (ch.esquemaNombres) { esquemaNombres = esquemaDe(ch.esquemaNombres.newValue); showRoute(); }
     if (ch.ritmo) ritmo = MR_AJUSTES.normalizarRitmo(ch.ritmo.newValue);
+    if (ch.carpetaBase) { carpetaTpl = typeof ch.carpetaBase.newValue === 'string' ? ch.carpetaBase.newValue : ''; refresh(); showRoute(); }
     // Cambió el adaptador con el diálogo abierto: se busca de nuevo y la selección empieza de cero
     // (lo que estaba destildado por sospechoso ahora puede ser justo lo que señala el adaptador)
     if (ch.adaptadores) { adaptadores = ch.adaptadores.newValue || {}; fabTries = 0; if (saveEl && !saving) { pages = []; ordenManual = false; loadPages(); } }
@@ -1963,10 +1970,11 @@
       if (!fabEl && !fabOff && !fabBlocked && looksLikeChapter()) showFab();
     }, 700);
   }
-  store.get(['fabEnabled', 'fabBlockedHosts', 'sagas', 'esquemaNombres', 'ritmo', 'adaptadores']).then(s => {
+  store.get(['fabEnabled', 'fabBlockedHosts', 'sagas', 'esquemaNombres', 'ritmo', 'adaptadores', 'carpetaBase']).then(s => {
     fabSettings(s); userSagas = s.sagas || {}; esquemaNombres = esquemaDe(s.esquemaNombres);
     if (s.ritmo) ritmo = MR_AJUSTES.normalizarRitmo(s.ritmo);
     adaptadores = s.adaptadores || {};
+    carpetaTpl = typeof s.carpetaBase === 'string' ? s.carpetaBase : '';
   });
   on(document, 'load', (e) => { if (e.target?.tagName === 'IMG') checkFab(); }, true);
   on(window, 'scroll', checkFab, { passive: true });
