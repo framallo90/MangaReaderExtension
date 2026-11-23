@@ -122,8 +122,71 @@
     return partes.join('/') || CARPETA_DEFECTO;
   }
 
+  // ── Cuánto va a ocupar un lote ────────────────────────
+  // No se puede saber sin bajarlo, pero sí estimarlo: desde la 2.11 cada capítulo guardado anota
+  // cuánto pesó ("kb"), y el promedio de los de ese sitio (o de esa serie, si hay) por la
+  // cantidad que se va a bajar da una idea. Devuelve { kb, de } (de = sobre cuántos capítulos se
+  // promedió) o null si todavía no hay de dónde sacarlo.
+  const AVISO_TAMANO_KB = 200 * 1024;        // a partir de 200 MB se avisa antes de empezar
+
+  function estimarLote(guardado, { sitio = '', serie = '' } = {}, cuantos = 0) {
+    const de = (u) => { try { return new URL(u).hostname; } catch { return ''; } };
+    const conPeso = Object.entries(guardado || {}).filter(([, v]) => v && typeof v.kb === 'number' && v.kb > 0);
+    const delSitio = conPeso.filter(([, v]) => sitio && de(v.url) === sitio);
+    const s = texto(serie).toLowerCase();
+    const deLaSerie = s ? delSitio.filter(([ruta, v]) => (typeof v.serie === 'string' ? v.serie : ruta.split('/')[0]).toLowerCase() === s) : [];
+    const base = deLaSerie.length >= 2 ? deLaSerie : delSitio;
+    if (!base.length || !(cuantos > 0)) return null;
+    const promedio = base.reduce((a, [, v]) => a + v.kb, 0) / base.length;
+    return { kb: Math.round(promedio * cuantos), de: base.length };
+  }
+
+  // "512 KB", "34,5 MB", "1,2 GB"
+  function tamanoLegible(kb) {
+    if (kb < 1024) return `${Math.round(kb)} KB`;
+    const mb = kb / 1024;
+    return mb < 1024 ? `${mb.toFixed(mb < 100 ? 1 : 0).replace('.', ',')} MB` : `${(mb / 1024).toFixed(1).replace('.', ',')} GB`;
+  }
+
+  // ── ¿Hay una versión nueva? ───────────────────────────
+  // La extensión no se actualiza sola (se carga descomprimida): una vez por día se mira qué
+  // versión hay en la rama main del repositorio. Cada versión vive en su propia carpeta, así que
+  // primero se lee en el README cuál es la última y después el manifest de esa carpeta.
+  const REPO_CRUDO = 'https://raw.githubusercontent.com/framallo90/MangaReaderExtension/main/';
+
+  // -1, 0 o 1: "2.9.1" < "2.10.0" (se comparan los números, no las letras)
+  function compararVersiones(a, b) {
+    const x = String(a || '').split('.').map(n => parseInt(n, 10) || 0), y = String(b || '').split('.').map(n => parseInt(n, 10) || 0);
+    for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0) ? -1 : 1;
+    return 0;
+  }
+
+  // La fila de la extensión en la tabla del README del repositorio → { version, carpeta }, o null
+  function versionDelReadme(readme) {
+    const m = String(readme || '').match(/\|[^|\n]*extensi[oó]n[^|\n]*\|[^|\n]*\|\s*(\d+\.\d+\.\d+)\s*\|\s*`([^`\n]+)`/i);
+    return m ? { version: m[1], carpeta: m[2] } : null;
+  }
+
+  // La versión que hay en main, o null si no se pudo saber (sin conexión, repositorio privado…).
+  // `pedir` es fetch: se pasa para poder probarlo sin salir a internet.
+  async function versionRemota(pedir) {
+    const r = await pedir(REPO_CRUDO + 'README.md', { cache: 'no-store' });
+    if (!r.ok) return null;
+    const dato = versionDelReadme(await r.text());
+    if (!dato) return null;
+    try {
+      // El manifest de esa carpeta es el que manda; si no se puede leer, vale lo que dice el README
+      const m = await pedir(REPO_CRUDO + dato.carpeta.split('/').map(encodeURIComponent).join('/') + '/manifest.json', { cache: 'no-store' });
+      const v = m.ok ? (await m.json()).version : '';
+      if (/^\d+(\.\d+)+$/.test(v || '')) return { version: v, carpeta: dato.carpeta };
+    } catch {}
+    return dato;
+  }
+
   globalThis.MR_AJUSTES = { RITMO_DEFECTO, normalizarRitmo, pausaAntes, esperaReintento, pidioEsperar,
     normalizarAdaptador, adaptadorVacio, hostDe, selectoresInvalidos,
-    CARPETA_DEFECTO, validarCarpeta, aplicarCarpeta };
+    CARPETA_DEFECTO, validarCarpeta, aplicarCarpeta,
+    AVISO_TAMANO_KB, estimarLote, tamanoLegible,
+    REPO_CRUDO, compararVersiones, versionDelReadme, versionRemota };
   if (typeof module !== 'undefined') module.exports = globalThis.MR_AJUSTES;
 })();

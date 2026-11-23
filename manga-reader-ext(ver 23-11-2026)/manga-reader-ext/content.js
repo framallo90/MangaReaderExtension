@@ -814,7 +814,9 @@
       savedMap = (await store.get(['savedChapters'])).savedChapters || {};
       // serie y numero solo se anotan con una plantilla propia: la página de guardados los
       // necesita para agrupar y decir qué falta, y ahí no los puede sacar del nombre
-      savedMap[path] = { ts: Date.now(), pages: urls.length, url: claveAca(), ...(tpl ? { serie: tpl.serie, numero: chap.numero } : {}) };
+      // kb: lo que pesó todo lo guardado de este capítulo. Con eso se estima cuánto va a ocupar un lote.
+      const kb = r.files.reduce((a, f) => a + (f.sizeKB || 0), 0) + (r.imgsKB || 0);
+      savedMap[path] = { ts: Date.now(), pages: urls.length, url: claveAca(), ...(tpl ? { serie: tpl.serie, numero: chap.numero } : {}), ...(kb ? { kb } : {}) };
       await store.set({ savedChapters: savedMap });
     } else if (!anyError) {
       lines.push('⚠️ Faltaron páginas: no lo marqué como guardado. Probá guardarlo de nuevo.');
@@ -1325,6 +1327,7 @@
             <button class="mr-chapter-btn" id="mr-chapter-invertir" type="button" title="Da vuelta la lista: se baja primero lo que está arriba">⇅ Invertir</button>
           </div>
           <div class="mr-save-count" id="mr-chapter-count"></div>
+          <div class="mr-save-count" id="mr-chapter-peso" hidden></div>
           <div class="mr-save-hint mr-chapter-why" id="mr-chapter-why" hidden></div>
           <div class="mr-chapter-tabs" id="mr-chapter-tabs" hidden>
             <button class="mr-chapter-tab on" id="mr-tab-cap" type="button">Capítulos</button>
@@ -1663,6 +1666,17 @@
       ? `${chapters.length} capítulo${chapters.length === 1 ? '' : 's'} · ${marked} marcado${marked === 1 ? '' : 's'}` +
         (saved ? ` · ${saved} ya guardado${saved === 1 ? '' : 's'}` : '')
       : 'No encontré capítulos en esta página.' + (tplParts() ? ' Escribí el rango y tocá Marcar.' : '');
+    // Cuánto va a ocupar, según lo que pesaron los capítulos ya guardados de este sitio (o de
+    // esta serie). Si es mucho se avisa antes de empezar; sin nada guardado todavía, no se dice nada.
+    const peso = sc('#mr-chapter-peso');
+    const est = MR_AJUSTES.estimarLote(savedMap, { sitio: location.hostname, serie: sc('#mr-chapter-serie').value.trim() || detectChapter()?.serie || '' }, todo);
+    peso.hidden = !est || batchRunning;
+    if (est) {
+      const mucho = est.kb >= MR_AJUSTES.AVISO_TAMANO_KB;
+      peso.textContent = (mucho ? '⚠️ ' : '') + `Van a ocupar unos ${MR_AJUSTES.tamanoLegible(est.kb)} (según ${est.de} capítulo${est.de === 1 ? '' : 's'} ya guardado${est.de === 1 ? '' : 's'})` +
+        (mucho ? ': fijate que haya lugar en el disco.' : '.');
+      peso.classList.toggle('mr-mucho', mucho);
+    }
     const anyFmt = sc('#mr-chapter-pdf').checked || sc('#mr-chapter-cbz').checked || sc('#mr-chapter-imgs').checked;
     const go = sc('#mr-chapter-go');
     go.textContent = batchRunning ? 'Cancelar' : `Descargar ${todo} capítulo${todo === 1 ? '' : 's'}`;

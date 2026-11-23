@@ -91,4 +91,24 @@ eq('un solo capítulo', op.missingRanges([7]).length, 0);
       op.mergeBackup({ savedChapters: {}, esquemaNombres: '{serie}' }, { savedChapters: {}, esquemaNombres: '{numero}' }).out.esquemaNombres, undefined);
   }
 }
+
+// ── El registro en CSV (2.11) ──
+if (op.registroCsv) {
+  const ts = new Date(2026, 10, 23, 12).getTime();          // 23/11/2026
+  const csv = op.registroCsv({
+    'One Piece/01 East Blue/One Piece 0002': { ts, pages: 19, url: 'https://s.com/op/2' },
+    'One Piece/01 East Blue/One Piece 0001': { ts, pages: 53, url: 'https://s.com/op/1' },
+    'Nombre; con "comillas"/Nombre 0007': { ts, pages: 20, url: 'https://s.com/x?a=1;b=2' },
+    'sitio.com/Naruto 0300 - El final': { ts, pages: 18, url: 'https://s.com/n/300', serie: 'Naruto', numero: 300 },
+  });
+  const filas = csv.trimEnd().split('\r\n');
+  eq('CSV del registro: las columnas de la tabla, más la serie y el número', filas[0], 'Serie;Capítulo;Número;Fecha;Páginas;Dirección;Guardado como');
+  eq('  una fila por capítulo, agrupadas por serie y en orden de número', filas.slice(1).map(f => f.split(';').slice(0, 3).join(' ')).join(' | '),
+    'Naruto Naruto 0300 - El final 300 | "Nombre  con ""comillas""" Nombre 0007 | One Piece One Piece 0001 1 | One Piece One Piece 0002 2');
+  eq('  con la fecha, las páginas, la dirección y el nombre con que se guardó', filas[3], 'One Piece;One Piece 0001;1;23/11/2026;53;https://s.com/op/1;One Piece/01 East Blue/One Piece 0001');
+  eq('  lo que lleva ";" o comillas va entre comillas, con las comillas dobladas', filas[2], '"Nombre; con ""comillas""";Nombre 0007;7;23/11/2026;20;"https://s.com/x?a=1;b=2";"Nombre; con ""comillas""/Nombre 0007"');
+  eq('  sin nada guardado queda solo el encabezado', op.registroCsv({}).trimEnd().split('\r\n').length, 1);
+  const r = op.mergeBackup({ savedChapters: {} }, { savedChapters: { 'a/b': { ts: 1, pages: 2, url: 'u', kb: 4200 }, 'a/c': { ts: 1, pages: 2, url: 'u2', kb: 'mucho' } } });
+  eq('importar una copia conserva lo que pesó cada capítulo (para estimar los lotes)', `${r.out.savedChapters['a/b'].kb} · ${'kb' in r.out.savedChapters['a/c']}`, '4200 · false');
+}
 fin();

@@ -44,6 +44,25 @@ let tabInfo = null;               // { url, title } de la pestaña activa, si es
   });
 })();
 
+// ── ¿Hay una versión nueva? ───────────────────────────
+// La extensión se carga descomprimida y no se actualiza sola. Una vez por día se mira qué versión
+// hay en la rama main del repositorio (ajustes.js sabe cómo); si es más nueva que esta, aparece
+// un punto con el aviso. Si no se pudo mirar (sin conexión), se prueba de nuevo al otro día.
+const UN_DIA = 24 * 60 * 60 * 1000;
+(async () => {
+  const A = globalThis.MR_AJUSTES, mia = chrome.runtime.getManifest().version;
+  let vista = (await store.get(['versionVista'])).versionVista;
+  if (!vista || typeof vista.ts !== 'number' || Date.now() - vista.ts > UN_DIA) {
+    const remota = await A.versionRemota((u, o) => fetch(u, o)).catch(() => null);
+    vista = { ts: Date.now(), version: remota ? remota.version : (vista?.version || '') };
+    store.set({ versionVista: vista });
+  }
+  if (vista.version && A.compararVersiones(vista.version, mia) > 0) {
+    $('versionTexto').textContent = `Hay una versión nueva: ${vista.version} (tenés la ${mia})`;
+    $('versionNueva').hidden = false;
+  }
+})();
+
 // ── Sitios de manga y cómics ──────────────────────────
 // Lista de accesos directos dividida en dos: los descargables y los que son para leer en el
 // sitio. El nombre abre el sitio en una pestaña nueva y la "i" muestra qué tiene, en qué

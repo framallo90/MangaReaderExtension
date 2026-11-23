@@ -56,6 +56,48 @@ const { eq, fin } = probador();
       'No puede llevar ".." ni "." | Tiene que ser una carpeta adentro  | No conozco {autor}');
   }
 
+  // ── Cuánto va a ocupar un lote ──
+  if (A.estimarLote) {
+    const reg = {
+      'Serie A/Serie A 0001': { ts: 1, pages: 20, url: 'https://s.com/a/1', kb: 10000 },
+      'Serie A/Serie A 0002': { ts: 1, pages: 20, url: 'https://s.com/a/2', kb: 14000 },
+      'Serie B/Serie B 0001': { ts: 1, pages: 20, url: 'https://s.com/b/1', kb: 30000 },
+      'Vieja/Vieja 0001': { ts: 1, pages: 20, url: 'https://s.com/v/1' },                    // guardado antes de la 2.11: no dice cuánto pesó
+      'Otra/Otra 0001': { ts: 1, pages: 20, url: 'https://otro.com/o/1', kb: 90000 },
+    };
+    const ver = (e) => (e ? `${A.tamanoLegible(e.kb)} según ${e.de}` : 'sin estimación');
+    eq('estimación de un lote: el promedio de lo ya guardado de ese sitio, por la cantidad', ver(A.estimarLote(reg, { sitio: 's.com' }, 10)), '176 MB según 3');
+    eq('  si de esa serie ya hay dos o más, vale el promedio de la serie', ver(A.estimarLote(reg, { sitio: 's.com', serie: 'serie a' }, 10)), '117 MB según 2');
+    eq('  sin nada guardado de ese sitio (o sin capítulos que bajar) no se estima', [A.estimarLote(reg, { sitio: 'nuevo.com' }, 10), A.estimarLote({}, { sitio: 's.com' }, 10), A.estimarLote(reg, { sitio: 's.com' }, 0)].map(ver).join(' | '),
+      'sin estimación | sin estimación | sin estimación');
+    eq('  a partir de 200 MB se avisa', `${A.estimarLote(reg, { sitio: 's.com' }, 10).kb >= A.AVISO_TAMANO_KB} · ${A.estimarLote(reg, { sitio: 's.com' }, 12).kb >= A.AVISO_TAMANO_KB}`, 'false · true');
+    eq('tamaños legibles', [300, 2048, 150000, 3000000].map(A.tamanoLegible).join(' · '), '300 KB · 2,0 MB · 146 MB · 2,9 GB');
+  }
+
+  // ── ¿Hay una versión nueva? ──
+  if (A.versionRemota) {
+    eq('versiones: se comparan los números, no las letras', [['2.9.1', '2.10.0'], ['2.11.0', '2.11.0'], ['2.11.1', '2.11.0'], ['3.0', '2.99.9'], ['', '2.11.0']].map(([a, b]) => A.compararVersiones(a, b)).join(','), '-1,0,1,1,-1');
+    // El README de este mismo repositorio: si la tabla cambia de forma, esta prueba lo dice
+    const fs = require('fs');
+    const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
+    const fila = A.versionDelReadme(readme);
+    const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')).version;
+    eq('la versión de la extensión se lee de la tabla del README del repositorio, con su carpeta',
+      `${/^\d+\.\d+\.\d+$/.test(fila?.version || '')} · ${fs.existsSync(path.join(__dirname, '..', fila?.carpeta || 'x', 'manifest.json'))}`, 'true · true');
+    eq('  un README sin esa tabla no rompe', String(A.versionDelReadme('# Otra cosa\n\nNada que ver.')), 'null');
+    // internet simulada: qué responde cada dirección
+    const red = (respuestas) => { const pedidos = []; return Object.assign(async (u) => { pedidos.push(u.replace(A.REPO_CRUDO, ''));
+      const r = Object.entries(respuestas).find(([k]) => u.endsWith(k))?.[1]; return r == null ? { ok: false, status: 404 } : { ok: true, text: async () => r, json: async () => JSON.parse(r) }; }, { pedidos }); };
+    const LEE = '| 🧩 **La extensión** | Se usa desde Chrome | 2.11.0 | `manga-reader-ext(ver 23-11-2026)/manga-reader-ext` |';
+    let r = red({ 'README.md': LEE, 'manifest.json': '{"version":"2.12.3"}' });
+    eq('versión en main: primero el README (dice cuál es la carpeta) y después el manifest de esa carpeta, que es el que manda',
+      `${(await A.versionRemota(r)).version} · ${r.pedidos.join(' → ')}`, '2.12.3 · README.md → manga-reader-ext(ver%2023-11-2026)/manga-reader-ext/manifest.json');
+    r = red({ 'README.md': LEE });
+    eq('  si el manifest no se puede leer, vale lo que dice el README', (await A.versionRemota(r)).version, '2.11.0');
+    eq('  y si no se puede leer nada (sin conexión, repositorio privado), no se sabe', String(await A.versionRemota(red({}))), 'null');
+    eq('  con el manifest de esta versión no hay nada nuevo que avisar', A.compararVersiones(manifest, manifest) > 0, false);
+  }
+
   // ── La bajada de una página (offscreen.js), con el sitio y el reloj simulados ──
   // respuestas: lo que contesta el sitio en cada pedido de esa página, en orden
   const off = require(path.join(dir, 'offscreen.js'));

@@ -210,6 +210,9 @@
   background: rgba(102,126,234,.12); border: 1px solid rgba(102,126,234,.4); border-radius: 5px; padding: 6px 8px;
 }
 #mr-chapter .mr-chapter-cola[hidden], #mr-chapter .mr-chapter-btn[hidden] { display: none; }
+/* Cuánto va a ocupar el lote (naranja si es mucho) */
+#mr-chapter #mr-chapter-peso[hidden] { display: none; }
+#mr-chapter #mr-chapter-peso.mr-mucho { color: #f39c12; font-size: 11px; }
 
 /* ── Pestañas "Capítulos" / "Tomos" del diálogo de varios capítulos ── */
 /* Solo aparecen cuando la página separa los capítulos en tomos */

@@ -597,6 +597,63 @@ const AREAS = {
     eq('  y al cerrarlo con Esc el foco vuelve', `${await pg.eval(`!document.querySelector('#mr-chapter')`) ? 'cerrado' : 'abierto'} · foco en ${await pg.eval(FOCO)}`, 'cerrado · foco en antes');
     await pg.close();
   },
+
+  // ═══ Menores: el registro en CSV, cuánto va a ocupar un lote y el aviso de versión nueva ═══
+  async menores({ b, S, eq }) {
+    console.log('\n── 2.11 · Menores: CSV del registro, tamaño estimado de un lote y versión nueva');
+    // Al guardar un capítulo queda anotado cuánto pesó
+    const url = S + '/fx/peso/leer/1';
+    const pg = await b.cdp.open(url);
+    await pg.waitFor(`document.readyState === 'complete'`, 'el capítulo');
+    await pedir(b, url, 'save');
+    await pg.waitFor(`document.querySelectorAll('#mr-save .mr-thumb.on').length >= 6 && !/Recorriendo|Buscando/.test(document.querySelector('#mr-save-count').textContent)`, 'el diálogo', 30000);
+    await pg.eval(`document.querySelector('#mr-save-go').click()`);
+    await pg.waitFor(`/success|error/.test(document.querySelector('#mr-save-status').className)`, 'el guardado', 60000);
+    await pg.close();
+    let reg = (await b.storage('savedChapters')) || {};
+    eq('al guardar un capítulo queda anotado cuánto pesó', typeof reg['Serie Peso/Serie Peso 0001']?.kb === 'number' && reg['Serie Peso/Serie Peso 0001'].kb > 0, true);
+
+    // Con eso se estima un lote antes de bajarlo
+    const estimacion = async () => {
+      const lp = await abrirLote(b, S + '/fx/peso/', 4);
+      await lp.eval(`document.querySelector('#mr-chapter-all').click()`);
+      const t = await lp.eval(`(() => { const p = document.querySelector('#mr-chapter-peso'); return p.hidden ? 'sin estimación' : p.textContent; })()`);
+      await lp.close();
+      return t;
+    };
+    const kb = reg['Serie Peso/Serie Peso 0001'].kb;
+    eq('el diálogo de varios capítulos estima cuánto va a ocupar lo que falta (3 capítulos, como el que ya se guardó)',
+      (await estimacion()).replace(/unos [\d,.]+ (KB|MB|GB)/, 'unos N'), 'Van a ocupar unos N (según 1 capítulo ya guardado).');
+    reg['Serie Peso/Serie Peso 0001'].kb = 120 * 1024;       // como si cada capítulo pesara 120 MB
+    await b.setStorage({ savedChapters: reg });
+    eq('  y si pasa de 200 MB lo avisa antes de empezar', await estimacion(), '⚠️ Van a ocupar unos 360 MB (según 1 capítulo ya guardado): fijate que haya lugar en el disco.');
+    reg['Serie Peso/Serie Peso 0001'].kb = kb;
+    await b.setStorage({ savedChapters: reg });
+
+    // El registro en CSV
+    await b.ext.eval(`location.reload()`);
+    await b.ext.waitFor(`document.readyState === 'complete' && !!document.querySelector('#exportarCsv')`, 'el botón del CSV en opciones');
+    // (se mira lo que se iba a descargar: el texto que se le pasa al archivo)
+    const csv = await b.ext.eval(`(async () => { let texto = ''; const real = URL.createObjectURL; URL.createObjectURL = (blob) => { blob.text().then(t => { texto = t; }); return real.call(URL, blob); };
+      document.getElementById('exportarCsv').click(); for (let i = 0; i < 50 && !texto; i++) await new Promise(r => setTimeout(r, 100)); URL.createObjectURL = real;
+      return texto.split('\\r\\n')[0].replace(/^\\uFEFF/, '') + ' · ' + (texto.includes('Serie Peso;Serie Peso 0001;1;') ? 'trae el capítulo guardado' : 'no trae el capítulo') + ' · ' + document.getElementById('guardadosMsg').textContent.replace(/\\d+/, 'N'); })()`);
+    eq('opciones: "Exportar CSV" arma el registro con las columnas de la tabla', csv, 'Serie;Capítulo;Número;Fecha;Páginas;Dirección;Guardado como · trae el capítulo guardado · Registro exportado en CSV: N capítulos.');
+
+    // El punto de versión nueva en el popup (lo que hay en main se anota una vez por día: acá se pone a mano)
+    const popup = async (version) => {
+      await b.setStorage({ versionVista: { ts: Date.now(), version } });
+      const p = await b.cdp.open(`chrome-extension://${b.extId}/popup.html`);
+      await p.waitFor(`document.readyState === 'complete' && !!document.querySelector('#btnSave')`, 'el popup');
+      await sleep(400);
+      const t = await p.eval(`(() => { const a = document.getElementById('versionNueva'); return a.hidden ? 'sin aviso' : a.textContent.trim() + ' · punto: ' + !!a.querySelector('.punto'); })()`);
+      await p.close();
+      return t;
+    };
+    const mia = await b.ext.eval(`chrome.runtime.getManifest().version`);
+    eq('popup: si en main hay una versión más nueva, aparece el punto con el aviso', await popup('99.0.0'), `Hay una versión nueva: 99.0.0 (tenés la ${mia}) · punto: true`);
+    eq('  y si es la misma (o más vieja), no', `${await popup(mia)} | ${await popup('2.0.0')}`, 'sin aviso | sin aviso');
+    await b.ext.eval(`chrome.storage.local.remove('versionVista')`);
+  },
 };
 
 // Corre las áreas pedidas (todas, o las de SOLO) y devuelve cuántas se cortaron

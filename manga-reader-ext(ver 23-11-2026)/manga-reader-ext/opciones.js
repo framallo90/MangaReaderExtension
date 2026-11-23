@@ -92,7 +92,8 @@ function mergeBackup(local, data) {
     if (!saved[k]) added++;
     if (!saved[k] || saved[k].ts < v.ts) {
       saved[k] = { ts: v.ts, pages: v.pages, url: v.url,
-                   ...(typeof v.serie === 'string' && typeof v.numero === 'number' ? { serie: v.serie, numero: v.numero } : {}) };
+                   ...(typeof v.serie === 'string' && typeof v.numero === 'number' ? { serie: v.serie, numero: v.numero } : {}),
+                   ...(typeof v.kb === 'number' && v.kb > 0 ? { kb: v.kb } : {}) };      // lo que pesó: con eso se estima un lote
     }
   }
   const out = { savedChapters: saved };
@@ -119,8 +120,21 @@ function mergeBackup(local, data) {
   return { out, added };
 }
 
+// El registro de guardados como CSV, con las mismas columnas que la tabla (más la serie y el
+// número, para poder ordenarlo en una planilla). Separado por punto y coma, que es lo que abre
+// bien Excel en español; un campo con ";", comillas o saltos de línea va entre comillas.
+function registroCsv(saved) {
+  const campo = (v) => { const t = String(v ?? ''); return /[;"\r\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
+  const fecha = (ts) => { const d = new Date(ts); return isNaN(d) ? '' : `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`; };
+  const filas = [['Serie', 'Capítulo', 'Número', 'Fecha', 'Páginas', 'Dirección', 'Guardado como']];
+  for (const g of groupSaved(saved)) {
+    for (const i of g.items) filas.push([g.serie, i.name, i.numero ?? '', fecha(i.ts), i.pages ?? '', i.url || '', i.path]);
+  }
+  return filas.map(f => f.map(campo).join(';')).join('\r\n') + '\r\n';
+}
+
 if (typeof module !== 'undefined') {
-  module.exports = { sagasToText, parseSagas, missingRanges, rangesText, groupSaved, mergeBackup, serieKey };
+  module.exports = { sagasToText, parseSagas, missingRanges, rangesText, groupSaved, mergeBackup, serieKey, registroCsv };
 }
 
 // ── Interfaz ─────────────────────────────────────────
@@ -204,6 +218,19 @@ if (typeof document !== 'undefined') {
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
     say('guardadosMsg', `Copia exportada: ${Object.keys(data.savedChapters || {}).length} capítulos.`, true);
+  };
+
+  // El registro solo, para abrirlo en una planilla (la copia de arriba es para volver a importarla)
+  $('exportarCsv').onclick = async () => {
+    const registro = (await store.get(['savedChapters'])).savedChapters || {};
+    const d = new Date();
+    const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    // (el BOM del principio es para que Excel lea bien los acentos)
+    const blob = new Blob(['﻿' + registroCsv(registro)], { type: 'text/csv;charset=utf-8' });
+    const a = el('a', { href: URL.createObjectURL(blob), download: `manga-reader-registro-${stamp}.csv` });
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    say('guardadosMsg', `Registro exportado en CSV: ${Object.keys(registro).length} capítulos.`, true);
   };
 
   $('importar').onclick = () => $('archivo').click();

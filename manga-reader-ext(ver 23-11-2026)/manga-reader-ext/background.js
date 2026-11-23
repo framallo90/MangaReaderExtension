@@ -264,8 +264,8 @@ async function runBuild({ urls, formats, title, meta, path }, sender) {
     }
     if (!r?.ok) throw new Error(r?.error || 'No se pudo armar el archivo');
 
-    const out = { pages: r.pages, failed: r.failed || [], files: [], imgs: 0, imgsFailed: 0, imgError: '' };
-    let ultima = null;                                    // la última descarga que salió bien: "Mostrar la carpeta" la busca
+    const out = { pages: r.pages, failed: r.failed || [], files: [], imgs: 0, imgsKB: 0, imgsFailed: 0, imgError: '' };
+    let ultima = null;                                   // la última descarga que salió bien: "Mostrar la carpeta" la busca
     const base = await carpetaBase(meta, path);
     for (const f of r.files) {
       const filename = f.kind === 'img' ? `${base}/${path}/${f.name}` : `${base}/${path}.${f.kind}`;
@@ -276,7 +276,7 @@ async function runBuild({ urls, formats, title, meta, path }, sender) {
         if (res.state !== 'timeout' && blobs.delete(saved.id)) revoke([f.url]);
         if (res.state === 'interrupted') throw new Error(res.error || 'descarga interrumpida');
         ultima = saved.id;
-        if (f.kind === 'img') out.imgs++;
+        if (f.kind === 'img') { out.imgs++; out.imgsKB += f.sizeKB || 0; }
         else out.files.push({ kind: f.kind, sizeKB: f.sizeKB, savedAs: saved.filename !== filename ? saved.filename : '' });
       } catch (e) {
         if (![...blobs.values()].includes(f.url)) revoke([f.url]);
