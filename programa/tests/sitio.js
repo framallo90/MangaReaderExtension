@@ -58,9 +58,10 @@ const serieBeta = pagina('Beta – Capítulos', `${menu}<h1>Beta</h1>
 // Con iniciar({ tapas: true }). Cada tapa es una imagen grande que lleva a su obra: en la
 // mitad de las tarjetas el link envuelve a la imagen y en la otra mitad va al lado, como
 // título. El link al listado completo tiene un ícono adelante, y hay otro sin texto.
-//   /                portada: 8 tapas (su servidor exige el Referer del sitio)
+//   /                portada: 8 tapas (su servidor exige el Referer del sitio) y una tira de 10 géneros
 //   /biblioteca      el listado completo: 12 obras (/directorio muestra lo mismo)
 //   /obra/N/nombre   la página de una obra, con dos capítulos
+//   /obra/2/dos      la de otra obra, con los capítulos en renglones (el número no está en el link)
 //   /lector/5        capítulo donde cada página es un link al capítulo siguiente, con tapas
 //                    de otras obras al final
 //   /lector/7        capítulo donde cada página es un link a su vista de a una
@@ -71,8 +72,18 @@ const tapa = (nombre, i) => {
 };
 const grilla = (obras) => `<div style="display:flex;flex-wrap:wrap;gap:8px">${obras.map(tapa).join('')}</div>`;
 const menuTapas = `<header><a href="/"><img src="/tapas/logo.jpg" width="60" height="60" alt="Sitio de tapas"></a>
-<nav><a href="/biblioteca"><i></i>📚 Biblioteca</a> <a href="/directorio" aria-label="Explorar todo"><svg width="16" height="16"></svg></a> <a href="/grupos">Grupos</a> <a href="/ingresar">Ingresar</a></nav></header>`;
-const portadaTapas = pagina('Sitio de tapas — Leer online', `${menuTapas}<h2>Populares</h2>${grilla(OBRAS.slice(0, 8))}`);
+<nav><a href="/biblioteca?orden=populares&page=1"><i></i>📚 Biblioteca</a> <a href="/directorio" aria-label="Explorar todo"><svg width="16" height="16"></svg></a> <a href="/grupos">Grupos</a> <a href="/ingresar">Ingresar</a></nav></header>`;
+const GENEROS = ['Acción', 'Aventura', 'Comedia', 'Drama', 'Fantasía', 'Misterio', 'Romance', 'Terror', 'Deportes', 'Recuentos'];
+const generos = `<aside><h3>Géneros</h3>${GENEROS.map((g, i) => `<a href="/genero/g${i + 1}">${g}</a>`).join(' ')}</aside>`;
+const portadaTapas = pagina('Sitio de tapas — Leer online', `${menuTapas}${generos}<h2>Populares</h2>${grilla(OBRAS.slice(0, 8))}`);
+// La página de una obra con los capítulos en renglones: el número está en el título del renglón
+// y no en el link (que es un botón sin texto, con un código en su dirección), y un capítulo
+// puede tener más de un link porque lo subió más de un grupo.
+const obraEnRenglones = pagina('Obra Dos — capítulos', `${menuTapas}<h1>Dos</h1><ul>
+<li><h4>Capítulo 3: El final</h4><ul><li>Grupo A <a href="/ver-obra/900231"><i></i></a></li></ul></li>
+<li><h4>Capítulo 2: El viaje</h4><ul><li>Grupo A <a href="/ver-obra/900221"><i></i></a></li><li>Grupo B <a href="/ver-obra/900222"><i></i></a></li></ul></li>
+<li><div>Capítulo 1 <a href="/ver-obra/900211">Leer</a></div></li>
+</ul>`);
 const bibliotecaTapas = pagina('Sitio de tapas — Biblioteca', `${menuTapas}<h1>Biblioteca</h1>${grilla(OBRAS)}`);
 const lectorTapas = (n) => pagina(`Obra Uno Capítulo ${n} | Sitio de tapas`, menuTapas +
   [1, 2, 3, 4, 5, 6].map(k => `<a href="${n === 5 ? '/lector/6' : `/lector/${n}/pagina/${k}`}"><img width="420" height="640" style="display:block" src="/tapas/paginas/${n}/${k}.jpg"></a>`).join('\n') +
@@ -88,6 +99,7 @@ function iniciar({ tapas = false } = {}) {
       if (u === '/') return html(portadaTapas);
       if (u === '/biblioteca' || u === '/directorio') return html(bibliotecaTapas);
       if (u === '/lector/5' || u === '/lector/7') return html(lectorTapas(+u.slice(-1)));
+      if (u === '/obra/2/dos') return html(obraEnRenglones);
       const obra = u.match(/^\/obra\/(\d+)\/\w+$/);
       if (obra && OBRAS[obra[1] - 1]) {
         return html(pagina(`Obra ${OBRAS[obra[1] - 1]} — capítulos`, `${menuTapas}<h1>${OBRAS[obra[1] - 1]}</h1><a href="/lector/5">Capítulo 5</a> <a href="/lector/7">Capítulo 7</a>`));

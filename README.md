@@ -5,7 +5,7 @@ Dos herramientas para guardar capítulos de manga y cómics como **PDF**, **CBZ*
 | | Qué es | Versión | Dónde está |
 |---|---|---|---|
 | 🧩 **La extensión** | Se usa desde Chrome, sobre la página que tenés abierta | 2.10.0 | `manga-reader-ext(ver 22-11-2026-7)/manga-reader-ext` |
-| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.8.0 | `programa/` |
+| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.8.1 | `programa/` |
 
 Funcionan por separado y comparten el mismo código para detectar páginas, armar nombres y generar los archivos. Son de uso personal, están en español y todo corre en tu máquina, sin servidor.
 
@@ -184,8 +184,8 @@ Aplicación de escritorio para Windows, hecha con Electron y JavaScript plano. H
 
 | | |
 |---|---|
-| 🔎 **Explorar por niveles** | De una página saca sus listas de links: títulos, capítulos numerados y en orden, y páginas. La flecha › de cada renglón baja un nivel |
-| 🗃 **Encontrar el catálogo** | Si pegás la portada de un sitio y tiene un link a su listado completo ("Directorio", "Biblioteca"), entra solo. Una portada llena de tapas no la confunde con un capítulo |
+| 🔎 **Explorar por niveles** | De una página saca sus listas de links: títulos, capítulos numerados y en orden, y páginas. Tocar un título lo abre y muestra sus capítulos; solo los capítulos se tildan para bajar. Los géneros y filtros van en una pestaña aparte |
+| 🗃 **Encontrar el catálogo** | Si pegás la portada de un sitio y tiene un link a su listado completo ("Directorio", "Biblioteca"), entra solo, y en cualquier página lo deja a la vista como botón. Una portada llena de tapas no la confunde con un capítulo |
 | 🖼 **Tapas** | Si la página muestra la tapa de cada título, la lista se ve como un mosaico de tapas. Un botón vuelve a la lista de renglones |
 | 📑 **Listados largos** | Baja hasta el final para ver lo que la página carga de a poco. "Traer más páginas" suma las 10 siguientes y "Traer todas" sigue hasta el final |
 | 📚 **Volúmenes y sagas** | Si la página separa los capítulos en volúmenes o sagas, aparecen agrupados y se tilda el grupo entero |
@@ -221,9 +221,9 @@ De las dos formas usa los mismos datos (favoritos, opciones y sagas).
 ## Cómo se usa
 
 1. Pegá una dirección arriba y tocá **Analizar**. Puede ser la portada de un sitio, un catálogo, una serie o un capítulo.
-2. Elegí una pestaña: **Capítulos** o **Títulos y links**. Con la flecha **›** (o tocando una tapa) entrás a cualquier renglón, y la ruta de arriba sirve para volver.
+2. Si es un catálogo, tocá un título (o su tapa): se abre su página y aparece la lista de **Capítulos**. La ruta de arriba sirve para volver, y el botón **📚 El catálogo del sitio** lleva al listado completo.
 3. Si el listado sigue en más páginas, tocá **Traer más páginas** o **Traer todas**.
-4. Tildá lo que querés, elegí formatos y carpeta a la derecha, y tocá **Descargar**.
+4. Tildá los capítulos que querés, elegí formatos y carpeta a la derecha, y tocá **Descargar**.
 
 Al entrar a un título, su nombre queda puesto como **Serie** y la lista marca con **✔ ya está** los capítulos que ya tenés en la carpeta. **Marcar los que faltan** tilda el resto.
 
@@ -246,6 +246,12 @@ Lo que todavía le falta y cómo está armado: [programa/README.md](programa/REA
 # Actualizaciones
 
 Lo más nuevo arriba. El historial completo de la extensión está en la sección 15 de [DOCUMENTACION.md](DOCUMENTACION.md).
+
+### 23-11-2026 · Programa 0.8.1
+
+- **El catálogo, siempre a la vista.** El link al listado completo del sitio queda en una barra con su botón ("📚 El catálogo del sitio"). Ahora lo encuentra también cuando el link trae el orden o el número de página (`/biblioteca?orden=populares&page=1`), que antes se descartaba, y por más nombres ("Explorar", "Ver todo", "Lista de mangas").
+- **Ya no ofrece descargar géneros ni títulos.** Los links a géneros, etiquetas, tipos o autores van en su pestaña, al final. Las listas de títulos son para entrar: tocás uno y se abre; solo los capítulos tienen casilla. Si una serie nombra sus capítulos sin número, "Son capítulos" deja tildarlos.
+- **Arma la lista de capítulos aunque el número no esté en el link.** Lo toma del renglón ("Capítulo 5 · Leer") o del título que tiene encima. Si un capítulo tiene varios links (lo subió más de un grupo), deja uno y dice cuántas versiones hay. Y si al entrar a una serie no encuentra capítulos, lo dice.
 
 ### 23-11-2026 · Programa 0.8.0
 

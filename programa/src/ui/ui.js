@@ -13,6 +13,10 @@ let ruta = [];              // por dónde se entró: [{ url, titulo }]
 let actual = null;          // lo que devolvió el último análisis
 let listaId = '';           // la lista que se está mirando
 let marcados = new Set();   // direcciones tildadas
+// Listas de títulos que el usuario dijo que son capítulos (página + lista): esas también se tildan
+const comoCapitulos = new Set();
+const claveLista = () => `${actual?.url || ''}|${listaId}`;
+const sePuedeTildar = () => { const l = listaActual(); return !!l && (l.tipo === 'capitulos' || (l.tipo === 'titulos' && comoCapitulos.has(claveLista()))); };
 let ocupado = false;
 let tareas = [];
 let verTapas = true;        // mostrar la lista como un mosaico de tapas, cuando la página las tiene
@@ -67,6 +71,7 @@ async function ir(url, nivel = ruta.length, buscarCatalogo = false, nombre = '',
     else if (r.capitulo?.serie && !$('serie').value.trim()) proponerSerie(r.capitulo.serie);
     else if (!r.capitulo && !r.listas.some(l => l.tipo === 'capitulos')) proponerSerie('');
     mostrar(r);
+    if (nombre && !r.capitulo && !r.listas.some(l => l.tipo === 'capitulos')) estado(`No encontré la lista de capítulos de «${nombre}» en esta página. Si están en otra parte de la página o en otra dirección, probá abrirla desde las listas de abajo.`, 'error');
     if (entre) estado(`Entré al catálogo que encontré en la portada ("${entre}"). ` + ayuda(r) + ' Para volver a la portada, usá la ruta de arriba.', 'bien');
   } catch (e) {
     estado('⚠️ ' + e.message, 'error');
@@ -104,7 +109,8 @@ function mostrar(r, tildarTodo = false) {
 }
 // Qué se puede hacer con lo encontrado, y si puede faltar algo
 function ayuda(r) {
-  return 'La flecha › de cada renglón abre esa página.' +
+  const capitulos = r.listas[0]?.tipo === 'capitulos';
+  return (capitulos ? 'Tildá los capítulos que querés y tocá Descargar.' : 'Tocá un título para abrirlo y ver sus capítulos.') +
     (r.siguiente ? ' El listado sigue en más páginas: tocá "Traer más páginas".' : '') +
     (r.sigueCreciendo ? ' La página seguía cargando más al bajar: puede faltar algo.' : '');
 }
@@ -205,7 +211,7 @@ function dibujar() {
   // capítulo: si en realidad era una portada, por acá se sale)
   const pistas = actual?.catalogos || [];
   $('pistas').hidden = !pistas.length;
-  $('pistas').replaceChildren(el('span', { className: 'tenue', textContent: '¿Buscás el listado completo? Probá:' }), ...pistas.map(c => {
+  $('pistas').replaceChildren(el('span', { className: 'pista', textContent: '📚 El catálogo del sitio:' }), ...pistas.map(c => {
     const b = el('button', { type: 'button', textContent: c.texto + ' ›', title: c.url });
     b.addEventListener('click', () => ir(c.url));
     return b;
@@ -217,11 +223,18 @@ function dibujar() {
   $('tabs').replaceChildren(...(listas.length > 1 ? listas.map(l => {
     const b = el('button', { type: 'button', className: l.id === listaId ? 'on' : '', title: l.nombre,
       textContent: l.tipo === 'capitulos' ? `Capítulos (${l.items.length})` + (variasDeCapitulos ? ` · ${l.nombre}` : '')
+                                          : l.tipo === 'filtros' ? `Géneros y filtros (${l.items.length}) · ${l.nombre}`
                                           : `Títulos y links (${l.items.length}) · ${l.nombre}` });
     b.addEventListener('click', () => { listaId = l.id; marcados = new Set(); $('filtro').value = ''; enDisco = null; dibujar(); mirarDisco(); });
     return b;
   }) : []));
   $('herramientas').hidden = !listaActual();
+  // Solo los capítulos se tildan para bajar. Una lista de títulos (o de géneros) es para entrar,
+  // salvo que se diga que esos renglones son capítulos (una serie que los nombra sin número).
+  const elegible = sePuedeTildar();
+  $('todos').hidden = $('ninguno').hidden = !elegible;
+  $('sonCapitulos').hidden = listaActual()?.tipo !== 'titulos';
+  $('sonCapitulos').textContent = elegible ? 'No son capítulos' : 'Son capítulos';
   $('siguiente').hidden = $('todasLasPaginas').hidden = !actual?.siguiente;
 
   // Con tapas: si la página trae una imagen para buena parte de los renglones, la lista se
@@ -270,24 +283,23 @@ function dibujar() {
   for (const i of items) {
     if ((i.seccion || '') !== (seccion ?? '') && i.seccion) {
       const deLaSeccion = items.filter(x => x.seccion === i.seccion);
-      const caja = el('input', { type: 'checkbox', checked: deLaSeccion.every(x => marcados.has(x.url)) });
+      const caja = el('input', { type: 'checkbox', checked: deLaSeccion.every(x => marcados.has(x.url)), hidden: !elegible });
       caja.addEventListener('change', () => { for (const x of deLaSeccion) caja.checked ? marcados.add(x.url) : marcados.delete(x.url); dibujar(); });
       filas.push(el('label', { className: 'seccion' }, caja, el('span', { className: 'txt', textContent: i.seccion }),
         el('span', { className: 'n', textContent: String(deLaSeccion.length) })));
     }
     seccion = i.seccion || '';
-    const caja = el('input', { type: 'checkbox', checked: marcados.has(i.url) });
-    caja.addEventListener('change', () => { caja.checked ? marcados.add(i.url) : marcados.delete(i.url); refrescar(); });
+    const caja = elegible ? el('input', { type: 'checkbox', checked: marcados.has(i.url) }) : null;
+    if (caja) caja.addEventListener('change', () => { caja.checked ? marcados.add(i.url) : marcados.delete(i.url); refrescar(); });
     const entrar = el('button', { type: 'button', className: 'entrar', textContent: '›', title: 'Abrir esta página' });
     // Al entrar a un título, su nombre se propone como serie
     const abrir = (e) => { e.preventDefault(); ir(i.url, ruta.length, false, l.tipo === 'titulos' ? i.texto : ''); };
-    entrar.addEventListener('click', abrir);
+    if (elegible) entrar.addEventListener('click', abrir);
     let tapa = null;
     if (mosaico) {
       // La tapa. En una lista de títulos, tocarla entra a ese título (la casilla queda para tildar)
       tapa = el('img', { className: 'tapa', alt: '' });
       ponerMiniatura(tapa, i.imagen);
-      if (l.tipo === 'titulos') tapa.addEventListener('click', abrir);
     }
     const ya = !!tengo && tengo.has(i.numero), fecha = antes.get(i.numero), tuyo = tuyos?.get(i.url);
     const otro = ya ? enDisco.enOtro.get(i.numero) : '';       // está, pero en otro formato que el tildado
@@ -298,9 +310,11 @@ function dibujar() {
       : tuyo ? el('span', { className: 'esta', textContent: tuyo.bajados ? `✔ ${plural(tuyo.bajados, 'bajado', 'bajados')}` : '✔ en tu colección',
           title: [tuyo.bajados ? `Ya bajaste ${plural(tuyo.bajados, 'capítulo', 'capítulos')} de este título` : '', tuyo.carpeta ? `Está en «${tuyo.carpeta}»` : ''].filter(Boolean).join('. ') })
       : null;
-    filas.push(el('label', { className: 'fila' + (ya || fecha || (tuyo && !tuyo.parecida) ? ' ya' : ''), title: mosaico ? i.texto : i.url }, caja, tapa,
+    const fila = el('label', { className: 'fila' + (elegible ? '' : ' entra') + (ya || fecha || (tuyo && !tuyo.parecida) ? ' ya' : ''), title: mosaico ? i.texto : i.url }, caja, tapa,
       i.numero !== undefined && i.numero !== null ? el('span', { className: 'num', textContent: String(i.numero) }) : null,
-      el('span', { className: 'txt', textContent: i.texto }), marca, entrar));
+      el('span', { className: 'txt', textContent: i.texto + (i.versiones > 1 ? ` (${i.versiones} versiones)` : '') }), marca, entrar);
+    if (!elegible) fila.addEventListener('click', abrir);        // todo el renglón (o la tarjeta) abre ese título
+    filas.push(fila);
   }
   $('lista').replaceChildren(...filas);
   refrescar();
@@ -340,7 +354,8 @@ function alMoverLista() {
 function refrescar() {
   const l = listaActual();
   const n = l ? l.items.filter(i => marcados.has(i.url)).length : 0;
-  $('cuenta').textContent = l ? `${plural(l.items.length, 'renglón', 'renglones')} · ${plural(n, 'marcado', 'marcados')}` : '';
+  $('cuenta').textContent = !l ? '' : sePuedeTildar() ? `${plural(l.items.length, 'renglón', 'renglones')} · ${plural(n, 'marcado', 'marcados')}`
+    : plural(l.items.length, l.tipo === 'filtros' ? 'filtro' : 'título', l.tipo === 'filtros' ? 'filtros' : 'títulos');
   const hayFormato = $('fPdf').checked || $('fCbz').checked || $('fImgs').checked;
   $('descargar').disabled = !n || !hayFormato;
   $('descargar').textContent = n ? `Descargar ${plural(n, 'capítulo', 'capítulos')}` : 'Descargar';
@@ -783,6 +798,12 @@ $('revLista').addEventListener('scroll', alMoverLista);
 addEventListener('resize', alMoverLista);
 $('todos').addEventListener('click', () => { for (const i of visibles()) marcados.add(i.url); dibujar(); });
 $('ninguno').addEventListener('click', () => { for (const i of visibles()) marcados.delete(i.url); dibujar(); });
+$('sonCapitulos').addEventListener('click', () => {
+  const k = claveLista();
+  comoCapitulos.has(k) ? comoCapitulos.delete(k) : comoCapitulos.add(k);
+  marcados = new Set();
+  dibujar();
+});
 $('marcarFaltan').addEventListener('click', () => {
   const l = listaActual();
   if (!l || !enDisco) return;

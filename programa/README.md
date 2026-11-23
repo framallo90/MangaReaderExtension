@@ -4,7 +4,7 @@ Explora una página web por niveles (títulos → capítulos → páginas) y gua
 
 Todo corre en tu máquina: no hay servidor ni cuenta. Es independiente de la extensión de Chrome y usa su mismo código para detectar páginas, armar nombres y generar los archivos.
 
-**Estado: versión 0.8.0.** Funciona de punta a punta sobre los sitios de prueba. Los cambios de cada versión están en las [Actualizaciones](../README.md#actualizaciones) del README principal.
+**Estado: versión 0.8.1.** Funciona de punta a punta sobre los sitios de prueba. Los cambios de cada versión están en las [Actualizaciones](../README.md#actualizaciones) del README principal.
 
 ## Cómo abrirlo
 
@@ -25,14 +25,17 @@ De las dos formas usa los mismos datos (favoritos, opciones, sagas), así que se
 
 1. **Pegá una dirección** arriba y tocá **Analizar**. Puede ser la portada de un sitio, un catálogo, la página de una serie o un capítulo.
    - **Si es la portada de un sitio** y tiene un link a su listado completo ("Directorio", "Biblioteca", "Catálogo"), entra ahí solo: la portada suele mostrar apenas lo destacado. Para ver la portada, volvé por la ruta de arriba.
-   - En las demás páginas, ese link aparece como acceso rápido: **¿Buscás el listado completo?**
+   - **En todas las páginas** ese link queda a la vista, en una barra con su botón: **📚 El catálogo del sitio**. Lo encuentra aunque el link traiga el orden o el número de página (`/biblioteca?orden=populares&page=1`).
    - **Una portada llena de tapas no es un capítulo.** Las tapas son imágenes grandes, como las páginas de un capítulo, pero cada una lleva a la página de su serie: el programa las reconoce por eso y muestra los títulos en lugar de ofrecer "Descargar este capítulo".
    - **Las últimas direcciones** que analizaste a mano se ofrecen al escribir en el cuadro y, antes de analizar nada, en una lista para tocar.
 2. **Mirá lo que encontró.** Antes de leer los links, baja hasta el final de la página, para que aparezca lo que carga de a poco. Cada pestaña es una lista de links de esa página:
-   - **Capítulos:** links numerados, en orden. Si la página los separa en volúmenes o sagas, aparecen agrupados y se puede tildar el grupo entero.
-   - **Títulos y links:** los demás links, agrupados por la carpeta de su dirección. Acá suelen estar las series de un catálogo.
-   - **Con tapas:** si la página trae una imagen para sus títulos (la tapa de cada serie), la lista se muestra como un mosaico, con la tapa arriba y el nombre abajo. Tocar una tapa entra a ese título; la casilla de la esquina lo tilda. El botón **🖼 Tapas** vuelve a la lista de renglones, y el programa recuerda cómo la dejaste.
-3. **Bajá un nivel** con la flecha **›** de cualquier renglón: abre esa página y la analiza. La ruta de arriba recuerda por dónde entraste y sirve para volver.
+   - **Capítulos:** links numerados, en orden. Son los únicos renglones que se tildan para bajar. Si la página los separa en volúmenes o sagas, aparecen agrupados y se puede tildar el grupo entero.
+     - El número puede estar en la dirección, en el texto del link, en su renglón ("Capítulo 5 · Leer") o en el título que tiene encima.
+     - Si un capítulo tiene más de un link (lo subió más de un grupo), queda uno solo y el renglón dice cuántas versiones hay.
+   - **Títulos y links:** los demás links, agrupados por la carpeta de su dirección. Acá suelen estar las series de un catálogo. Son para entrar: tocar un renglón abre ese título y muestra sus capítulos; no tienen casilla. Si en realidad son los capítulos de una serie que los nombra sin número, **Son capítulos** deja tildarlos.
+   - **Géneros y filtros:** los links a géneros, etiquetas, tipos o autores (`/genero/accion`, `?genre=3`) van aparte, en la última pestaña: no son series, y tocar uno abre el listado de ese género.
+   - **Con tapas:** si la página trae una imagen para sus títulos (la tapa de cada serie), la lista se muestra como un mosaico, con la tapa arriba y el nombre abajo. Tocar una tapa entra a ese título. El botón **🖼 Tapas** vuelve a la lista de renglones, y el programa recuerda cómo la dejaste.
+3. **Bajá un nivel** tocando un título, o con la flecha **›** de un capítulo: abre esa página y la analiza. Si al entrar a una serie no encuentra su lista de capítulos, lo dice. La ruta de arriba recuerda por dónde entraste y sirve para volver.
 4. **Si el listado sigue en más páginas**, aparecen dos botones:
    - **Traer más páginas** lee las 10 siguientes y suma lo que encuentra a la lista, sin repetir.
    - **Traer todas** sigue sola hasta el final. Para a las 50 páginas (se toca de nuevo para seguir), y mientras lee el botón dice **Parar**.
@@ -185,8 +188,10 @@ Baja de a un capítulo, con una pausa entre uno y otro. Cada renglón dice en qu
 - **No se conecta a Google Drive por internet:** usa la carpeta que Google Drive para ordenadores deja en la máquina. Sin eso instalado, no ve lo que tenés en el Drive.
 - **En tu colección, las series se encuentran por el nombre de su carpeta.** Si la carpeta se llama distinto que la serie, o está más de dos niveles adentro, no la ve.
 - **No recorre un sitio entero** de un saque: va nivel por nivel, y "Traer todas" para a las 50 páginas.
-- **Encuentra el catálogo por el nombre del link o por su dirección** ("Biblioteca", "Directorio", `/library`, `/series`…). Si el sitio lo llama de otra forma, hay que entrar a mano con la flecha ›.
-- **Reconoce las tapas porque son links.** Si un sitio arma su portada con tapas que no llevan a ningún lado (se abren con JavaScript), la puede seguir tomando por un capítulo. En la portada de un sitio igual entra al listado completo si lo encuentra, y en cualquier página queda el acceso **¿Buscás el listado completo?**
+- **Encuentra el catálogo por el nombre del link o por su dirección** ("Biblioteca", "Directorio", `/library`, `/series`…). Si el sitio lo llama de otra forma, hay que entrar a mano tocando su link en la lista.
+- **Los géneros se reconocen por una palabra de su dirección** (`/genero/`, `/tag/`, `?genre=`…). Si un sitio los arma de otra forma, pueden salir entre los títulos.
+- **Los capítulos se reconocen por su número.** Una serie que los nombra sin número ("Prólogo", "El viaje") sale como "Títulos y links": con **Son capítulos** se tildan igual, y se bajan en el orden de la página.
+- **Reconoce las tapas porque son links.** Si un sitio arma su portada con tapas que no llevan a ningún lado (se abren con JavaScript), la puede seguir tomando por un capítulo. En la portada de un sitio igual entra al listado completo si lo encuentra, y en cualquier página queda el botón **📚 El catálogo del sitio**
 - **Un listado que carga al bajar** se recorre hasta 30 pantallas. Si seguía creciendo, avisa que puede faltar algo.
 - **No guarda páginas protegidas** (las que un sitio entrega cifradas): en esos casos dice que no encontró páginas.
 
@@ -218,10 +223,11 @@ Baja de a un capítulo, con una pausa entre uno y otro. Cada renglón dice en qu
 npm run prueba
 ```
 
-Corren dentro de Electron contra un sitio de prueba servido en la máquina. Son 148 comprobaciones:
+Corren dentro de Electron contra un sitio de prueba servido en la máquina. Son 152 comprobaciones:
 
 - **Explorar:** portada, catálogo paginado, directorio que carga al bajar, serie y capítulo.
 - **Portada con tapas:** que no pase por capítulo (y que un capítulo con tapas al final lo siga siendo), que cada título traiga su tapa y que la miniatura se pida con el Referer del sitio.
+- **Catálogo, géneros y capítulos en renglones:** el link al listado que trae orden y número de página, los géneros aparte de los títulos, y una serie con el número en el renglón y más de un link por capítulo.
 - **Bajar:** los tres formatos a una carpeta temporal, lo que ya estaba, lo que falla.
 - **Lo que ya está:** por número, con otros nombres de archivo y en carpetas que se llaman casi igual; que otra serie parecida no cuente; cada formato aparte.
 - **Plantilla y sagas:** el tomo y el nombre del capítulo en el nombre del archivo, y la carpeta por saga.

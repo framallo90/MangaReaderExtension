@@ -4,13 +4,37 @@
   // No sabe nada de ningún sitio en particular: agrupa los links por la forma de su dirección.
 
   const limpio = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+  // El texto de un elemento, con un espacio entre sus partes. textContent pega lo que está en
+  // bloques distintos ("<h4>El viaje</h4><span>Grupo A</span>" daría "El viajeGrupo A").
+  function textoDe(el) {
+    if (!el.firstElementChild) return limpio(el.textContent);
+    const partes = [], hojas = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n; (n = hojas.nextNode());) { const t = n.nodeValue.trim(); if (t) partes.push(t); }
+    return limpio(partes.join(' '));
+  }
   const PAGINACION_RE = /(?:^|[/?&])(?:page|pagina|pag|p)[/=]$/i;
   const NUMERO_TEXTO_RE = /(?:cap[ií]tulo|chapter|episodio|episode|cap\.?|ch\.?|ep\.?|#)\s*(\d{1,5}(?:\.\d+)?)/i;
   const ARCHIVO_RE = /\.(?:x?html?|shtml|php\d?|aspx?|jsp|cgi)$/i;
   // Links que suelen llevar al listado completo de un sitio (la portada muestra solo una parte)
-  const CATALOGO_RE = /^(?:cat[aá]logo|directorio|biblioteca|listado|library|directory|browse|a\s*-\s*z|(?:lista|listado) de (?:mangas?|series|c[oó]mics|t[ií]tulos)|(?:tod[oa]s )?l[oa]s (?:mangas?|series|c[oó]mics|t[ií]tulos)|all (?:manga|series|comics|titles)|series|mangas?|c[oó]mics|t[ií]tulos)$/i;
+  const CATALOGO_RE = /^(?:cat[aá]logo|directorio|biblioteca|listado|library|directory|browse|explorar|explore|a\s*-\s*z|ver tod[oa]s?|(?:lista|listado|biblioteca) de (?:mangas?|series|c[oó]mics|t[ií]tulos)|(?:tod[oa]s )?l[oa]s (?:mangas?|series|c[oó]mics|t[ií]tulos)|all (?:manga|series|comics|titles)|manga list|series|mangas?|c[oó]mics|t[ií]tulos)$/i;
   // Lo mismo, cuando el texto del link no lo dice (un ícono, "Explorar") pero su dirección sí
-  const CATALOGO_RUTA_RE = /^\/(?:[a-z]{2}\/)?(?:cat[aá]logo|directorio|biblioteca|listado|library|directory|browse|lista-de-(?:mangas?|series|comics)|series|mangas?|comics|titulos)\/?$/i;
+  const CATALOGO_RUTA_RE = /^\/(?:[a-z]{2}\/)?(?:cat[aá]logo|directorio|biblioteca|listado|library|directory|browse|explorar|explore|lista|list|lista-de-(?:mangas?|series|comics)|series|mangas?|comics|titulos)\/?$/i;
+  // Links que no llevan a un título sino a un filtro del listado: géneros, etiquetas, tipos, autores…
+  // Se reconocen por una palabra de su dirección (/genero/accion, /tag/shonen, ?genres=3).
+  const FILTRO_RUTA_RE = /^(?:g[eé]neros?|genres?|categor[ií]as?|categor(?:y|ies)|tags?|etiquetas?|tipos?|types?|demograf[ií]as?|demographics?|estados?|status|autor(?:es)?|authors?|artistas?|artists?|grupos?|groups?|scans?|scanlations?|idiomas?|languages?|filtros?|filters?)$/i;
+  const FILTRO_CONSULTA_RE = /^(?:gen(?:d|r)ers?|genres?|g[eé]neros?|categor|tags?|types?|tipos?|demogra|status|estados?|order|orden|sort|filtro|filter)/i;
+  const esFiltro = (u) => u.pathname.split('/').slice(0, -1).some(seg => FILTRO_RUTA_RE.test(decodeURIComponent(seg))) || [...u.searchParams.keys()].some(k => FILTRO_CONSULTA_RE.test(k));
+  // El renglón de un link: el bloque más chico que lo contiene y nombra un capítulo ("Capítulo 5 · Leer").
+  // Sirve cuando el número no está en el link (un botón, el nombre de un grupo) sino al lado.
+  function filaDe(el) {
+    for (let p = el.parentElement, k = 0; p && k < 6; p = p.parentElement, k++) {
+      if (p.textContent.length > 400) break;
+      const t = textoDe(p);
+      if (t.length > 260) break;
+      if (NUMERO_TEXTO_RE.test(t)) return t;
+    }
+    return '';
+  }
   // El texto de un link sin lo que tenga pegado adelante o atrás que no sea letra (un ícono, "»")
   const sinAdornos = (s) => String(s || '').replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
   const IMAGEN_RE = /\.(?:jpe?g|png|webp|gif|avif|bmp)$/i;
@@ -92,7 +116,7 @@
       const url = u.href.split('#')[0];
       const clave = noSlash(url);
       if (clave === aqui) continue;
-      const texto = limpio(el.textContent) || limpio(el.getAttribute('aria-label')) || limpio(el.title) || limpio(el.querySelector('img')?.alt);
+      const texto = textoDe(el) || limpio(el.getAttribute('aria-label')) || limpio(el.title) || limpio(el.querySelector('img')?.alt);
       const ya = porUrl.get(clave);
       if (ya) { if (!ya.texto && texto) ya.texto = texto; continue; }
       const s = splitChapterUrl(url);
@@ -100,7 +124,8 @@
       const p = partes(u);
       if (/^(?:19|20)\d{2}$/.test(p.nombre) && (!texto || texto.includes(p.nombre))) continue;   // archivo por año
       if (!p.nums.length && s && !u.pathname.endsWith(s.num)) p.nums = [s.num];        // ?capitulo=12
-      porUrl.set(clave, { url, texto, seccion, imagen: imagenes.get(clave) || '', ...p });
+      porUrl.set(clave, { url, texto, seccion, imagen: imagenes.get(clave) || '', filtro: esFiltro(u),
+                          fila: NUMERO_TEXTO_RE.test(texto) ? '' : filaDe(el), ...p });
     }
     return [...porUrl.values()];
   }
@@ -136,6 +161,7 @@
     }
     for (const [k, grupo] of porForma) {
       if (grupo.length < 2 && !conocidas.includes('c:' + k)) continue;
+      if (grupo.filter(l => l.filtro).length >= grupo.length * 0.6) continue;      // géneros, etiquetas…: van con los filtros
       const n = numerar(grupo);
       if (!n) continue;
       grupo.forEach(l => usados.add(l.url));
@@ -154,15 +180,31 @@
     }
     for (const [k, grupo] of porCarpeta) {
       if (grupo.length < 3 && !conocidas.includes('g:' + k) && !conocidas.includes('t:' + k)) continue;
-      const nums = grupo.map(l => l.texto.match(NUMERO_TEXTO_RE)?.[1]);
-      const porTexto = nums.every(Boolean) && new Set(nums.map(parseFloat)).size === nums.length;
+      // ¿Son capítulos? El número de cada uno puede estar en el texto del link, en su renglón
+      // ("Capítulo 5 · Leer") o en el título que tiene encima. Vale si casi todos lo tienen y
+      // los números van más o menos seguidos: en "últimas actualizaciones" también dice
+      // "Capítulo 87", pero son de series distintas y salen salteados.
+      const dato = (l) => [l.texto, l.fila, l.seccion].find(t => NUMERO_TEXTO_RE.test(t || '')) || '';
+      const conNumero = grupo.filter(l => dato(l));
+      const numeros = [...new Set(conNumero.map(l => parseFloat(dato(l).match(NUMERO_TEXTO_RE)[1])))];
+      const seguidos = numeros.length <= 3 || numeros.length / (Math.max(...numeros) - Math.min(...numeros) + 1) >= 0.34;
       const base = conSecciones(grupo);
-      if (porTexto) {
-        const items = base.map((l, i) => ({ url: l.url, texto: nombreDe(l), numero: parseFloat(nums[i]), seccion: l.seccion, imagen: l.imagen }))
-          .sort((a, b) => a.numero - b.numero);
-        listas.push({ tipo: 'capitulos', id: 't:' + k, nombre: new URL(k).pathname || '/', items });
+      if (numeros.length >= 2 && conNumero.length >= grupo.length * 0.8 && seguidos) {
+        // Un capítulo puede tener varios links (subido por más de un grupo): queda el primero
+        const porNumero = new Map();
+        for (const l of base) {
+          const d = dato(l);
+          if (!d) continue;
+          const numero = parseFloat(d.match(NUMERO_TEXTO_RE)[1]);
+          const ya = porNumero.get(numero);
+          if (ya) { ya.versiones++; continue; }
+          porNumero.set(numero, { url: l.url, texto: NUMERO_TEXTO_RE.test(l.texto) ? nombreDe(l) : d.slice(0, 90), numero, seccion: NUMERO_TEXTO_RE.test(l.seccion || '') ? '' : l.seccion, imagen: l.imagen, versiones: 1 });
+        }
+        listas.push({ tipo: 'capitulos', id: 't:' + k, nombre: new URL(k).pathname || '/', items: [...porNumero.values()].sort((x, y) => x.numero - y.numero) });
       } else {
-        listas.push({ tipo: 'titulos', id: 'g:' + k, nombre: new URL(k).pathname || '/',
+        // Títulos… o filtros del listado (géneros, etiquetas): esos no son series
+        const filtros = grupo.filter(l => l.filtro).length >= grupo.length * 0.6;
+        listas.push({ tipo: filtros ? 'filtros' : 'titulos', id: 'g:' + k, nombre: new URL(k).pathname || '/',
                       items: base.map(l => ({ url: l.url, texto: nombreDe(l), seccion: l.seccion, imagen: l.imagen })) });
       }
     }
@@ -171,13 +213,20 @@
     const ch = collectChapters();
     const mayor = Math.max(0, ...listas.filter(l => l.tipo === 'capitulos').map(l => l.items.length));
     if (ch.list.length >= 2 && ch.list.length > mayor && (ch.pat || ch.list.every(c => c.url))) {
-      listas.push({ tipo: 'capitulos', id: 'x:extension', nombre: 'por número', items: ch.list.map(c => ({
+      const items = ch.list.map(c => ({
         url: c.url || ch.pat.pre + (c.raw || numForms(c.numero, ch.width)[0]) + ch.pat.post,
-        texto: c.title, numero: c.numero, seccion: '' })) });
+        texto: c.title, numero: c.numero, seccion: '' }));
+      // Tampoco acá valen los filtros: "/genero/12" tiene la forma de un capítulo y no lo es
+      const deFiltro = (i) => { try { return esFiltro(new URL(i.url)); } catch { return false; } };
+      if (items.filter(deFiltro).length < items.length * 0.6) listas.push({ tipo: 'capitulos', id: 'x:extension', nombre: 'por número', items });
     }
 
-    // Primero los capítulos y, dentro de cada tipo, la lista más larga
-    return listas.sort((a, b) => (a.tipo === b.tipo ? b.items.length - a.items.length : a.tipo === 'capitulos' ? -1 : 1));
+    // Primero los capítulos, después los títulos y al final los filtros. Entre listas de títulos
+    // va antes la que tiene tapas (las series de un catálogo las tienen; un menú, no) y, a
+    // igualdad, la más larga.
+    const orden = { capitulos: 0, titulos: 1, filtros: 2 };
+    const tapas = (l) => l.items.filter(i => i.imagen).length;
+    return listas.sort((a, b) => orden[a.tipo] - orden[b.tipo] || (a.tipo === 'titulos' ? tapas(b) - tapas(a) : 0) || b.items.length - a.items.length);
   }
 
   function siguientePagina() {
@@ -232,6 +281,33 @@
     return Math.max(0, ...carpetas.values()) < 3;
   }
 
+  // Links del mismo sitio que parecen llevar a su listado completo ("Directorio", "Biblioteca",
+  // /library…): primero los que lo dicen en su texto, después los que lo dicen en su dirección.
+  // Se miran todos los links de la página: el del listado suele traer la página o el orden
+  // (/library?order=…&page=1), y por eso no entra en las listas de títulos.
+  function catalogosDe() {
+    const aca = noSlash(location.origin + location.pathname), vistos = new Map();
+    for (const el of document.querySelectorAll('a[href]')) {
+      let u;
+      try { u = new URL(el.getAttribute('href'), document.baseURI); } catch { continue; }
+      if (u.origin !== location.origin) continue;
+      const texto = textoDe(el) || limpio(el.getAttribute('aria-label')) || limpio(el.title);
+      let ruta = u.pathname;
+      try { ruta = decodeURIComponent(ruta); } catch {}
+      const porRuta = CATALOGO_RUTA_RE.test(ruta), porTexto = CATALOGO_RE.test(sinAdornos(texto));
+      if (!porRuta && !porTexto) continue;
+      // La dirección del listado: sin el número de página; y si la dirección sola ya lo nombra, sin el orden ni los filtros
+      if (porRuta) u.search = '';
+      else for (const k of [...u.searchParams.keys()]) if (/^(?:page|pagina|pag|p)$/i.test(k)) u.searchParams.delete(k);
+      const destino = u.href.split('#')[0];
+      if (noSlash(u.origin + u.pathname) === aca) continue;             // ya se está ahí
+      const ya = vistos.get(noSlash(destino));
+      if (!ya) vistos.set(noSlash(destino), { url: destino, texto: texto || ruta, porTexto });
+      else if (porTexto && !ya.porTexto) Object.assign(ya, { texto, porTexto });
+    }
+    return [...vistos.values()].sort((a, b) => b.porTexto - a.porTexto).slice(0, 5).map(({ url, texto }) => ({ url, texto }));
+  }
+
   const comandos = {
     // Imágenes que parecen páginas (cargadas o no) y links: para saber cuándo la página terminó de armarse
     contar: () => ({ imagenes: countCandidates(), links: document.querySelectorAll('a[href]').length, listo: document.readyState === 'complete' }),
@@ -242,10 +318,8 @@
       // Muchas imágenes grandes no alcanzan: la portada de un sitio también las tiene (las tapas)
       const esCapitulo = (looksLikeChapter() || (countCandidates() >= 5 && !!c)) && !pareceListado();
       const links = juntarLinks();
-      const aca = location.origin;
-      const rutaDe = (url) => { try { return decodeURIComponent(new URL(url).pathname); } catch { return ''; } };
-      const porTexto = links.filter(l => l.url.startsWith(aca + '/') && CATALOGO_RE.test(sinAdornos(l.texto)));
-      const porRuta = links.filter(l => l.url.startsWith(aca + '/') && !porTexto.includes(l) && CATALOGO_RUTA_RE.test(rutaDe(l.url)));
+
+
       return {
         url: location.href.split('#')[0], titulo: limpio(document.title),
         // Cómo se llama la serie de esta página, si se puede saber: la del capítulo o el título grande
@@ -255,7 +329,7 @@
         siguiente: siguientePagina(),
         // Links del mismo sitio que parecen llevar al listado completo ("Directorio", "Biblioteca"…):
         // primero los que lo dicen en su texto, después los que lo dicen en su dirección
-        catalogos: [...porTexto, ...porRuta].slice(0, 5).map(l => ({ url: l.url, texto: l.texto || rutaDe(l.url) })),
+        catalogos: catalogosDe(),
         sigueCreciendo: sigue,                        // la página seguía cargando más al bajar: puede faltar
       };
     },

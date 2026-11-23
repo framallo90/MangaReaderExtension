@@ -238,6 +238,11 @@ module.exports = async function probar(api) {
     eq('  pedir dos veces la misma no la baja de nuevo', await api.tapa(T + imgs[0], T + '/') === mini, true);
     eq('  lo que no es una imagen no pasa', await api.tapa(T + '/biblioteca', T + '/').then(() => 'pasó', e => e.message), 'No es una imagen');
     eq('  ni una dirección que no es de la web', await api.tapa('file:///c:/windows/win.ini', T + '/').then(() => 'pasó', e => e.message), 'La dirección de la imagen no es válida');
+    eq('  los links de géneros van aparte, como filtros: no se mezclan con los títulos ni quedan primeros', pt.listas.map(l => `${l.tipo} ${l.items.length}`).join(' | '), 'titulos 8 | titulos 3 | filtros 10');
+    const dos = await api.analizar(T + '/obra/2/dos');
+    eq('una serie con el número en el renglón y no en el link, y más de un link por capítulo: igual arma su lista de capítulos',
+      (lista(dos, 'capitulos')?.items || []).map(i => `${i.numero}=${i.texto}` + (i.versiones > 1 ? ` (${i.versiones})` : '')).join(' | '),
+      '1=Capítulo 1 Leer | 2=Capítulo 2: El viaje Grupo A Grupo B (2) | 3=Capítulo 3: El final Grupo A');
     const bib = await api.analizar(T + '/biblioteca');
     eq('el listado completo, con una tapa por obra, tampoco es un capítulo', `${bib.capitulo} · ${lista(bib, 'titulos').items.length} títulos`, 'null · 12 títulos');
     const l5 = await api.analizar(T + '/lector/5'), l7 = await api.analizar(T + '/lector/7');
@@ -394,6 +399,14 @@ module.exports = async function probar(api) {
     await hasta(`document.querySelectorAll('#lista .fila').length === 8`, 'la portada de tapas');
     eq('  la portada muestra sus títulos y las pistas del listado completo', await titulos() + ' · ' + await en(`[...document.querySelectorAll('#pistas button')].map(e => e.textContent).join(', ') + ' · ' + document.querySelector('#capitulo').hidden`),
       'Uno, Dos, Tres, Cuatro, Cinco, Seis, Siete, Ocho · 📚 Biblioteca ›, Explorar todo › · true');
+    eq('  una lista de títulos es para entrar: sin casillas ni "Todos", y los géneros van en su pestaña',
+      await en(`document.querySelectorAll('#lista .fila input').length + ' ' + document.querySelector('#todos').hidden + ' · ' + [...document.querySelectorAll('#tabs button')].map(b => b.textContent).join(' | ')`),
+      '0 true · Títulos y links (8) · /obra/ | Títulos y links (3) · / | Géneros y filtros (10) · /genero');
+    const tildables = () => en(`document.querySelectorAll('#lista .fila input').length + ' ' + document.querySelector('#todos').hidden + ' ' + document.querySelector('#sonCapitulos').textContent`);
+    await en(`document.querySelector('#sonCapitulos').click()`);
+    const conCasillas = await tildables();
+    await en(`document.querySelector('#sonCapitulos').click()`);
+    eq('  "Son capítulos" deja tildar una lista de títulos (una serie que los nombra sin número), y se puede deshacer', conCasillas + ' · ' + await tildables(), '8 false No son capítulos · 0 true Son capítulos');
     await hasta(`${conMiniatura} === 8`, 'las tapas de la portada');
     await en(`document.querySelector('#verTapas').click()`);
     eq('  el botón "Tapas" las apaga: queda la lista de siempre, y se recuerda', await mosaico() + ' · ' + api.config().tapas, 'false block 0 0 botón apagado · false');
