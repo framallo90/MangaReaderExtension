@@ -8,7 +8,7 @@
 //      CAPTURAS=<carpeta> node tests/e2e.js              (además guarda capturas de los diálogos)
 // Qué navegador hace falta: ver tests/navegador.js.
 const fs = require('fs'), path = require('path'), http = require('http'), zlib = require('zlib');
-const { lanzar, lote, zipNames, pdfPages, sleep, root, ultimaVersion } = require('./navegador');
+const { lanzar, lote, zipNames, pdfPages, sleep, root, ultimaVersion, RAIZ } = require('./navegador');
 
 const version = process.argv[2] || ultimaVersion();
 const EXT = path.join(root, version, 'manga-reader-ext');
@@ -376,7 +376,7 @@ function serve(req, res) {
     await c9.evalInExtension(b.extId, `window.__mangaReaderAlive = () => false; 1`);
     await b.ext.eval(`(async () => {
       const [tab] = await chrome.tabs.query({ url: ${JSON.stringify(SITE + '/manga/es/todos/09')} });
-      await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: ['styles.css'] });
+      ${fs.existsSync(path.join(EXT, 'styles.css')) ? `await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: ['styles.css'] });` : '/* desde la 2.11 no hay hoja que inyectar: va adentro del shadow root */'}
       await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['sagas.js', 'content.js'] }); })()`);
     eq('la copia nueva limpia lo que dejó la vieja', await c9.eval(`document.querySelectorAll('#mr-fab').length`), 0);
     await c9.waitFor(`!!document.querySelector('#mr-fab')`, 'la burbuja de la copia nueva');
@@ -835,7 +835,7 @@ function serve(req, res) {
       await tm.waitFor(`document.readyState === 'complete'`, 'el listado');
       await b.command(`${SITE}/tomos/`, 'batch');
       await tm.waitFor(`!!document.querySelector('#mr-chapter-go')`, 'el diálogo');
-      const vista = () => tm.eval(`(() => { const q = (s) => document.querySelector(s); return (q('#mr-chapter-tabs').hidden ? 'sin pestañas' : 'pestañas') + ' · ' +
+      const vista = () => tm.eval(`(() => { const q = (s) => ${RAIZ}.querySelector(s); return (q('#mr-chapter-tabs').hidden ? 'sin pestañas' : 'pestañas') + ' · ' +
         (q('#mr-tab-tomos').classList.contains('on') ? 'Tomos' : 'Capítulos') + ' · lista ' + (getComputedStyle(q('#mr-chapter-list')).display === 'none' ? 'oculta' : 'a la vista') +
         ' · tomos ' + (getComputedStyle(q('#mr-tomos-list')).display === 'none' ? 'ocultos' : 'a la vista'); })()`);
       const tomosFilas = () => tm.eval(`[...document.querySelectorAll('#mr-tomos-list .mr-tomo-item')].map(r => { const i = r.querySelector('input');
@@ -936,6 +936,10 @@ function serve(req, res) {
         'none · block · Ejemplo: Descargas/MangaReader/Serie Tomos/Serie Tomos 0001');
       await t1.close();
     }
+
+    // ═══ 15. Lo que sumó la 2.11 (shadow root, iframes, cola, orden de las páginas…) ═══
+    // Va en tests/e2e_211.js, que también se puede correr solo. estilos.js existe desde la 2.11.
+    if (fs.existsSync(path.join(EXT, 'estilos.js'))) await require('./e2e_211').correr({ b, eq });
   } catch (e) {
     fails++;
     console.log('FALLA la prueba se cortó: ' + e.message);

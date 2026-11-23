@@ -5,14 +5,23 @@ const fs = require('fs'), vm = require('vm'), path = require('path');
 const { probador } = require('./extraer');
 const src = fs.readFileSync(path.join(process.argv[2], 'background.js'), 'utf8');
 // Los scripts que el manifest carga en cada pestaña: los que se inyectan a mano tienen que ser los mismos
-const SCRIPTS = JSON.parse(fs.readFileSync(path.join(process.argv[2], 'manifest.json'), 'utf8')).content_scripts[0].js;
+const MANIFEST = JSON.parse(fs.readFileSync(path.join(process.argv[2], 'manifest.json'), 'utf8'));
+const SCRIPTS = MANIFEST.content_scripts[0].js;
+// Hasta la 2.10 se inyectaba también la hoja de estilos; desde la 2.11 va adentro del shadow root
+const CSS = (MANIFEST.content_scripts[0].css || []).map(f => `css ${f} | `).join('');
 const { eq, fin } = probador();
 const ev = () => { const ls = []; return { addListener: f => ls.push(f), removeListener: f => { const i = ls.indexOf(f); if (i >= 0) ls.splice(i, 1); }, emit: (...a) => [...ls].forEach(f => f(...a)), count: () => ls.length }; };
 const wait = (ms) => new Promise(r => setTimeout(r, ms));
 
+// Desde la 2.11 el script corre en todos los marcos de la pestaña y el service worker elige a cuál
+// hablarle según cuántas candidatas cuenta cada uno
+const MARCOS = (MANIFEST.content_scripts[0].all_frames === true);
+
 // build: lo que responde el documento offscreen · results: cómo termina cada descarga, por URL
 // ('complete' por defecto, 'interrupted', 'hang') · onTabMessage: lo que responde la pestaña
-function setup({ build, results = {}, invalidName = false, onTabMessage } = {}) {
+// marcos: lo que cuenta cada marco de la pestaña, [[frameId, candidatas]…] (-1: no tiene el script);
+// puede ser una función, para que cambie de una vez a la otra
+function setup({ build, results = {}, invalidName = false, onTabMessage, marcos = [[0, 0]] } = {}) {
   const onChanged = ev(); let nextId = 1, jobN = 0, offscreen = 0;
   const items = {}, log = [], revoked = [], tabLog = [], t = { closed: 0, onRemove: null };
   const finishDownload = (id, result) => {
@@ -48,7 +57,8 @@ function setup({ build, results = {}, invalidName = false, onTabMessage } = {}) 
       },
     },
     tabs: {
-      sendMessage: async (tabId, m) => { tabLog.push(`msg ${tabId} ${m.action}`); return onTabMessage ? onTabMessage(tabId, m) : { ok: true }; },
+      // (el marco de arriba es el 0 y no se anota: "msg 9 save" va arriba, "msg 9#3 save" al marco 3)
+      sendMessage: async (tabId, m, o) => { tabLog.push(`msg ${tabId}${o?.frameId ? '#' + o.frameId : ''} ${m.action}`); return onTabMessage ? onTabMessage(tabId, m, o?.frameId || 0) : { ok: true }; },
       create: async (o) => { tabLog.push(`create ${o.url} active=${o.active}`); return { id: 50 }; },
       get: async (id) => ({ id, status: 'complete' }),
       remove: async (id) => { tabLog.push(`remove ${id}`); if (t.onRemove) t.onRemove(id); },
@@ -56,7 +66,13 @@ function setup({ build, results = {}, invalidName = false, onTabMessage } = {}) 
     },
     scripting: {
       insertCSS: async (o) => { tabLog.push('css ' + o.files.join('+')); },
-      executeScript: async (o) => { tabLog.push('js ' + o.files.join('+')); },
+      executeScript: async (o) => {
+        if (o.func) {                                     // la cuenta de candidatas, marco por marco
+          tabLog.push(`cuenta ${o.target.tabId}`);
+          return (typeof marcos === 'function' ? marcos(o.target.tabId) : marcos).map(([frameId, result]) => ({ frameId, result }));
+        }
+        tabLog.push('js ' + o.files.join('+') + (o.target.allFrames ? ' en todos los marcos' : ''));
+      },
     },
   };
   // El tiempo corre 500 veces más rápido para que la prueba no tarde (20 s → 40 ms),
@@ -133,33 +149,84 @@ const brief = (r) => `páginas=${r.pages} fallidas=[${r.failed}] archivos=[${r.f
   }
 
   // ── Hablarle a la pestaña ──
-  {
+  if (!MARCOS) {                                  // hasta la 2.10: se le habla y, si no contesta, se inyecta
     let n = 0;
     const t = setup({ onTabMessage: () => { if (!n++) throw new Error('Could not establish connection. Receiving end does not exist.'); return { ok: true }; } });
     const r = await t.ctx.tellTab(9, { action: 'save' });
     eq('pestaña sin el script: se inyecta (los mismos archivos que carga el manifest, en su orden) y se reintenta',
-      t.tabLog.join(' | ') + ' → ' + JSON.stringify(r), `msg 9 save | css styles.css | js ${SCRIPTS.join('+')} | msg 9 save → {"ok":true}`);
-  }
-  {
-    const t = setup({ onTabMessage: () => ({ ok: true }) });
-    await t.ctx.tellTab(9, { action: 'save' });
-    eq('pestaña con el script: no se inyecta nada', t.tabLog.join(' | '), 'msg 9 save');
-  }
-  {
-    const t = setup({ onTabMessage: () => { throw new Error('No tab with id: 9'); } });
-    let r; try { await t.ctx.tellTab(9, { action: 'save' }); r = 'no falló'; } catch (e) { r = e.message; }
-    eq('otro error no se tapa', r + ' · ' + t.tabLog.join(' | '), 'No tab with id: 9 · msg 9 save');
+      t.tabLog.join(' | ') + ' → ' + JSON.stringify(r), `msg 9 save | ${CSS}js ${SCRIPTS.join('+')} | msg 9 save → {"ok":true}`);
+    const t2 = setup({ onTabMessage: () => ({ ok: true }) });
+    await t2.ctx.tellTab(9, { action: 'save' });
+    eq('pestaña con el script: no se inyecta nada', t2.tabLog.join(' | '), 'msg 9 save');
+    const t3 = setup({ onTabMessage: () => { throw new Error('No tab with id: 9'); } });
+    let r3; try { await t3.ctx.tellTab(9, { action: 'save' }); r3 = 'no falló'; } catch (e) { r3 = e.message; }
+    eq('otro error no se tapa', r3 + ' · ' + t3.tabLog.join(' | '), 'No tab with id: 9 · msg 9 save');
+  } else {                                        // 2.11: primero se cuentan las candidatas de cada marco
+    let vueltas = 0;
+    const t = setup({ marcos: () => (vueltas++ ? [[0, 6]] : [[0, -1]]) });
+    const r = await t.ctx.tellTab(9, { action: 'save' });
+    eq('pestaña sin el script: se inyecta en todos los marcos (los mismos archivos que carga el manifest, en su orden) y se le habla',
+      t.tabLog.join(' | ') + ' → ' + JSON.stringify(r), `cuenta 9 | js ${SCRIPTS.join('+')} en todos los marcos | cuenta 9 | msg 9 save → {"ok":true}`);
+    const t2 = setup({ marcos: [[0, 6]] });
+    await t2.ctx.tellTab(9, { action: 'save' });
+    eq('pestaña con el script: no se inyecta nada', t2.tabLog.join(' | '), 'cuenta 9 | msg 9 save');
+    const t3 = setup({ marcos: [[0, 6]], onTabMessage: () => { throw new Error('No tab with id: 9'); } });
+    let r3; try { await t3.ctx.tellTab(9, { action: 'save' }); r3 = 'no falló'; } catch (e) { r3 = e.message; }
+    eq('otro error no se tapa', r3 + ' · ' + t3.tabLog.join(' | '), 'No tab with id: 9 · cuenta 9 | msg 9 save');
+
+    // ── Marcos: el lector en un iframe ──
+    const a = (marcos, msg) => { const x = setup({ marcos }); return x.ctx.tellTab(9, msg).then(() => x.tabLog.filter(l => l.startsWith('msg')).join(' | ')); };
+    eq('guardar va al marco con más candidatas (el lector en un iframe)', await a([[0, 0], [3, 6]], { action: 'save' }), 'msg 9#3 save');
+    eq('  con lo mismo arriba y en el iframe, va arriba: las páginas cuentan una vez', await a([[0, 6], [3, 6]], { action: 'save' }), 'msg 9 save');
+    eq('  un marco sin nada no le gana a la página', await a([[0, 2], [4, 0], [5, -1]], { action: 'save' }), 'msg 9 save');
+    eq('el diálogo de varios capítulos va siempre arriba: ahí está la lista de la serie', await a([[0, 0], [3, 6]], { action: 'batch' }), 'msg 9 batch');
+    {
+      const x = setup({ marcos: [[0, 0], [3, 6]] });
+      x.ctx.chrome.commands.onCommand.emit('save', { id: 9 });
+      await wait(20);
+      eq('Alt+S con el lector en un iframe: el pedido llega al iframe', x.tabLog.filter(l => l.startsWith('msg')).join(' | '), 'msg 9#3 save');
+    }
+    {
+      const x = setup({ marcos: [[0, 0], [3, 6], [7, 4]] });
+      let resp;
+      x.ctx.chrome.runtime.onMessage.emit({ action: 'candidato' }, { tab: { id: 9 }, frameId: 7 }, (r) => { resp = r; });
+      await wait(20);
+      const uno = `${JSON.stringify(resp)} · ${x.tabLog.filter(l => l.startsWith('msg')).join(' | ')}`;
+      x.tabLog.length = 0;
+      x.ctx.chrome.runtime.onMessage.emit({ action: 'candidato' }, { tab: { id: 9 }, frameId: 3 }, (r) => { resp = r; });
+      await wait(20);
+      eq('la burbuja queda en un solo marco: el que tiene más gana, y a los otros se les avisa que cedan',
+        `${uno} || ${JSON.stringify(resp)} · ${x.tabLog.filter(l => l.startsWith('msg')).join(' | ')}`,
+        '{"ok":true,"gana":false} · msg 9 ceder | msg 9#7 ceder || {"ok":true,"gana":true} · msg 9 ceder | msg 9#7 ceder');
+    }
+    {
+      const x = setup({ marcos: [[0, 0], [3, 6]], onTabMessage: (id, m, f) => (m.action === 'contexto' ? { ok: true, contexto: { nombre: 'S/S 0007', marco: f } } : { ok: true }) });
+      let resp;
+      x.ctx.chrome.runtime.onMessage.emit({ action: 'contexto' }, { tab: { id: 9 }, frameId: 3 }, (r) => { resp = r; });
+      await wait(20);
+      eq('el iframe pide el nombre del capítulo: contesta la página de arriba', `${x.tabLog.join(' | ')} → ${resp?.contexto?.nombre} (marco ${resp?.contexto?.marco})`, 'msg 9 contexto → S/S 0007 (marco 0)');
+    }
+    {
+      const x = setup({ build: (m) => { x.ctx.chrome.runtime.onMessage.emit({ target: 'background', action: 'progress', jobId: m.jobId, done: 1, total: 2 }, {}, () => {}); return { ok: true, pages: 2, failed: [], files: FILES.slice(0, 1) }; } });
+      await x.ctx.runBuild({ ...REQ, formats: { pdf: true } }, { tab: { id: 7, index: 3 }, frameId: 3 });
+      eq('el progreso de la bajada vuelve al marco que pidió el guardado', x.tabLog.filter(l => l.startsWith('msg')).join(' | '), 'msg 7#3 progress');
+    }
   }
 
   // ── Un capítulo de un lote ──
   const CHAP = { url: 'https://s.com/manga/es/todos/05', formats: { pdf: true }, numero: 5, strict: true };
   {
-    const t = setup({ onTabMessage: (id, m) => m.action === 'count' ? { ok: true, n: 15 } : { ok: true, complete: true, pages: 15, name: 'S/S 0005', lines: [] } });
+    const t = setup({ marcos: [[0, 15]], onTabMessage: (id, m) => m.action === 'count' ? { ok: true, n: 15 } : { ok: true, complete: true, pages: 15, name: 'S/S 0005', lines: [] } });
     const r = await t.ctx.batchChapter(CHAP, SENDER);
     eq('capítulo bien: resultado', `${r.complete} ${r.pages} ${r.name}`, 'true 15 S/S 0005');
     eq('capítulo bien: abre en segundo plano al lado y cierra', t.tabLog[0] + ' … ' + t.tabLog[t.tabLog.length - 1], 'create https://s.com/manga/es/todos/05 active=false … remove 50');
-    eq('capítulo bien: espera a que las páginas dejen de sumarse', t.tabLog.filter(l => l === 'msg 50 count').length >= 3, true);
+    eq('capítulo bien: espera a que las páginas dejen de sumarse', t.tabLog.filter(l => l === (MARCOS ? 'cuenta 50' : 'msg 50 count')).length >= 3, true);
     eq('capítulo bien: no queda nada anotado', t.ctx.workers.size + t.ctx.owners.size, 0);
+  }
+  if (MARCOS) {                                   // el capítulo de un lote, con el lector en un iframe
+    const t = setup({ marcos: [[0, 0], [3, 6]], onTabMessage: (id, m) => ({ ok: true, complete: true, pages: 6, name: 'S/S 0005', lines: [] }) });
+    const r = await t.ctx.batchChapter(CHAP, { tab: { id: 7, index: 3 }, frameId: 0 });
+    eq('lote con el lector en un iframe: se guarda desde el iframe', `${r.pages} páginas · ${t.tabLog.filter(l => l.startsWith('msg')).join(' | ')}`, '6 páginas · msg 50#3 autoSave');
   }
   if (SCRIPTS.includes('plantilla.js')) {      // 2.10: el tomo y el nombre que el capítulo tiene en la lista llegan a su pestaña
     let visto = null;

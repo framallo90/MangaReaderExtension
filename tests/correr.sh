@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 V="${1:-$(node tests/ultima_version.js)}"
 DIR="$V/manga-reader-ext"
 echo "== Versión: $V"
-for f in content.js background.js offscreen.js popup.js opciones.js sagas.js sitios.js agrupar.js plantilla.js; do
+for f in content.js background.js offscreen.js popup.js opciones.js sagas.js sitios.js agrupar.js plantilla.js estilos.js; do
   if [ -f "$DIR/$f" ]; then node --check "$DIR/$f"; fi
 done && echo "Sintaxis OK"
 echo "== Nombres y dirección";              node tests/test_nombres.js   "$DIR"

@@ -25,6 +25,13 @@ function findChromium() {
   return '';
 }
 
+// Desde la 2.11 el diálogo y la burbuja están adentro del shadow root de #mr-host: un
+// document.querySelector('#mr-save') ya no los encuentra. Para no reescribir cada prueba, las
+// consultas por algo de la extensión (un selector escrito ahí mismo, con "mr-") se hacen sobre
+// ese root. En las versiones anteriores no hay host y quedan sobre el documento, como siempre.
+const RAIZ = `(document.querySelector('#mr-host')?.shadowRoot || document)`;
+const enShadow = (expr) => String(expr).replace(/\bdocument\.(querySelector(?:All)?)\((?=\s*(['"`])(?![^'"`]*#mr-host)[^'"`]*\bmr-)/g, `${RAIZ}.$1(`);
+
 class Cdp {
   constructor(ws) {
     this.ws = ws; this.n = 0; this.pending = new Map(); this.listeners = [];
@@ -67,7 +74,7 @@ class Cdp {
         return r.result.value;
       },
       async eval(expr) {
-        const r = await cdp.send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true }, sessionId);
+        const r = await cdp.send('Runtime.evaluate', { expression: enShadow(expr), awaitPromise: true, returnByValue: true }, sessionId);
         if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text);
         return r.result.value;
       },
@@ -206,4 +213,4 @@ function pdfPages(file) {
   return (t.match(/\/Type \/Page /g) || []).length + ' × ' + sizes.join(',');
 }
 
-module.exports = { lanzar, lote, zipNames, pdfPages, sleep, root, ultimaVersion, findChromium };
+module.exports = { lanzar, lote, zipNames, pdfPages, sleep, root, ultimaVersion, findChromium, RAIZ, enShadow };

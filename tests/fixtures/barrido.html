@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Serie Barrido Capítulo 4 | Sitio de prueba</title>
+</head>
+<body style="margin:0">
+<img data-propio style="display:block" width="420" height="640" src="/fx/img/barrido/1.jpg">
+<img data-propio style="display:block" width="420" height="640" src="/fx/img/barrido/2.jpg">
+<img data-propio style="display:block" width="420" height="640" src="/fx/img/barrido/3.jpg">
+<img data-propio style="display:block" width="420" height="640" src="/fx/img/barrido/4.jpg">
+<img data-propio style="display:block" width="420" height="640" src="/fx/img/barrido/5.jpg">
+<img data-propio style="display:block" width="420" height="640" src="/fx/img/barrido/6.jpg">
+<!-- Cada medio segundo saca de <body> lo que el sitio no puso (lo que no lleva su marca) -->
+<script data-propio>
+  window.barridos = 0;
+  setInterval(() => {
+    for (const el of [...document.body.children]) if (!el.hasAttribute('data-propio')) { el.remove(); window.barridos++; }
+  }, 500);
+</script>
+</body>
+</html>

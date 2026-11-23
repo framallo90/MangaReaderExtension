@@ -32,8 +32,8 @@ const BLOQUES_NUEVOS = [/function isDateArchive\(/,         // 2.8.6
 const LINEAS = [/const OURS = /, /const MIN_SIDE = /, /const SAGAS = /, /let userSagas = /, /const noSlash = /];
 const LINEAS_NUEVAS = [/const MONTH_RE = /,                 // 2.8.6
   /let esquemaNombres = /];                                 // 2.10
-// Archivos compartidos que van antes que content.js, si la versión los trae (2.10)
-const COMPARTIDOS = ['agrupar.js', 'plantilla.js'];
+// Archivos compartidos que van antes que content.js, si la versión los trae (2.10; estilos.js, 2.11)
+const COMPARTIDOS = ['agrupar.js', 'plantilla.js', 'estilos.js'];
 
 // Carga esas funciones como si corrieran en una página con ese título, dirección, links
 // ([href, texto, encabezado]) y opciones de <select> ([value, texto, disabled, grupo]).
