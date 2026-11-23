@@ -30,7 +30,12 @@ async function sitio(pedidos = {}, estado = { rotos: new Set(), imagen: null }) 
     if (m && fs.existsSync(path.join(FIXTURES, m[1]))) return pagina(m[1]);
     if (/^\/fx\/[a-z]+\/$/.test(u)) return pagina('serie.html');
     m = u.match(/^\/fx\/([a-z]+)\/leer\/(\d+)$/);
-    if (m) return estado.rotos.has(`${m[1]}/${m[2]}`) ? send('text/plain', 'no', 404) : pagina('capitulo.html');
+    if (m) {
+      if (estado.rotos.has(`${m[1]}/${m[2]}`)) return send('text/plain', 'no', 404);
+      const mal = estado.capitulo ? estado.capitulo(`${m[1]}/${m[2]}`) : null;      // el sitio contesta "esperá" en vez del capítulo
+      if (mal) return send('text/html; charset=utf-8', '<!doctype html><meta charset="UTF-8"><title>Esperá</title><p>Demasiados pedidos.</p>', mal.status, mal.headers || {});
+      return pagina('capitulo.html');
+    }
     if (/^\/fx\/img\/[\w/-]+\.jpg$/.test(u)) {
       const mal = estado.imagen ? estado.imagen(u, req) : null;
       return mal ? send('text/plain', 'no', mal.status, mal.headers || {}) : send('image/jpeg', JPG);
@@ -232,6 +237,60 @@ const AREAS = {
     for (const n of [1, 2, 3, 4]) estan.push(await pdfDe(pdf('Serie Corte', n), 3000) === '6 × 420x640' ? n : `${n}: falta`);
     eq('  Reanudar baja lo que faltaba: quedan los 4 capítulos y la cola vacía', `${/^✅ Listo/.test(String(fin3))} · ${estan.join(',')} · ${colaComo(await b.storage('cola'))}`, 'true · 1,2,3,4 · sin cola');
     await p3.close();
+  },
+
+  // ═══ 4. Ritmo, concurrencia y espera cuando el sitio dice "esperá" (429) ═══
+  async ritmo({ b, S, eq, estado, pedidos }) {
+    console.log('\n── 2.11 · Ritmo del lote y espera ante un 429');
+    const pdf = (serie, n) => path.join(b.dl, 'MangaReader', serie, `${serie} ${String(n).padStart(4, '0')}.pdf`);
+    const lotear = async (url) => {
+      const pg = await abrirLote(b, url, 3);
+      await pg.eval(`document.querySelector('#mr-chapter-all').click(); document.querySelector('#mr-chapter-go').click()`);
+      const fin = await lote.fin(pg, 240000).catch(e => e.message);
+      await pg.close();
+      return String(fin);
+    };
+    await b.ext.eval(`chrome.storage.local.remove('cola')`);
+    await b.setStorage({ ritmo: { pausa: 0, espera429: 2 } });       // sin pausa entre capítulos, y la parada del lote de 2 s en vez de 60
+
+    // Una imagen que responde 429. El sitio es estricto, como los de verdad: mientras no pasen
+    // los 2 segundos que pide en Retry-After sigue respondiendo 429, y cada pedido apurado vuelve
+    // a poner el reloj en cero. (Con Retry-After: 1 la 2.10 zafaba: reintentaba a ciegas a los 0,7 y 2,1 s.)
+    let desde = 0, rechazos = 0;
+    estado.imagen = (u, req) => {
+      if (u !== '/fx/img/ritmo/2/3.jpg' || req.headers.accept !== 'image/*') return null;      // solo cuando la pide la extensión para guardarla
+      const ahora = Date.now();
+      if (desde && ahora - desde >= 1900) return null;
+      desde = ahora; rechazos++;
+      return { status: 429, headers: { 'Retry-After': '2' } };
+    };
+    const fin = await lotear(S + '/fx/ritmo/?caps=3');
+    eq('429 con Retry-After en la 3ª imagen del 2º capítulo: espera lo que pide el sitio, el capítulo sale completo y el lote sigue',
+      `${fin.split('\n')[0]} · capítulo 2: ${await pdfDe(pdf('Serie Ritmo', 2), 3000)} · rechazos del sitio: ${rechazos}`, '✅ Listo: 3 capítulos guardados · capítulo 2: 6 × 420x640 · rechazos del sitio: 1');
+    estado.imagen = null;
+
+    // Un capítulo entero que responde 429
+    estado.capitulo = (clave) => (clave === 'pide/2' ? { status: 429 } : null);
+    const antes = pedidos['/fx/pide/leer/2'] || 0;
+    const fin2 = await lotear(S + '/fx/pide/?caps=3');
+    eq('el capítulo entero responde 429: el lote para, lo reintenta una vez y, si vuelve a fallar, queda en falla con su motivo',
+      `${fin2.split('\n').filter(l => /^Listo|Capítulo 2/.test(l)).join(' / ')} · se abrió ${(pedidos['/fx/pide/leer/2'] || 0) - antes} veces`,
+      'Listo: 2 capítulos guardados · 1 con problemas / Capítulo 2: el sitio pidió esperar · se abrió 2 veces');
+    eq('  y los otros capítulos se guardaron igual', `${await pdfDe(pdf('Serie Pide', 1), 3000)} · ${await pdfDe(pdf('Serie Pide', 3), 3000)} · cola: ${colaComo(await b.storage('cola'))}`,
+      '6 × 420x640 · 6 × 420x640 · cola: 1 listo, 2 fallo (el sitio pidió esperar), 3 listo');
+    estado.capitulo = null;
+    await b.ext.eval(`chrome.storage.local.remove(['cola', 'ritmo'])`);
+
+    // La página de opciones
+    await b.ext.eval(`location.reload()`);
+    await b.ext.waitFor(`document.readyState === 'complete' && !!document.querySelector('#ritmoGuardar') && document.querySelector('#ritmoPausa').value !== ''`, 'la sección del ritmo en opciones');
+    eq('opciones: sin nada guardado muestra el ritmo de siempre', await b.ext.eval(`['ritmoPausa', 'ritmoCada', 'ritmoSeg', 'ritmoConc'].map(i => document.getElementById(i).value).join(' · ')`), '1.5 · 0 · 30 · 6');
+    await b.ext.eval(`(() => { const v = { ritmoPausa: '25', ritmoCada: '10', ritmoSeg: '45', ritmoConc: '1' }; for (const [i, x] of Object.entries(v)) document.getElementById(i).value = x; document.getElementById('ritmoGuardar').click(); })()`);
+    await b.ext.waitFor(`/Guardado/.test(document.querySelector('#ritmoMsg').textContent)`, 'el guardado del ritmo');
+    const r = (await b.storage('ritmo')) || {};
+    eq('  lo que se pasa de los límites se guarda en el límite (pausa 0–10, concurrencia 2–8), y los campos lo muestran',
+      `${r.pausa} · ${r.descansoCada} · ${r.descansoSeg} · ${r.concurrencia} · campos: ${await b.ext.eval(`document.getElementById('ritmoPausa').value + ' y ' + document.getElementById('ritmoConc').value`)}`, '10 · 10 · 45 · 2 · campos: 10 y 2');
+    await b.ext.eval(`chrome.storage.local.remove('ritmo')`);
   },
 };
 

@@ -14,7 +14,7 @@
   "options_ui": { "page": "opciones.html", "open_in_tab": true },
   "content_scripts": [{
     "matches": ["<all_urls>"],
-    "js": ["agrupar.js", "plantilla.js", "sagas.js", "estilos.js", "content.js"],
+    "js": ["agrupar.js", "plantilla.js", "sagas.js", "estilos.js", "ajustes.js", "content.js"],
     "all_frames": true,
     "run_at": "document_idle"
   }],

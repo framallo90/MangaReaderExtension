@@ -13,6 +13,7 @@
 const PDF_MAX_SIDE = 14400;   // límite práctico de tamaño de página en visores PDF (200 pulgadas)
 const FETCH_CONCURRENCY = 4;
 const FETCH_RETRIES = 2;      // reintentos por página, además del primer intento
+const WAIT_RETRIES = 3;       // veces que se espera y reintenta una página cuando el sitio responde 429 o 503
 const MIME = { jpg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif' };
 
 if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
@@ -98,7 +99,8 @@ async function fetchBytes(url) {
   const timer = setTimeout(() => ctrl.abort(), 30000);
   try {
     const r = await fetch(url, { signal: ctrl.signal, headers: { Accept: 'image/*' } });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
+    // El error lleva el código y lo que el sitio pide esperar: de eso depende si se reintenta y cuándo
+    if (!r.ok) throw Object.assign(new Error('HTTP ' + r.status), { status: r.status, retryAfter: r.headers.get('Retry-After') || '' });
     const data = new Uint8Array(await r.arrayBuffer());
     if (!data.length) throw new Error('respuesta vacía');
     return data;
@@ -107,17 +109,23 @@ async function fetchBytes(url) {
   }
 }
 
-// Un corte de red o un servidor ocupado se arreglan reintentando; un 403 o un 404, no
+// Un corte de red o un servidor ocupado se arreglan reintentando; un 403 o un 404, no.
+// Cuando el sitio pide esperar (429, o 503) se espera lo que diga en Retry-After, o 2, 4 y 8
+// segundos, hasta WAIT_RETRIES veces: reintentar antes solo alarga el castigo. Esas esperas no
+// gastan los reintentos comunes.
 async function fetchRetry(url) {
-  let err;
-  for (let t = 0; t <= FETCH_RETRIES; t++) {
-    if (t) await new Promise(r => setTimeout(r, 700 * t));
+  const pausa = (ms) => new Promise(r => setTimeout(r, ms));
+  const espera = globalThis.MR_AJUSTES?.esperaReintento || ((i) => 2000 * 2 ** i);
+  let err, esperas = 0;
+  for (let t = 0; t <= FETCH_RETRIES;) {
     try {
       return await fetchBytes(url);
     } catch (e) {
       err = e.name === 'AbortError' ? new Error('tardó demasiado') : e;
-      const status = +(/^HTTP (\d+)/.exec(e.message)?.[1] || 0);
-      if (status >= 400 && status < 500 && status !== 408 && status !== 429) break;
+      const status = e.status || 0;
+      if ((status === 429 || status === 503) && esperas < WAIT_RETRIES) { await pausa(espera(esperas++, e.retryAfter)); continue; }
+      if (status >= 400 && status < 500 && status !== 408) break;
+      if (++t <= FETCH_RETRIES) await pausa(700 * t);
     }
   }
   throw err;
@@ -397,5 +405,5 @@ function makeZip(files) {
 
 // Para tests en Node (no afecta a la extensión)
 if (typeof module !== 'undefined') {
-  module.exports = { jpegInfo, pngDirect, flateImage, makePdf, pdfText, makeZip, comicInfo, sniffExt, crc32 };
+  module.exports = { jpegInfo, pngDirect, flateImage, makePdf, pdfText, makeZip, comicInfo, sniffExt, crc32, fetchRetry };
 }

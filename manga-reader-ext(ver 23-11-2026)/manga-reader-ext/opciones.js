@@ -96,7 +96,7 @@ function mergeBackup(local, data) {
     }
   }
   const out = { savedChapters: saved };
-  for (const key of ['sagas', 'sagasText', 'saveFolders', 'batchPad', 'esquemaNombres']) {
+  for (const key of ['sagas', 'sagasText', 'saveFolders', 'batchPad', 'esquemaNombres', 'ritmo']) {
     const tipo = key === 'sagasText' || key === 'esquemaNombres' ? 'string' : 'object';
     if (local[key] == null && data[key] != null && typeof data[key] === tipo) out[key] = data[key];
   }
@@ -128,7 +128,7 @@ if (typeof module !== 'undefined') {
 if (typeof document !== 'undefined') {
   const $ = (id) => document.getElementById(id);
   const store = chrome.storage.local;
-  const KEYS = ['savedChapters', 'sagas', 'sagasText', 'saveFolders', 'fabBlockedHosts', 'batchPad', 'misSitios', 'esquemaNombres'];
+  const KEYS = ['savedChapters', 'sagas', 'sagasText', 'saveFolders', 'fabBlockedHosts', 'batchPad', 'misSitios', 'esquemaNombres', 'ritmo'];
   const el = (tag, props = {}, ...kids) => {
     const e = Object.assign(document.createElement(tag), props);
     e.append(...kids);
@@ -432,8 +432,28 @@ if (typeof document !== 'undefined') {
     say('tplMsg', propia ? 'Plantilla guardada. Vale desde el próximo capítulo que guardes.' : 'Quedó la predeterminada.', true);
   };
 
+  // ── Ritmo de las descargas ───────────────────────────
+  // Lo que se escribe pasa por normalizarRitmo (ajustes.js), lo mismo que usa el lote: lo que
+  // queda en los campos después de guardar es lo que se va a usar.
+  const A = globalThis.MR_AJUSTES;
+  const verRitmo = (r) => { $('ritmoPausa').value = r.pausa; $('ritmoCada').value = r.descansoCada; $('ritmoSeg').value = r.descansoSeg; $('ritmoConc').value = r.concurrencia; };
+  $('ritmoGuardar').onclick = async () => {
+    const antes = (await store.get(['ritmo'])).ritmo || {};
+    const r = A.normalizarRitmo({ ...antes, pausa: $('ritmoPausa').value, descansoCada: $('ritmoCada').value, descansoSeg: $('ritmoSeg').value, concurrencia: $('ritmoConc').value });
+    await store.set({ ritmo: r });
+    verRitmo(r);
+    say('ritmoMsg', `Guardado: ${r.pausa} s entre capítulos` + (r.descansoCada ? `, descanso de ${r.descansoSeg} s cada ${r.descansoCada}` : ', sin descanso') +
+      ` y ${r.concurrencia} imágenes a la vez. Vale desde el próximo lote.`, true);
+  };
+  $('ritmoDefecto').onclick = async () => {
+    await store.remove('ritmo');
+    verRitmo(A.normalizarRitmo(null));
+    say('ritmoMsg', 'Quedó el ritmo de siempre.', true);
+  };
+
   async function load() {
     const st = await store.get(KEYS);
+    verRitmo(A.normalizarRitmo(st.ritmo));
     saved = st.savedChapters || {};
     renderSaved();
     $('sagasText').value = typeof st.sagasText === 'string' && st.sagasText.trim() ? st.sagasText : includedText();

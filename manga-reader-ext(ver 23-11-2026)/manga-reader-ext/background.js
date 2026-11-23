@@ -44,7 +44,7 @@ chrome.commands.onCommand.addListener((command, tab) => {
 // manifest.json: content.js usa lo que definen los otros (lo comprueba tests/test_descargas.js).
 // No hay hoja de estilos que inyectar: va como texto en estilos.js y content.js la pone adentro
 // del shadow root del diálogo.
-const CONTENT_FILES = ['agrupar.js', 'plantilla.js', 'sagas.js', 'estilos.js', 'content.js'];
+const CONTENT_FILES = ['agrupar.js', 'plantilla.js', 'sagas.js', 'estilos.js', 'ajustes.js', 'content.js'];
 
 // Marcos: el script corre en la página y en cada iframe (el lector de muchos sitios está en
 // uno), y cada marco cuenta sus candidatas. Devuelve [{ frameId, n }]; n = -1 si ese marco no
@@ -395,6 +395,11 @@ async function driveChapter(tabId, msg) {
     if (t.status === 'complete') break;
     await sleep(300);
   }
+  // 1b) Si el sitio contestó "esperá" (429) o que está ocupado (503), no hay capítulo que buscar:
+  //     se avisa con ese motivo, para que el lote pare un rato en vez de seguir pidiendo.
+  const codigo = await chrome.scripting.executeScript({ target: { tabId }, func: () => performance.getEntriesByType('navigation')[0]?.responseStatus || 0 })
+    .then(r => (r?.[0]?.frameId ? 0 : r?.[0]?.result) || 0, () => 0);
+  if (codigo === 429 || codigo === 503) throw new Error(`HTTP ${codigo}: el sitio pidió esperar`);
   // 2) Que aparezcan las páginas del capítulo y dejen de sumarse (los sitios que arman
   //    la página con JavaScript tardan un poco más). Se pregunta desde acá porque en
   //    una pestaña en segundo plano los temporizadores de la página van lentos.

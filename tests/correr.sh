@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 V="${1:-$(node tests/ultima_version.js)}"
 DIR="$V/manga-reader-ext"
 echo "== Versión: $V"
-for f in content.js background.js offscreen.js popup.js opciones.js sagas.js sitios.js agrupar.js plantilla.js estilos.js; do
+for f in content.js background.js offscreen.js popup.js opciones.js sagas.js sitios.js agrupar.js plantilla.js estilos.js ajustes.js; do
   if [ -f "$DIR/$f" ]; then node --check "$DIR/$f"; fi
 done && echo "Sintaxis OK"
 echo "== Nombres y dirección";              node tests/test_nombres.js   "$DIR"
@@ -20,6 +20,9 @@ echo "== Guardados y sagas";                node tests/test_opciones.js  "$DIR"
 if [ -f "$DIR/agrupar.js" ]; then            # desde la 2.10
 echo "== Tomos (agrupado por volumen)";     node tests/test_tomos.js     "$DIR"
 echo "== Plantilla de nombres";             node tests/test_esquema.js   "$DIR"
+fi
+if [ -f "$DIR/ajustes.js" ]; then           # desde la 2.11
+echo "== Ajustes: ritmo, esperas, carpeta";  node tests/test_ajustes.js   "$DIR"
 fi
 if [ -f "$DIR/sitios.js" ]; then
 echo "== Sitios de manga y cómics";         node tests/test_sitios.js    "$DIR"

@@ -15,8 +15,8 @@
 
   const OURS = '#mr-host, #mr-save, #mr-chapter, #mr-fab';      // lo que esta extensión inserta en la página (el host, y lo que insertaba antes de la 2.11)
   const MIN_SIDE = 250;          // menos que esto: íconos, logos chicos, banners
-  const PROBE_CONCURRENCY = 6;   // imágenes sin cargar que se miden a la vez
-  const BATCH_PAUSE = 1500;      // respiro entre capítulos de un lote (ms)
+  const PROBE_CONCURRENCY = 6;   // imágenes sin cargar que se miden a la vez (si no hay otra cosa en opciones)
+  const BATCH_PAUSE = 1500;      // respiro entre capítulos de un lote, en ms (ídem: el que vale es el de `ritmo`)
   const BATCH_MAX_EMPTY = 3;     // capítulos seguidos "sin páginas" después de los cuales el lote para
   const FAB_MAX_TRIES = 40;      // revisiones de la burbuja antes de dejar de mirar la página
   const HOST_VUELTAS = 20;       // veces que se repone el host en 2 s; pasado eso, la página lo está sacando en serio y se espera
@@ -224,7 +224,9 @@
     // las últimas se quedan sin tiempo y cuentan como caídas sin estarlo.
     const pending = entries.filter(e => e.probe);
     let next = 0;
-    await Promise.all(Array.from({ length: Math.min(PROBE_CONCURRENCY, pending.length) }, async () => {
+    // (el programa usa esta función sin el resto del archivo: ahí no hay `ritmo` y vale la constante)
+    const aLaVez = typeof ritmo === 'object' && ritmo ? ritmo.concurrencia : PROBE_CONCURRENCY;
+    await Promise.all(Array.from({ length: Math.min(aLaVez, pending.length) }, async () => {
       while (next < pending.length) {
         const e = pending[next++];
         e.size = await probeSize(e.url);
@@ -334,6 +336,8 @@
   const SAGAS = globalThis.MR_SAGAS || {};
   let userSagas = {};
   let esquemaNombres = null;          // plantilla de nombres propia (opciones); null = la de siempre
+  // Ritmo de las descargas (opciones): pausa entre capítulos, descanso cada tantos, imágenes a la vez
+  let ritmo = globalThis.MR_AJUSTES ? MR_AJUSTES.normalizarRitmo({ pausa: BATCH_PAUSE / 1000, concurrencia: PROBE_CONCURRENCY }) : null;
 
   // Número de capítulo en la dirección como parámetro: ?capitulo=12, ?ch=12, ?c=12…
   function chapterParam() {
@@ -1558,23 +1562,44 @@
     }
     mostrarCola();
 
+    let yaEspero = false;                                  // el lote ya paró una vez porque el sitio pidió esperar
     for (let i = 0; i < todo.length && !batchStop && !halt && chapterEl; i++) {
       const c = todo[i];
       batchLabel = `(${i + 1}/${todo.length}) Capítulo ${c.numero}`;
-      setRow(c, 'run', 'abriendo…');
-      setChapterStatus(`${batchLabel}: abriendo…`, 'working');
       let res = null, err = null;
-      for (const { url, form } of chapterUrls(c)) {
-        try {
-          res = await bg({ action: 'batchChapter', url, formats, serie, numero: c.numero, strict: !c.url, fixed: !!c.fixed, visible,
-                           volumen: tomoOf(c, grupos), titulo: c.title || '', pause: calls++ ? BATCH_PAUSE : 0, cola: colaId }, 300000);
-          if (/^0\d/.test(form)) chapterWidth = Math.max(chapterWidth, form.split('.')[0].length);   // el sitio usa ceros adelante
-          break;
-        } catch (e) {
-          err = e;
-          if (batchStop || !/^sin páginas/i.test(e.message)) break;       // solo se prueba otra forma del número si no había páginas
+      // Un intento del capítulo: prueba sus direcciones hasta que una tiene páginas
+      const intentar = async () => {
+        res = null; err = null;
+        for (const { url, form } of chapterUrls(c)) {
+          const pause = MR_AJUSTES.pausaAntes(calls++, ritmo);
+          const texto = pause >= 10000 ? `descanso de ${Math.round(pause / 1000)} s…` : 'abriendo…';
+          setRow(c, 'run', texto);
+          setChapterStatus(`${batchLabel}: ${texto}`, 'working');
+          try {
+            res = await bg({ action: 'batchChapter', url, formats, serie, numero: c.numero, strict: !c.url, fixed: !!c.fixed, visible,
+                             volumen: tomoOf(c, grupos), titulo: c.title || '', pause, cola: colaId }, 300000 + pause);
+            if (/^0\d/.test(form)) chapterWidth = Math.max(chapterWidth, form.split('.')[0].length);   // el sitio usa ceros adelante
+            break;
+          } catch (e) {
+            err = e;
+            if (batchStop || !/^sin páginas/i.test(e.message)) break;       // solo se prueba otra forma del número si no había páginas
+          }
         }
+      };
+      const motivo = () => (res ? (res.complete ? '' : res.lines.join(' ')) : err?.message || '');
+      await intentar();
+      // El sitio pidió esperar (429) con el capítulo entero: seguir pidiendo solo alarga el
+      // castigo. El lote para un rato, una sola vez, y lo reintenta; si vuelve a pasar, queda en falla.
+      if (!batchStop && chapterEl && MR_AJUSTES.pidioEsperar(motivo()) && !yaEspero) {
+        yaEspero = true;
+        for (let s = Math.ceil(ritmo.espera429); s > 0 && !batchStop && chapterEl; s--) {
+          setRow(c, 'run', `el sitio pidió esperar: sigo en ${s} s`);
+          setChapterStatus(`${batchLabel}: el sitio pidió esperar, sigo en ${s} s…`, 'working');
+          await sleep(1000);
+        }
+        if (!batchStop && chapterEl) await intentar();
       }
+      const esperar = MR_AJUSTES.pidioEsperar(motivo());
       const noPages = !res && /^sin páginas/i.test(err?.message || '');
       empty = noPages ? empty + 1 : 0;
       if (res?.complete) {
@@ -1583,16 +1608,16 @@
         setRow(c, 'ok', `${res.pages} páginas`);
         await anotar(c, 'listo');
       } else if (res) {
-        const why = res.lines.filter(l => l.startsWith('⚠️')).map(l => l.replace(/^⚠️\s*/, '')).join(' · ') || 'quedó incompleto';
+        const why = (esperar ? 'el sitio pidió esperar · ' : '') + (res.lines.filter(l => l.startsWith('⚠️')).map(l => l.replace(/^⚠️\s*/, '')).join(' · ') || 'quedó incompleto');
         problems.push(`Capítulo ${c.numero}: ${why}`);
-        setRow(c, 'warn', 'incompleto');
+        setRow(c, 'warn', esperar ? 'pidió esperar' : 'incompleto');
         await anotar(c, 'fallo', why);
       } else if (batchStop) {
         setRow(c, '', '');                                    // cancelado: queda pendiente en la cola
       } else {
-        const why = err ? err.message : 'no se pudo abrir';
+        const why = esperar ? 'el sitio pidió esperar' : err ? err.message : 'no se pudo abrir';
         problems.push(`Capítulo ${c.numero}: ${why}`);
-        setRow(c, 'fail', noPages ? 'sin páginas' : 'falló');
+        setRow(c, 'fail', esperar ? 'pidió esperar' : noPages ? 'sin páginas' : 'falló');
         await anotar(c, 'fallo', why);
       }
       // Varios seguidos sin páginas: la dirección no es la de los capítulos, o no hay más
@@ -1786,6 +1811,7 @@
     if (area !== 'local') return;
     if (ch.sagas) userSagas = ch.sagas.newValue || {};
     if (ch.esquemaNombres) { esquemaNombres = esquemaDe(ch.esquemaNombres.newValue); showRoute(); }
+    if (ch.ritmo) ritmo = MR_AJUSTES.normalizarRitmo(ch.ritmo.newValue);
     if (ch.fabEnabled || ch.fabBlockedHosts) {
       store.get(['fabEnabled', 'fabBlockedHosts']).then(s => {
         fabSettings(s);
@@ -1817,8 +1843,9 @@
       if (!fabEl && !fabOff && !fabBlocked && looksLikeChapter()) showFab();
     }, 700);
   }
-  store.get(['fabEnabled', 'fabBlockedHosts', 'sagas', 'esquemaNombres']).then(s => {
+  store.get(['fabEnabled', 'fabBlockedHosts', 'sagas', 'esquemaNombres', 'ritmo']).then(s => {
     fabSettings(s); userSagas = s.sagas || {}; esquemaNombres = esquemaDe(s.esquemaNombres);
+    if (s.ritmo) ritmo = MR_AJUSTES.normalizarRitmo(s.ritmo);
   });
   on(document, 'load', (e) => { if (e.target?.tagName === 'IMG') checkFab(); }, true);
   on(window, 'scroll', checkFab, { passive: true });
