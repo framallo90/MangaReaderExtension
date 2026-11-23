@@ -822,6 +822,50 @@
     return { lines, complete, pages: r.pages, failedNums };
   }
 
+  // ── Teclado ─────────────────────────────────────────
+  // Los dos diálogos se pueden usar sin mouse: se anuncian como diálogos, el foco no se sale de
+  // ellos con Tab y, al cerrarlos, vuelve a donde estaba en la página.
+  const ENFOCABLES = 'button, input, select, textarea, summary, a[href], [tabindex]';
+  const enfocables = (caja) => [...caja.querySelectorAll(ENFOCABLES)].filter(e => !e.disabled && e.tabIndex >= 0 && e.getClientRects().length);
+
+  // Tab en el último control vuelve al primero, y Mayús+Tab en el primero va al último
+  function atraparFoco(caja, e) {
+    if (e.key !== 'Tab') return;
+    const lista = enfocables(caja);
+    if (!lista.length) return;
+    const i = lista.indexOf(caja.getRootNode().activeElement);
+    if (e.shiftKey ? i <= 0 : i === lista.length - 1) {
+      e.preventDefault();
+      lista[e.shiftKey ? lista.length - 1 : 0].focus();
+    }
+  }
+
+  let focoAntes = null;           // lo que tenía el foco en la página antes de abrir un diálogo
+  function recordarFoco() {
+    if (saveEl || chapterEl) return;                           // ya hay un diálogo abierto: vale lo anotado al abrir ese
+    const a = document.activeElement;
+    focoAntes = a && a !== document.body && a !== hostEl ? a : null;
+  }
+  function devolverFoco() {
+    if (saveEl || chapterEl) return;                           // queda otro diálogo abierto: el foco sigue ahí
+    try { if (focoAntes?.isConnected) focoAntes.focus(); } catch {}
+    focoAntes = null;
+  }
+
+  // Flechas entre las miniaturas (la grilla tiene 5 columnas), Inicio y Fin. Con Alt, la flecha
+  // izquierda o derecha cambia de lugar la página: lo mismo que arrastrarla. La barra espaciadora
+  // la tilda o destilda sin hacer nada acá: cada miniatura es un botón.
+  function flechasMiniaturas(e) {
+    const m = e.target.closest?.('.mr-thumb');
+    if (!m || !/^(Arrow(Left|Right|Up|Down)|Home|End)$/.test(e.key)) return;
+    e.preventDefault();
+    const todas = [...saveEl.querySelectorAll('.mr-thumb')], i = todas.indexOf(m);
+    const paso = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -5, ArrowDown: 5 }[e.key];
+    const j = e.key === 'Home' ? 0 : e.key === 'End' ? todas.length - 1 : Math.min(todas.length - 1, Math.max(0, i + paso));
+    if (e.altKey && Math.abs(paso) === 1) return moverPagina(i, j);
+    todas[j].focus();
+  }
+
   // ── Diálogo "Guardar capítulo" ──────────────────────
 
   let saveEl = null;
@@ -860,12 +904,16 @@
       // es la página de arriba, y el aviso para abrir el diálogo al llegar se anota por origen
       nextUrl = enMarco ? '' : nextChapterUrl();
 
+      recordarFoco();
       saveEl = document.createElement('div');
       saveEl.id = 'mr-save';
+      saveEl.setAttribute('role', 'dialog');
+      saveEl.setAttribute('aria-modal', 'true');
+      saveEl.setAttribute('aria-label', 'Guardar capítulo');
       saveEl.innerHTML = `
         <div class="mr-head">
           <span class="mr-title">💾 Guardar capítulo</span>
-          <button class="mr-b mr-x" id="mr-save-close" title="Cerrar (Esc)">✕</button>
+          <button class="mr-b mr-x" id="mr-save-close" title="Cerrar (Esc)" aria-label="Cerrar">✕</button>
         </div>
         <div class="mr-save-body">
           <label class="mr-save-label" for="mr-save-name">Nombre del tomo</label>
@@ -885,7 +933,7 @@
             <button class="mr-orden-btn" id="mr-save-invertir" type="button" title="Da vuelta el orden de las páginas">⇅ Invertir</button>
             <button class="mr-orden-btn" id="mr-save-ordenar" type="button" title="Las ordena por el número que trae el nombre de cada imagen">Ordenar por número</button>
           </div>
-          <div class="mr-thumbs" id="mr-thumbs"></div>
+          <div class="mr-thumbs" id="mr-thumbs" role="group" aria-label="Páginas del capítulo: flechas para moverse, barra espaciadora para incluir o quitar"></div>
           <div class="mr-save-btns">
             <button class="mr-save-go" id="mr-save-go" type="button">Guardar</button>
             <button class="mr-save-go mr-save-next" id="mr-save-next" type="button"
@@ -913,6 +961,8 @@
         e.stopPropagation();
         if (e.key === 'Escape') return closeSaveDialog();
         if (e.key === 'Enter' && e.target.tagName !== 'BUTTON') { e.preventDefault(); saveChapter(e.ctrlKey && !!nextUrl); }
+        atraparFoco(saveEl, e);
+        flechasMiniaturas(e);
       });
       for (const type of ['keyup', 'keypress']) saveEl.addEventListener(type, (e) => e.stopPropagation());
       sv('#mr-save-close').onclick = closeSaveDialog;
@@ -995,7 +1045,8 @@
     if (!box) return;
     const top = box.scrollTop;                                 // que no salte arriba al volver a dibujar
     box.innerHTML = pages.map((p, i) => `
-      <button class="mr-thumb ${p.on ? 'on' : 'off'}" data-i="${i}" type="button" draggable="true"
+      <button class="mr-thumb ${p.on ? 'on' : 'off'}" data-i="${i}" type="button" draggable="true" aria-pressed="${p.on}"
+              aria-label="${esc(`Página ${i + 1} de ${pages.length}${p.flag ? ', posible publicidad' : ''}`)}"
               title="${esc(p.flag ? `Posible publicidad: ${p.flag}` : `Página ${i + 1}`)} · clic para ${p.on ? 'quitar' : 'incluir'} · arrastrala o usá ▲▼ para cambiarla de lugar">
         <img src="${esc(p.url)}" loading="lazy" alt="" draggable="false">
         <span class="mr-thumb-n">${i + 1}</span>
@@ -1014,6 +1065,7 @@
         p.on = !p.on;
         b.classList.toggle('on', p.on);
         b.classList.toggle('off', !p.on);
+        b.setAttribute('aria-pressed', String(p.on));
         refresh();
       };
       b.ondragstart = (e) => {
@@ -1126,7 +1178,7 @@
   }
 
   function closeSaveDialog() {
-    if (saveEl) { saveEl.remove(); saveEl = null; }
+    if (saveEl) { saveEl.remove(); saveEl = null; devolverFoco(); }
     pages = []; pagesLoaded = false; lastFailed = 0; lastLocked = false; loadSeq++;
     ordenManual = false; arrastrada = -1;
     clearTimeout(reloadTimer);
@@ -1236,12 +1288,16 @@
       closeSaveDialog();
       savedMap = st.savedChapters || {};
 
+      recordarFoco();
       chapterEl = document.createElement('div');
       chapterEl.id = 'mr-chapter';
+      chapterEl.setAttribute('role', 'dialog');
+      chapterEl.setAttribute('aria-modal', 'true');
+      chapterEl.setAttribute('aria-label', 'Descargar varios capítulos');
       chapterEl.innerHTML = `
         <div class="mr-head">
           <span class="mr-title">📦 Descargar varios capítulos</span>
-          <button class="mr-b mr-x" id="mr-chapter-close" title="Cerrar">✕</button>
+          <button class="mr-b mr-x" id="mr-chapter-close" title="Cerrar (Esc)" aria-label="Cerrar">✕</button>
         </div>
         <div class="mr-save-body">
           <div class="mr-chapter-cola" id="mr-chapter-cola" hidden>
@@ -1254,9 +1310,9 @@
           </div>
           <div class="mr-chapter-row">
             <span class="mr-save-label">Del</span>
-            <input id="mr-chapter-from" class="mr-save-name mr-chapter-num" type="number" min="0" step="any" autocomplete="off">
+            <input id="mr-chapter-from" class="mr-save-name mr-chapter-num" type="number" min="0" step="any" autocomplete="off" aria-label="Desde el capítulo">
             <span class="mr-save-label">al</span>
-            <input id="mr-chapter-to" class="mr-save-name mr-chapter-num" type="number" min="0" step="any" autocomplete="off">
+            <input id="mr-chapter-to" class="mr-save-name mr-chapter-num" type="number" min="0" step="any" autocomplete="off" aria-label="Hasta el capítulo">
             <button class="mr-chapter-btn" id="mr-chapter-range" type="button">Marcar</button>
           </div>
           <div class="mr-chapter-row">
@@ -1289,16 +1345,16 @@
           </details>
           <details class="mr-chapter-more" id="mr-chapter-paste">
             <summary>Pegar los links de los capítulos</summary>
-            <textarea id="mr-chapter-links" class="mr-save-name mr-chapter-links" rows="4" spellcheck="false" autocomplete="off"
+            <textarea id="mr-chapter-links" class="mr-save-name mr-chapter-links" rows="4" spellcheck="false" autocomplete="off" aria-label="Links de los capítulos"
                       placeholder="Pegá los links, uno por renglón o todos juntos. Lo que no sea un link se ignora."></textarea>
             <div class="mr-chapter-row">
-              <select id="mr-chapter-links-mode" class="mr-save-name mr-chapter-select" title="De dónde sale el número de cada capítulo">
+              <select id="mr-chapter-links-mode" class="mr-save-name mr-chapter-select" title="De dónde sale el número de cada capítulo" aria-label="De dónde sale el número de cada capítulo">
                 <option value="auto">Número: el de cada link</option>
                 <option value="order">Número: en el orden pegado</option>
                 <option value="reverse">Número: en el orden pegado, al revés</option>
               </select>
               <span class="mr-save-label">desde</span>
-              <input id="mr-chapter-links-from" class="mr-save-name mr-chapter-num" type="number" min="0" step="any" autocomplete="off" placeholder="1">
+              <input id="mr-chapter-links-from" class="mr-save-name mr-chapter-num" type="number" min="0" step="any" autocomplete="off" placeholder="1" aria-label="Número del primer link">
             </div>
             <button class="mr-chapter-btn" id="mr-chapter-links-go" type="button">Usar estos links</button>
             <div class="mr-save-hint" id="mr-chapter-links-msg">El número sale del propio link (o del que escribas adelante: "12: link"). Si los links no lo traen, elegí "en el orden pegado".</div>
@@ -1326,6 +1382,7 @@
         e.stopPropagation();
         if (e.key === 'Escape' && !batchRunning) return closeChapterDialog();
         if (e.key === 'Enter' && /^mr-chapter-(from|to)$/.test(e.target.id)) { e.preventDefault(); markRange(); }
+        atraparFoco(chapterEl, e);
       });
       for (const type of ['keyup', 'keypress']) chapterEl.addEventListener(type, (e) => e.stopPropagation());
       sc('#mr-chapter-close').onclick = closeChapterDialog;
@@ -1617,7 +1674,7 @@
 
   function closeChapterDialog() {
     if (batchRunning) { batchStop = true; bg({ action: 'batchCancel' }).catch(() => {}); }
-    if (chapterEl) { chapterEl.remove(); chapterEl = null; bg({ action: 'insigniaLimpiar' }).catch(() => {}); }      // ya no hay lote a la vista
+    if (chapterEl) { chapterEl.remove(); chapterEl = null; devolverFoco(); bg({ action: 'insigniaLimpiar' }).catch(() => {}); }      // ya no hay lote a la vista
     chapters = [];
   }
 
@@ -1872,7 +1929,7 @@
     fabEl = document.createElement('div');
     fabEl.id = 'mr-fab';
     fabEl.innerHTML = `
-      <button class="mr-fab-main" type="button" title="Guardar capítulo (Alt+S) · arrastrá para mover">💾</button>
+      <button class="mr-fab-main" type="button" title="Guardar capítulo (Alt+S) · arrastrá para mover" aria-label="Guardar capítulo">💾</button>
       <button class="mr-fab-i" type="button" title="Controles rápidos" aria-label="Controles rápidos">i</button>
       <div class="mr-fab-info" hidden>
         <div class="mr-fab-info-title">Controles rápidos</div>

@@ -87,6 +87,16 @@ class Cdp {
           await sleep(200);
         }
       },
+      // Aprieta una tecla de verdad en la pestaña (no un evento armado a mano: así un botón se
+      // activa con la barra espaciadora y Tab mueve el foco, como con el teclado). `mods`: 8 = Mayús.
+      async tecla(key, mods = 0) {
+        const vk = { Tab: 9, Enter: 13, Escape: 27, ' ': 32, End: 35, Home: 36, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40 }[key];
+        const base = { key, code: key === ' ' ? 'Space' : key, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, modifiers: mods };
+        await cdp.send('Page.bringToFront', {}, sessionId).catch(() => {});
+        await cdp.send('Input.dispatchKeyEvent', { type: key === ' ' ? 'keyDown' : 'rawKeyDown', ...base, ...(key === ' ' ? { text: ' ' } : {}) }, sessionId);
+        await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...base }, sessionId);
+        await sleep(60);
+      },
       async screenshot(file) {
         const r = await cdp.send('Page.captureScreenshot', { format: 'png' }, sessionId);
         fs.writeFileSync(file, Buffer.from(r.data, 'base64'));

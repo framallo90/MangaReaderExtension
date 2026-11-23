@@ -6,6 +6,8 @@
 </head>
 <body style="margin:0">
 <!-- /fx/<serie>/leer/<n>: el capítulo n de esa serie, con 6 páginas (o las que diga ?pags=) -->
+<!-- (un botón del sitio: para ver que el foco vuelve a él al cerrar un diálogo) -->
+<button id="antes" type="button" style="position:fixed;top:4px;left:4px;z-index:5">Modo noche</button>
 <script>
   const [, serie, n] = location.pathname.match(/^\/fx\/([\w-]+)\/leer\/(\d+)$/) || [];
   const pags = +new URLSearchParams(location.search).get('pags') || 6;

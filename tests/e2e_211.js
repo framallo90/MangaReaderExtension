@@ -546,6 +546,57 @@ const AREAS = {
     await pg.close();
     await b.ext.eval(`chrome.storage.local.remove(['cola', 'ritmo'])`);
   },
+
+  // ═══ 10. Teclado y accesibilidad ═══
+  async teclado({ b, S, eq }) {
+    console.log('\n── 2.11 · Teclado y accesibilidad de los diálogos');
+    const url = S + '/fx/teclado/leer/1?pags=3';
+    const pg = await b.cdp.open(url);
+    await pg.waitFor(`document.readyState === 'complete' && document.images.length >= 3`, 'el capítulo');
+    await pg.eval(`document.getElementById('antes').focus()`);
+    // (Alt+S es un atajo del navegador y no se puede apretar desde acá: se pide lo mismo que pide el atajo)
+    await pedir(b, url, 'save');
+    await pg.waitFor(`document.querySelectorAll('#mr-save .mr-thumb.on').length >= 3 && !/Recorriendo|Buscando/.test(document.querySelector('#mr-save-count').textContent)`, 'el diálogo', 30000);
+    // El foco, mirado desde la página y adentro del shadow root
+    const FOCO = `(() => { const a = document.activeElement, d = a && a.shadowRoot ? a.shadowRoot.activeElement : a;
+      return !d ? 'nada' : d.classList?.contains('mr-thumb') ? 'miniatura ' + (+d.dataset.i + 1) : (d.id || d.tagName.toLowerCase()); })()`;
+    eq('el diálogo se anuncia como diálogo, con nombre, y toma el foco',
+      await pg.eval(`(() => { const d = document.querySelector('#mr-save'); return [d.getAttribute('role'), d.getAttribute('aria-modal'), d.getAttribute('aria-label')].join(' · '); })()`) + ' · foco en ' + await pg.eval(FOCO),
+      'dialog · true · Guardar capítulo · foco en mr-save-name');
+    eq('  todos sus controles tienen un nombre que se pueda leer', await pg.eval(`(() => { const r = ${RAIZ}.querySelector('#mr-save');
+      const sinNombre = [...r.querySelectorAll('button, input, select, textarea')].filter(e => !(e.getAttribute('aria-label') || e.textContent.trim() || (e.id && r.querySelector('label[for="' + e.id + '"]')) || e.closest('label')));
+      return sinNombre.length ? sinNombre.map(e => e.id || e.className).join(',') : 'todos'; })()`), 'todos');
+    await pg.tecla('Tab', 8);                               // Mayús+Tab desde el primer control
+    const ultimo = await pg.eval(FOCO);
+    for (let i = 0; i < 30; i++) await pg.tecla('Tab');
+    eq('el foco no se sale del diálogo: Mayús+Tab en el primero va al último, y con 30 Tab sigue adentro',
+      `${ultimo !== 'mr-save-name' && ultimo !== 'antes' ? 'va al último' : 'quedó en ' + ultimo} · ${await pg.eval(`document.activeElement.id === 'mr-host' && !!document.activeElement.shadowRoot.activeElement?.closest('#mr-save')`) ? 'adentro' : 'afuera: ' + await pg.eval(FOCO)}`,
+      'va al último · adentro');
+    await pg.eval(`document.querySelector('#mr-save .mr-thumb[data-i="0"]').focus()`);
+    const paso = [await pg.eval(FOCO)];
+    for (let i = 0; i < 2; i++) { await pg.tecla('ArrowRight'); paso.push(await pg.eval(FOCO)); }
+    eq('las flechas recorren las miniaturas', paso.join(' → '), 'miniatura 1 → miniatura 2 → miniatura 3');
+    await pg.tecla(' ');
+    eq('la barra espaciadora quita la que tiene el foco (y lo dice: aria-pressed)',
+      await pg.eval(`[...document.querySelectorAll('#mr-save .mr-thumb')].map(t => (t.classList.contains('on') ? 'sí' : 'no') + '/' + t.getAttribute('aria-pressed')).join(' ')`), 'sí/true sí/true no/false');
+    await pg.tecla('ArrowLeft');
+    await pg.tecla('Home');
+    eq('  flecha izquierda e Inicio también', await pg.eval(FOCO), 'miniatura 1');
+    await pg.tecla('Escape');
+    eq('Esc cierra el diálogo y el foco vuelve a donde estaba en la página', `${await pg.eval(`!document.querySelector('#mr-save')`) ? 'cerrado' : 'abierto'} · foco en ${await pg.eval(FOCO)}`, 'cerrado · foco en antes');
+
+    // El de varios capítulos
+    await pedir(b, url, 'batch');
+    await pg.waitFor(`!!document.querySelector('#mr-chapter-go')`, 'el diálogo de varios capítulos');
+    for (let i = 0; i < 40; i++) await pg.tecla('Tab');
+    eq('el diálogo de varios capítulos: también es un diálogo con nombre y atrapa el foco',
+      await pg.eval(`(() => { const d = document.querySelector('#mr-chapter'); return [d.getAttribute('role'), d.getAttribute('aria-modal'), d.getAttribute('aria-label')].join(' · ') + ' · ' +
+        (document.activeElement.id === 'mr-host' && !!document.activeElement.shadowRoot.activeElement?.closest('#mr-chapter') ? 'foco adentro' : 'foco afuera'); })()`),
+      'dialog · true · Descargar varios capítulos · foco adentro');
+    await pg.tecla('Escape');
+    eq('  y al cerrarlo con Esc el foco vuelve', `${await pg.eval(`!document.querySelector('#mr-chapter')`) ? 'cerrado' : 'abierto'} · foco en ${await pg.eval(FOCO)}`, 'cerrado · foco en antes');
+    await pg.close();
+  },
 };
 
 // Corre las áreas pedidas (todas, o las de SOLO) y devuelve cuántas se cortaron
