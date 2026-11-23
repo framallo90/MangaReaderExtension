@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Capítulo</title>
+</head>
+<body style="margin:0">
+<!-- /fx/<serie>/leer/<n>: el capítulo n de esa serie, con 6 páginas (o las que diga ?pags=) -->
+<script>
+  const [, serie, n] = location.pathname.match(/^\/fx\/([\w-]+)\/leer\/(\d+)$/) || [];
+  const pags = +new URLSearchParams(location.search).get('pags') || 6;
+  document.title = 'Serie ' + serie[0].toUpperCase() + serie.slice(1) + ' Capítulo ' + n + ' | Sitio de prueba';
+  for (let i = 1; i <= pags; i++) {
+    document.write('<img style="display:block" width="420" height="640" src="/fx/img/' + serie + '/' + n + '/' + i + '.jpg">');
+  }
+</script>
+</body>
+</html>

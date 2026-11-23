@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Serie</title>
+</head>
+<body>
+<!-- /fx/<serie>/: el listado de una serie, con links a sus capítulos (4, o los que diga ?caps=) -->
+<script>
+  const serie = location.pathname.split('/')[2];
+  const nombre = 'Serie ' + serie[0].toUpperCase() + serie.slice(1);
+  const caps = +new URLSearchParams(location.search).get('caps') || 4;
+  document.title = nombre + ' - Todos los capítulos';
+  document.write('<h1>' + nombre + '</h1>');
+  for (let n = 1; n <= caps; n++) document.write('<a href="/fx/' + serie + '/leer/' + n + '">Capítulo ' + n + '</a> ');
+</script>
+</body>
+</html>

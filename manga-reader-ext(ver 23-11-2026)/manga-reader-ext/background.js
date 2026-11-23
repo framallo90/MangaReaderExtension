@@ -101,6 +101,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     batchCancel: () => batchCancel(sender),
     batchNote: () => { batchNote(sender.tab?.id, msg.text); return Promise.resolve({}); },
     candidato: () => candidato(sender),
+    colaNueva: () => colaNueva(msg),
+    colaMarca: () => colaMarca(msg),
+    colaFin: () => colaFin(msg),
+    colaReintentar: () => colaReintentar(msg),
+    colaDescartar: () => colaDescartar(),
     // Un iframe no sabe cómo se llama el capítulo: el título y la dirección son los de la página
     contexto: () => chrome.tabs.sendMessage(sender.tab.id, { action: 'contexto' }, { frameId: 0 }).then(r => ({ contexto: r?.contexto || null })),
   };
@@ -257,6 +262,73 @@ chrome.downloads.onChanged.addListener((d) => {
   closeOffscreenIfIdle();
 });
 
+// ── La cola de un lote ────────────────────────────────
+// Qué capítulos pidió un lote y cómo le fue a cada uno. Se guarda en chrome.storage.local
+// ("cola") y no en la memoria de una pestaña: si se cierra a mitad de camino, queda anotado
+// qué faltaba y se puede seguir. Hay una sola: un lote nuevo reemplaza a la anterior.
+//   { id, fecha, serie, formatos, visible, sitio, origen, plantilla,
+//     items: [{ url, numero, titulo, volumen, estado: 'pendiente' | 'listo' | 'fallo', error }] }
+// origen es la página desde donde se pidió y plantilla la dirección con {n}: con eso se sigue.
+// Los cambios pasan de a uno por colaTurno: cada uno lee, cambia y escribe, y dos a la vez se pisarían.
+let colaTurno = Promise.resolve();
+
+// cambio(cola actual | null) → la cola nueva, null para borrarla o undefined para dejarla como está
+function conCola(cambio) {
+  const p = colaTurno.then(async () => {
+    const actual = (await chrome.storage.local.get(['cola'])).cola || null;
+    const nueva = cambio(actual);
+    if (nueva === undefined) return actual;
+    if (nueva === null) await chrome.storage.local.remove('cola'); else await chrome.storage.local.set({ cola: nueva });
+    return nueva;
+  });
+  colaTurno = p.catch(() => {});
+  return p;
+}
+
+async function colaNueva(msg) {
+  const cola = {
+    id: crypto.randomUUID(), fecha: Date.now(), serie: msg.serie || '', formatos: msg.formatos || {}, visible: !!msg.visible,
+    sitio: msg.sitio || '', origen: msg.origen || '', plantilla: msg.plantilla || '',
+    // armado: la dirección se armó con el número (se vuelve a armar al seguir, por si el sitio
+    // lleva ceros adelante); fixed: el número lo puso quien pegó el link
+    items: (msg.items || []).map(i => ({ url: i.url || '', numero: i.numero, titulo: i.titulo || '', volumen: i.volumen || '',
+      ...(i.armado ? { armado: true } : {}), ...(i.fixed ? { fixed: true } : {}), estado: 'pendiente', error: '' })),
+  };
+  await conCola(() => cola);
+  return { id: cola.id };
+}
+
+async function colaMarca({ id, numero, estado, error }) {
+  await conCola((c) => {
+    const it = c && c.id === id ? c.items.find(i => i.numero === numero) : null;     // otra cola (ya descartada): no se toca esta
+    if (!it || !['pendiente', 'listo', 'fallo'].includes(estado)) return undefined;
+    it.estado = estado;
+    it.error = estado === 'fallo' ? String(error || 'falló') : '';
+    return c;
+  });
+  return {};
+}
+
+// Terminó el lote: si no quedó nada pendiente ni con falla, la cola ya no hace falta
+async function colaFin({ id }) {
+  await conCola((c) => (c && c.id === id && c.items.every(i => i.estado === 'listo') ? null : undefined));
+  return {};
+}
+
+async function colaReintentar({ id }) {
+  const cola = await conCola((c) => {
+    if (!c || c.id !== id) return undefined;
+    for (const i of c.items) if (i.estado === 'fallo') { i.estado = 'pendiente'; i.error = ''; }
+    return c;
+  });
+  return { cola };
+}
+
+async function colaDescartar() {
+  await conCola(() => null);
+  return {};
+}
+
 // ── Varios capítulos seguidos ─────────────────────────
 // La pestaña desde donde se inició el lote pide los capítulos de a uno. Cada capítulo
 // se abre en una pestaña propia: ahí el sitio arma la página como siempre (aunque lo
@@ -297,7 +369,11 @@ async function batchChapter(msg, sender) {
     const limit = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error('El capítulo tardó demasiado')), 240000); });
     const work = driveChapter(tab.id, msg);
     work.catch(() => {});                                // si gana el límite, su error posterior no queda suelto
-    return await Promise.race([work, limit]);
+    const r = await Promise.race([work, limit]);
+    // El que salió bien se anota desde acá: vale aunque la pestaña del lote ya se haya cerrado.
+    // Los que fallan los anota ella, que es la que sabe si quedaba otra dirección por probar.
+    if (msg.cola && r?.complete) colaMarca({ id: msg.cola, numero: msg.numero, estado: 'listo' }).catch(() => {});
+    return r;
   } catch (e) {
     throw cancelled.has(owner) ? new Error('Cancelado') : e;
   } finally {

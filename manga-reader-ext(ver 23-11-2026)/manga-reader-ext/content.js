@@ -1121,6 +1121,14 @@
           <button class="mr-b mr-x" id="mr-chapter-close" title="Cerrar">✕</button>
         </div>
         <div class="mr-save-body">
+          <div class="mr-chapter-cola" id="mr-chapter-cola" hidden>
+            <span id="mr-cola-texto"></span>
+            <div class="mr-chapter-row">
+              <button class="mr-chapter-btn" id="mr-cola-reanudar" type="button">Reanudar</button>
+              <button class="mr-chapter-btn" id="mr-cola-reintentar" type="button">Reintentar</button>
+              <button class="mr-chapter-btn" id="mr-cola-descartar" type="button" title="Olvida lo que faltaba. Lo ya guardado no se toca">Descartar la cola</button>
+            </div>
+          </div>
           <div class="mr-chapter-row">
             <span class="mr-save-label">Del</span>
             <input id="mr-chapter-from" class="mr-save-name mr-chapter-num" type="number" min="0" step="any" autocomplete="off">
@@ -1201,7 +1209,10 @@
       sc('#mr-tab-cap').onclick = () => { vistaTomos = false; renderChapters(); };
       sc('#mr-tab-tomos').onclick = () => { vistaTomos = true; renderChapters(); };
       sc('#mr-chapter-links-go').onclick = useLinks;
-      sc('#mr-chapter-go').onclick = runBatch;
+      sc('#mr-chapter-go').onclick = () => runBatch();
+      sc('#mr-cola-reanudar').onclick = () => seguirCola(false);
+      sc('#mr-cola-reintentar').onclick = () => seguirCola(true);
+      sc('#mr-cola-descartar').onclick = () => bg({ action: 'colaDescartar' }).catch(() => {}).then(mostrarCola);
       sc('#mr-chapter-tpl').addEventListener('change', () => { markSaved(); renderChapters(); });
       sc('#mr-chapter-serie').addEventListener('input', showRoute);
       for (const id of ['pdf', 'cbz', 'imgs', 'skip']) sc(`#mr-chapter-${id}`).addEventListener('change', refreshChapters);
@@ -1221,6 +1232,7 @@
       vistaTomos = false;
 
       loadChapters(false);
+      mostrarCola();
       sc('#mr-chapter-from').focus();
     } finally {
       opening = false;
@@ -1455,8 +1467,54 @@
     chapters = [];
   }
 
+  // ── La cola del lote ────────────────────────────────
+  // Lo que pidió el último lote y cómo le fue a cada capítulo queda en chrome.storage ("cola",
+  // la escribe el service worker). Si quedó algo sin bajar —se cerró la pestaña, se canceló o
+  // falló—, el diálogo lo ofrece al abrirse en ese sitio y al terminar un lote.
+
+  // Muestra (o esconde) la barra de la cola según lo que haya guardado
+  async function mostrarCola() {
+    const cola = (await store.get(['cola'])).cola;
+    const barra = sc('#mr-chapter-cola');
+    if (!barra) return;
+    const pend = cola ? cola.items.filter(i => i.estado === 'pendiente').length : 0;
+    const fallos = cola ? cola.items.filter(i => i.estado === 'fallo').length : 0;
+    barra.hidden = batchRunning || !cola || cola.sitio !== location.hostname || !(pend + fallos);
+    if (barra.hidden) return;
+    const d = new Date(cola.fecha);
+    const cuando = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const partes = [pend ? `falta${pend === 1 ? '' : 'n'} ${pend} capítulo${pend === 1 ? '' : 's'}` : '',
+                    fallos ? `${fallos} ${fallos === 1 ? 'falló' : 'fallaron'}` : ''].filter(Boolean);
+    sc('#mr-cola-texto').textContent = `Quedó un lote sin terminar (${cuando}${cola.serie ? ', ' + cola.serie : ''}): ${partes.join(' y ')}.`;
+    sc('#mr-cola-reanudar').hidden = !pend;
+    sc('#mr-cola-reanudar').textContent = `Reanudar (${pend})`;
+    sc('#mr-cola-reintentar').hidden = !fallos;
+    sc('#mr-cola-reintentar').textContent = fallos === 1 ? 'Reintentar el que falló' : `Reintentar los ${fallos} que fallaron`;
+  }
+
+  // Sigue la cola guardada: la lista del diálogo pasa a ser lo que le falta y arranca.
+  // Con `fallados`, los que fallaron vuelven antes a pendiente.
+  async function seguirCola(fallados) {
+    if (batchRunning || !chapterEl) return;
+    let cola = (await store.get(['cola'])).cola;
+    if (cola && fallados) cola = (await bg({ action: 'colaReintentar', id: cola.id }).catch(() => ({}))).cola || cola;
+    const faltan = cola ? cola.items.filter(i => i.estado === 'pendiente') : [];
+    if (!faltan.length || !chapterEl) return mostrarCola();
+    if (cola.plantilla) sc('#mr-chapter-tpl').value = cola.plantilla;
+    sc('#mr-chapter-serie').value = cola.serie || '';
+    for (const k of ['pdf', 'cbz', 'imgs']) sc(`#mr-chapter-${k}`).checked = !!(cola.formatos || {})[k];
+    sc('#mr-chapter-visible').checked = !!cola.visible;
+    // Los que se armaron con el número van sin dirección: se arma de nuevo, con los ceros que use el sitio
+    chapters = faltan.map(i => ({ numero: i.numero, title: i.titulo || `Capítulo ${i.numero}`, ...(i.armado ? {} : { url: i.url }),
+      ...(i.volumen ? { seccion: i.volumen } : {}), fixed: !!i.fixed, on: true, state: '', note: '' }));
+    markSaved();
+    renderChapters();
+    runBatch(cola.id);
+  }
+
   // Baja los capítulos marcados, uno tras otro. Con un lote en marcha, el mismo botón lo cancela.
-  async function runBatch() {
+  // `seguir` es el id de la cola guardada cuando se la está siguiendo; si no, se arma una nueva.
+  async function runBatch(seguir = '') {
     if (!chapterEl) return;
     if (batchRunning) {
       batchStop = true;
@@ -1485,6 +1543,21 @@
     let okCount = 0, calls = 0, empty = 0, halt = '';
     const startWidth = chapterWidth;
     const grupos = tomosDe(chapters);                      // el tomo de cada capítulo, para {volumen}
+
+    // La cola: una nueva con lo que se va a bajar, o la guardada que se está siguiendo. En esa,
+    // lo que se saltea por estar ya guardado se da por listo (si no, nunca terminaría).
+    let colaId = seguir;
+    const anotar = (c, estado, error = '') => bg({ action: 'colaMarca', id: colaId, numero: c.numero, estado, error }).catch(() => {});
+    if (colaId) {
+      for (const c of chapters) if (c.on && !todo.includes(c)) await anotar(c, 'listo');
+    } else {
+      colaId = (await bg({ action: 'colaNueva', serie, formatos: formats, visible, sitio: location.hostname, origen: pageKey(),
+        plantilla: (sc('#mr-chapter-tpl')?.value || '').trim(),
+        items: todo.map(c => ({ url: chapterUrls(c)[0]?.url || '', numero: c.numero, titulo: c.title || '', volumen: tomoOf(c, grupos), armado: !c.url, fixed: !!c.fixed })),
+      }).catch(() => ({}))).id || '';
+    }
+    mostrarCola();
+
     for (let i = 0; i < todo.length && !batchStop && !halt && chapterEl; i++) {
       const c = todo[i];
       batchLabel = `(${i + 1}/${todo.length}) Capítulo ${c.numero}`;
@@ -1494,7 +1567,7 @@
       for (const { url, form } of chapterUrls(c)) {
         try {
           res = await bg({ action: 'batchChapter', url, formats, serie, numero: c.numero, strict: !c.url, fixed: !!c.fixed, visible,
-                           volumen: tomoOf(c, grupos), titulo: c.title || '', pause: calls++ ? BATCH_PAUSE : 0 }, 300000);
+                           volumen: tomoOf(c, grupos), titulo: c.title || '', pause: calls++ ? BATCH_PAUSE : 0, cola: colaId }, 300000);
           if (/^0\d/.test(form)) chapterWidth = Math.max(chapterWidth, form.split('.')[0].length);   // el sitio usa ceros adelante
           break;
         } catch (e) {
@@ -1508,15 +1581,19 @@
         okCount++;
         c.saved = true;
         setRow(c, 'ok', `${res.pages} páginas`);
+        await anotar(c, 'listo');
       } else if (res) {
         const why = res.lines.filter(l => l.startsWith('⚠️')).map(l => l.replace(/^⚠️\s*/, '')).join(' · ') || 'quedó incompleto';
         problems.push(`Capítulo ${c.numero}: ${why}`);
         setRow(c, 'warn', 'incompleto');
+        await anotar(c, 'fallo', why);
       } else if (batchStop) {
-        setRow(c, '', '');
+        setRow(c, '', '');                                    // cancelado: queda pendiente en la cola
       } else {
-        problems.push(`Capítulo ${c.numero}: ${err ? err.message : 'no se pudo abrir'}`);
+        const why = err ? err.message : 'no se pudo abrir';
+        problems.push(`Capítulo ${c.numero}: ${why}`);
         setRow(c, 'fail', noPages ? 'sin páginas' : 'falló');
+        await anotar(c, 'fallo', why);
       }
       // Varios seguidos sin páginas: la dirección no es la de los capítulos, o no hay más
       if (empty >= BATCH_MAX_EMPTY && i < todo.length - 1) {
@@ -1531,6 +1608,8 @@
     }
 
     batchRunning = false;
+    await bg({ action: 'colaFin', id: colaId }).catch(() => {});      // si salió todo, la cola se borra; si no, queda ofrecida
+    mostrarCola();
     if (chapterWidth !== startWidth) {
       const pad = (await store.get(['batchPad'])).batchPad || {};
       pad[location.hostname] = chapterWidth;

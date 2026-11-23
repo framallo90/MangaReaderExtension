@@ -15,22 +15,46 @@ const JPG = fs.readFileSync(path.join(FIXTURES, 'pagina.jpg'));       // 420×64
 // Sitio de prueba, en dos puertos: el segundo es "otro sitio" (otro origen) para el iframe del
 // lector, y en las páginas se escribe %OTRO% donde va su dirección. `pedidos` cuenta lo que se
 // pidió por dirección.
-async function sitio(pedidos = {}) {
+// Además de las páginas sueltas hay series enteras: /fx/<serie>/ es el listado (serie.html) y
+// /fx/<serie>/leer/<n> cada capítulo (capitulo.html). `estado` deja romperlas desde la prueba:
+//   estado.rotos    capítulos que dan 404, como "cola/2"
+//   estado.imagen   función (dirección, pedido) → { status, headers } para que una imagen falle
+async function sitio(pedidos = {}, estado = { rotos: new Set(), imagen: null }) {
   let otro = '';
   const atender = (req, res) => {
     const u = req.url.split('?')[0];
     pedidos[u] = (pedidos[u] || 0) + 1;
-    const send = (type, body, status = 200) => { res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store' }); res.end(body); };
-    const m = u.match(/^\/fx\/([\w-]+\.html)$/);
-    if (m && fs.existsSync(path.join(FIXTURES, m[1]))) return send('text/html; charset=utf-8', fs.readFileSync(path.join(FIXTURES, m[1]), 'utf8').split('%OTRO%').join(otro));
-    if (/^\/fx\/img\/[\w/-]+\.jpg$/.test(u)) return send('image/jpeg', JPG);
+    const send = (type, body, status = 200, headers = {}) => { res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store', ...headers }); res.end(body); };
+    const pagina = (archivo) => send('text/html; charset=utf-8', fs.readFileSync(path.join(FIXTURES, archivo), 'utf8').split('%OTRO%').join(otro));
+    let m = u.match(/^\/fx\/([\w-]+\.html)$/);
+    if (m && fs.existsSync(path.join(FIXTURES, m[1]))) return pagina(m[1]);
+    if (/^\/fx\/[a-z]+\/$/.test(u)) return pagina('serie.html');
+    m = u.match(/^\/fx\/([a-z]+)\/leer\/(\d+)$/);
+    if (m) return estado.rotos.has(`${m[1]}/${m[2]}`) ? send('text/plain', 'no', 404) : pagina('capitulo.html');
+    if (/^\/fx\/img\/[\w/-]+\.jpg$/.test(u)) {
+      const mal = estado.imagen ? estado.imagen(u, req) : null;
+      return mal ? send('text/plain', 'no', mal.status, mal.headers || {}) : send('image/jpeg', JPG);
+    }
     send('text/plain', 'no', 404);
   };
   const abrir = () => new Promise(r => { const s = http.createServer(atender); s.listen(0, '127.0.0.1', () => r(s)); });
   const srv = await abrir(), srv2 = await abrir();
   otro = `http://localhost:${srv2.address().port}`;       // otro nombre y otro puerto: para el navegador es otro sitio
-  return { url: `http://127.0.0.1:${srv.address().port}`, otro, pedidos, cerrar: () => { for (const s of [srv, srv2]) { s.close(); s.closeAllConnections(); } } };
+  return { url: `http://127.0.0.1:${srv.address().port}`, otro, pedidos, estado, cerrar: () => { for (const s of [srv, srv2]) { s.close(); s.closeAllConnections(); } } };
 }
+
+// Abre el listado de una serie de prueba con su diálogo de varios capítulos ya a la vista
+async function abrirLote(b, url, cuantos = 4) {
+  const pg = await b.cdp.open(url);
+  await pg.waitFor(`document.readyState === 'complete'`, 'el listado');
+  await pedir(b, url, 'batch');
+  await pg.waitFor(`document.querySelectorAll('#mr-chapter .mr-chapter-item').length >= ${cuantos}`, 'la lista de capítulos');
+  return pg;
+}
+const colaComo = (c) => (!c ? 'sin cola' : c.items.map(i => `${i.numero} ${i.estado}${i.error ? ' (' + i.error + ')' : ''}`).join(', '));
+// Lo que ofrece la barra de la cola: su texto y los botones que están a la vista
+const BARRA = `(() => { const q = (s) => ${RAIZ}.querySelector(s); const b = q('#mr-chapter-cola'); if (!b || b.hidden) return 'sin barra';
+  return q('#mr-cola-texto').textContent.replace(/\\(\\d\\d\\/\\d\\d/, '(hoy') + ' [' + ['reanudar', 'reintentar', 'descartar'].map(k => q('#mr-cola-' + k)).filter(x => !x.hidden).map(x => x.textContent).join(' | ') + ']'; })()`;
 
 // Lo que devuelve `cuerpo` (el texto de una función) en cada marco de la pestaña que tiene esa
 // dirección: la página primero y después sus iframes. Corre en el mundo de la extensión, que ve
@@ -158,16 +182,67 @@ const AREAS = {
       '✅ Listo: 2 capítulos guardados · 6 × 420x640 · 6 × 420x640');
     await lp.close();
   },
+
+  // ═══ 3. La cola del lote: guardada, con reintento y reanudar ═══
+  async cola({ b, S, eq, estado }) {
+    console.log('\n── 2.11 · La cola del lote: queda guardada, se reintenta y se reanuda');
+    const pdf = (serie, n) => path.join(b.dl, 'MangaReader', serie, `${serie} ${String(n).padStart(4, '0')}.pdf`);
+    await b.ext.eval(`chrome.storage.local.remove('cola')`);
+    estado.rotos = new Set(['cola/2', 'cola/3']);
+    const lista = S + '/fx/cola/';
+    const pg = await abrirLote(b, lista);
+    await pg.eval(`document.querySelector('#mr-chapter-all').click(); document.querySelector('#mr-chapter-go').click()`);
+    const fin = await lote.fin(pg, 180000).catch(e => e.message);
+    eq('4 capítulos, dos dan 404: el lote sigue y termina con 2 fallas', String(fin).split('\n')[0], 'Listo: 2 capítulos guardados · 2 con problemas');
+    eq('  la cola queda en storage, con el motivo de cada falla', colaComo(await b.storage('cola')), '1 listo, 2 fallo (Sin páginas (encontré 0)), 3 fallo (Sin páginas (encontré 0)), 4 listo');
+    eq('  y el diálogo ofrece reintentarlos o descartar la cola', await pg.eval(BARRA),
+      'Quedó un lote sin terminar (hoy): 2 fallaron. [Reintentar los 2 que fallaron | Descartar la cola]');
+    estado.rotos = new Set();                               // el sitio vuelve a andar
+    await pg.eval(`document.querySelector('#mr-cola-reintentar').click()`);
+    await pg.waitFor(`/Cancelar/.test(document.querySelector('#mr-chapter-go').textContent)`, 'que arranque el reintento', 10000).catch(() => {});
+    const fin2 = await lote.fin(pg, 180000).catch(e => e.message);
+    eq('con el sitio arreglado, Reintentar baja esos dos', `${String(fin2).split('\n')[0]} · ${await pdfDe(pdf('Serie Cola', 2), 3000)} · ${await pdfDe(pdf('Serie Cola', 3), 3000)}`,
+      '✅ Listo: 2 capítulos guardados · 6 × 420x640 · 6 × 420x640');
+    eq('  y la cola queda vacía', colaComo(await b.storage('cola')) + ' · ' + await pg.eval(BARRA), 'sin cola · sin barra');
+    await pg.close();
+
+    // Cerrar la pestaña a mitad de un lote
+    const lista2 = S + '/fx/corte/';
+    const base = await b.tabCount();
+    const p2 = await abrirLote(b, lista2);
+    await p2.eval(`document.querySelector('#mr-chapter-all').click(); document.querySelector('#mr-chapter-go').click()`);
+    let cola = null;
+    for (const hasta = Date.now() + 60000; Date.now() < hasta; await sleep(200)) {
+      cola = await b.storage('cola');
+      if (cola && cola.items.some(i => i.estado === 'listo')) break;
+    }
+    await p2.close();                                       // se cierra con el lote por la mitad
+    for (const hasta = Date.now() + 60000; Date.now() < hasta && (await b.tabCount()) > base; await sleep(300));   // termina el capítulo que estaba en curso
+    await sleep(1500);
+    cola = await b.storage('cola');
+    const faltan = cola ? cola.items.filter(i => i.estado === 'pendiente').length : -1;
+    eq('se cierra la pestaña a mitad de un lote de 4: la cola guarda lo que faltaba', `${faltan >= 2 && faltan <= 3 ? 'faltan 2 o 3' : 'faltan ' + faltan} · sin fallas: ${!!cola && cola.items.every(i => i.estado !== 'fallo')}`, 'faltan 2 o 3 · sin fallas: true');
+    const p3 = await abrirLote(b, lista2);
+    eq('al abrir de nuevo la página de la serie, ofrece reanudar con los que faltaban', await p3.eval(BARRA),
+      `Quedó un lote sin terminar (hoy): faltan ${faltan} capítulos. [Reanudar (${faltan}) | Descartar la cola]`);
+    await p3.eval(`document.querySelector('#mr-cola-reanudar').click()`);
+    await p3.waitFor(`/Cancelar/.test(document.querySelector('#mr-chapter-go').textContent)`, 'que arranque', 10000).catch(() => {});
+    const fin3 = await lote.fin(p3, 180000).catch(e => e.message);
+    const estan = [];
+    for (const n of [1, 2, 3, 4]) estan.push(await pdfDe(pdf('Serie Corte', n), 3000) === '6 × 420x640' ? n : `${n}: falta`);
+    eq('  Reanudar baja lo que faltaba: quedan los 4 capítulos y la cola vacía', `${/^✅ Listo/.test(String(fin3))} · ${estan.join(',')} · ${colaComo(await b.storage('cola'))}`, 'true · 1,2,3,4 · sin cola');
+    await p3.close();
+  },
 };
 
 // Corre las áreas pedidas (todas, o las de SOLO) y devuelve cuántas se cortaron
 async function correr({ b, eq, solo = (process.env.SOLO || '').split(',').filter(Boolean) }) {
   const pedidos = {};
-  const { url: S, otro: OTRO, cerrar } = await sitio(pedidos);
+  const { url: S, otro: OTRO, estado, cerrar } = await sitio(pedidos);
   let cortes = 0;
   for (const [nombre, area] of Object.entries(AREAS)) {
     if (solo.length && !solo.includes(nombre)) continue;
-    try { await area({ b, S, OTRO, eq, pedidos }); }
+    try { await area({ b, S, OTRO, eq, pedidos, estado }); }
     catch (e) { cortes++; eq(`[${nombre}] el área corrió entera`, 'se cortó: ' + e.message, 'sí'); }
   }
   cerrar();

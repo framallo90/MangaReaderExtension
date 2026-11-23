@@ -185,6 +185,12 @@
   border: 1px solid rgba(243,156,18,.35); border-radius: 5px; padding: 6px 8px; line-height: 1.4;
 }
 #mr-chapter .mr-chapter-why[hidden] { display: none; }
+/* Lo que quedó de un lote anterior: reanudar, reintentar o descartar */
+#mr-chapter .mr-chapter-cola {
+  display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: #a0c4ff; line-height: 1.4;
+  background: rgba(102,126,234,.12); border: 1px solid rgba(102,126,234,.4); border-radius: 5px; padding: 6px 8px;
+}
+#mr-chapter .mr-chapter-cola[hidden], #mr-chapter .mr-chapter-btn[hidden] { display: none; }
 
 /* ── Pestañas "Capítulos" / "Tomos" del diálogo de varios capítulos ── */
 /* Solo aparecen cuando la página separa los capítulos en tomos */
