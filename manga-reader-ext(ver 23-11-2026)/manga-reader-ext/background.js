@@ -107,6 +107,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     colaReintentar: () => colaReintentar(msg),
     colaDescartar: () => colaDescartar(),
     insigniaLimpiar: () => insigniaLimpiar(),
+    probarAdaptador: () => probarAdaptador(msg),
     // Un iframe no sabe cómo se llama el capítulo: el título y la dirección son los de la página
     contexto: () => chrome.tabs.sendMessage(sender.tab.id, { action: 'contexto' }, { frameId: 0 }).then(r => ({ contexto: r?.contexto || null })),
   };
@@ -132,6 +133,27 @@ async function candidato(sender) {
     if (m.frameId !== mejor && m.n >= 0) chrome.tabs.sendMessage(tabId, { action: 'ceder' }, { frameId: m.frameId }).catch(() => {});
   }
   return { gana: (sender.frameId || 0) === mejor };
+}
+
+// "Probar en esta página", desde opciones → Adaptadores por sitio: se prueba el adaptador en la
+// pestaña de ese sitio que se usó último, en cada uno de sus marcos, y vale el que más encuentra
+// (el lector puede estar en un iframe).
+async function probarAdaptador({ host, adaptador }) {
+  const de = (t) => { try { return new URL(t.url).hostname; } catch { return ''; } };
+  const tab = (await chrome.tabs.query({})).filter(t => de(t) === host).sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
+  if (!tab) throw new Error(`No hay ninguna pestaña abierta de ${host}: abrí un capítulo de ese sitio y probá de nuevo`);
+  let marcos = await contarMarcos(tab.id);
+  if (marcos.some(m => m.n < 0)) {
+    await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, files: CONTENT_FILES });
+    marcos = await contarMarcos(tab.id);
+  }
+  let mejor = null;
+  for (const m of marcos) {
+    const r = await chrome.tabs.sendMessage(tab.id, { action: 'probarAdaptador', adaptador }, { frameId: m.frameId }).catch(() => null);
+    if (r && (!mejor || r.n > mejor.n || (mejor.error && !r.error))) mejor = r;
+  }
+  if (!mejor) throw new Error('La pestaña de ese sitio no contestó');
+  return { n: mejor.n, urls: mejor.urls, error: mejor.error, pagina: mejor.pagina };
 }
 
 // ── Descargas ─────────────────────────────────────────

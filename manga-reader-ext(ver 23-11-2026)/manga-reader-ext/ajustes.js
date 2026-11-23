@@ -52,6 +52,45 @@
   // ¿El motivo de una falla es que el sitio pidió esperar?
   const pidioEsperar = (texto) => /HTTP 429|pidió esperar/i.test(String(texto || ''));
 
-  globalThis.MR_AJUSTES = { RITMO_DEFECTO, normalizarRitmo, pausaAntes, esperaReintento, pidioEsperar };
+  // ── Adaptadores por sitio ─────────────────────────────
+  // Para los sitios donde la detección automática no acierta, se le dice dónde están las páginas
+  // con selectores CSS. Uno por sitio (por su host):
+  //   contenedor  el bloque que tiene las páginas ("#visor")
+  //   imagenes    cuáles son las páginas, dentro del contenedor o de toda la página ("img.pagina")
+  //   ignorar     lo que hay que dejar afuera aunque coincida (varios selectores)
+  //   patron      la dirección de los capítulos con {n} donde va el número, para los lotes
+  const texto = (v) => String(v ?? '').trim();
+
+  function normalizarAdaptador(a) {
+    a = a && typeof a === 'object' ? a : {};
+    // ignorar llega como lista o como texto con comas o renglones (así se escribe en opciones)
+    const ignorar = (Array.isArray(a.ignorar) ? a.ignorar : String(a.ignorar ?? '').split(/[\n,]/)).map(texto).filter(Boolean);
+    const patron = texto(a.patron);
+    return { contenedor: texto(a.contenedor), imagenes: texto(a.imagenes), ignorar: [...new Set(ignorar)],
+             patron: /^https?:\/\/\S+$/i.test(patron) && patron.includes('{n}') ? patron : '' };
+  }
+
+  // Un adaptador que no dice nada no se guarda
+  function adaptadorVacio(a) {
+    const n = normalizarAdaptador(a);
+    return !n.contenedor && !n.imagenes && !n.ignorar.length && !n.patron;
+  }
+
+  // El host de lo que se haya escrito: "https://sitio.com/manga/x" o "Sitio.com" → "sitio.com"; '' si no es uno
+  function hostDe(escrito) {
+    const t = texto(escrito).toLowerCase();
+    if (!t) return '';
+    try { return new URL(/^[a-z]+:\/\//.test(t) ? t : 'https://' + t).hostname; } catch { return ''; }
+  }
+
+  // Los selectores del adaptador que el navegador no entiende. `probar` es quien lo sabe: tiene
+  // que tirar un error con un selector inválido (en una página, s => document.querySelector(s)).
+  function selectoresInvalidos(a, probar) {
+    const n = normalizarAdaptador(a);
+    return [n.contenedor, n.imagenes, ...n.ignorar].filter(Boolean).filter(s => { try { probar(s); return false; } catch { return true; } });
+  }
+
+  globalThis.MR_AJUSTES = { RITMO_DEFECTO, normalizarRitmo, pausaAntes, esperaReintento, pidioEsperar,
+    normalizarAdaptador, adaptadorVacio, hostDe, selectoresInvalidos };
   if (typeof module !== 'undefined') module.exports = globalThis.MR_AJUSTES;
 })();

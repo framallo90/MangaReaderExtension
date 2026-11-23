@@ -176,6 +176,55 @@
 
   function urlDir(url) { return url.split(/[?#]/)[0].replace(/[^/]*$/, ''); }
 
+  // ── Adaptadores por sitio ───────────────────────────
+  // Donde la detección automática no acierta (las páginas en un bloque raro, rodeadas de tapas
+  // de otras series), el usuario dice dónde están con selectores CSS: opciones → "Adaptadores
+  // por sitio". Hay uno por host. Con un adaptador, las páginas se buscan ahí y solo ahí.
+  let adaptadores = {};           // { host: { contenedor, imagenes, ignorar: [], patron } }
+  let adaptadorRoto = '';         // el selector del adaptador que el navegador no entendió, si pasó
+
+  // El de este sitio: el de la página o, en un iframe, también el de la página de arriba
+  const adaptadorAca = () => adaptadores[location.hostname] || adaptadores[sitioAca()] || null;
+
+  // Las imágenes que señala un adaptador, o null si no dice dónde buscar. Tira un error si
+  // alguno de sus selectores es inválido.
+  function imagenesConAdaptador(a) {
+    if (!a || (!a.contenedor && !a.imagenes)) return null;
+    const raices = a.contenedor ? [...document.querySelectorAll(a.contenedor)] : [document];
+    let imgs = raices.flatMap(r => [...r.querySelectorAll(a.imagenes || 'img')])
+      .flatMap(el => (el.tagName === 'IMG' ? [el] : [...el.querySelectorAll('img')]));      // "imagenes" puede señalar el bloque de cada página
+    for (const sel of a.ignorar || []) imgs = imgs.filter(el => !el.matches(sel) && !el.closest(sel));
+    return [...new Set(imgs)];
+  }
+
+  // De qué imágenes se parte para buscar las páginas: las del adaptador o, si no hay (o sus
+  // selectores no sirven), todas las de la página, como siempre.
+  function imagenesDeLaPagina() {
+    try {
+      const r = imagenesConAdaptador(adaptadorAca());
+      adaptadorRoto = '';
+      if (r) return r;
+    } catch (e) { adaptadorRoto = e.message; }
+    return [...document.querySelectorAll('img')];
+  }
+
+  // ¿Hay un adaptador mandando en esta página? (uno con selectores, y que se entiendan)
+  function hayAdaptador() {
+    try { return !!imagenesConAdaptador(adaptadorAca()); } catch { return false; }
+  }
+
+  // "Probar en esta página", desde opciones: qué encuentra un adaptador acá, sin guardarlo
+  function probarAdaptador(a) {
+    try {
+      const imgs = imagenesConAdaptador(globalThis.MR_AJUSTES.normalizarAdaptador(a));
+      if (!imgs) return { n: 0, urls: [], error: 'Sin "contenedor" ni "imágenes" no hay dónde buscar' };
+      const urls = [...new Set(imgs.map(imgUrl).filter(Boolean))];
+      return { n: urls.length, urls: urls.slice(0, 3), error: '' };
+    } catch (e) {
+      return { n: 0, urls: [], error: 'Selector inválido: ' + e.message };
+    }
+  }
+
   // ── Detección de páginas ────────────────────────────
   // Devuelve { pages: [{url, w, h, external, flag}], failed } en orden de lectura (orden
   // del DOM), sin duplicados. flag = '' si es página del capítulo, o el motivo por el que
@@ -191,7 +240,7 @@
     const failedUrls = [];
     let lockedCount = 0;
     const big = (w, h) => w >= MIN_SIDE && h >= MIN_SIDE;
-    for (const img of document.querySelectorAll('img')) {
+    for (const img of (typeof imagenesDeLaPagina === 'function' ? imagenesDeLaPagina() : document.querySelectorAll('img'))) {
       if (img.closest(OURS)) continue;
       if (/^blob:/i.test(img.currentSrc || img.src || '')) {
         if (!img.complete || big(img.naturalWidth, img.naturalHeight)) lockedCount++;     // cargando o grande
@@ -242,13 +291,15 @@
       }
       pages.push({ url: e.url, w: e.w, h: e.h, external: e.external, flag: '' });
     }
-    const mainDir = flagNonPages(pages);
+    // Con un adaptador del sitio no se filtra nada: lo que señalan sus selectores son las páginas
+    const adaptado = typeof hayAdaptador === 'function' && hayAdaptador();
+    const mainDir = adaptado ? null : flagNonPages(pages);
     // Solo cuentan como "faltantes" las que fallaron dentro de la carpeta del capítulo
     // (un banner o pixel roto del sitio no es una página perdida)
-    const failed = mainDir ? failedUrls.filter(u => urlDir(u) === mainDir).length : 0;
+    const failed = adaptado ? failedUrls.length : mainDir ? failedUrls.filter(u => urlDir(u) === mainDir).length : 0;
     // Páginas sin dirección: al menos 2, y lo que se encontró no arma un capítulo (no hay una
     // carpeta con la mayoría de las imágenes) o es menos que esas
-    const locked = lockedCount >= 2 && (!mainDir || lockedCount >= pages.filter(p => !p.flag).length);
+    const locked = lockedCount >= 2 && ((!mainDir && !adaptado) || lockedCount >= pages.filter(p => !p.flag).length);
     if (locked) for (const p of pages) p.flag ||= 'no parece una página del capítulo';
     return { pages, failed, locked };
   }
@@ -300,7 +351,7 @@
   // varios capítulos para saber cuándo un capítulo abierto en otra pestaña terminó de armarse.
   function countCandidates() {
     const dirs = new Map();
-    for (const img of document.querySelectorAll('img')) {
+    for (const img of (typeof imagenesDeLaPagina === 'function' ? imagenesDeLaPagina() : document.querySelectorAll('img'))) {
       if (img.closest(OURS)) continue;
       const url = imgUrl(img);
       if (!url) continue;
@@ -1321,10 +1372,12 @@
     chapters.sort((a, b) => a.numero - b.numero);
 
     if (!keep) {
-      sc('#mr-chapter-tpl').value = found.pat ? found.pat.pre + '{n}' + found.pat.post : '';
+      // Si el adaptador del sitio trae la dirección de los capítulos, vale esa: no hay nada que suponer
+      const patron = adaptadorAca()?.patron || '';
+      sc('#mr-chapter-tpl').value = patron || (found.pat ? found.pat.pre + '{n}' + found.pat.post : '');
       // Sin lista ni número en la dirección no hay forma de saber cómo son las direcciones:
       // se muestra la que se supuso para que la revises
-      sc('#mr-chapter-more').open = (found.guessed && found.list.length < 2) || !found.pat;
+      sc('#mr-chapter-more').open = !patron && ((found.guessed && found.list.length < 2) || !found.pat);
       const why = sc('#mr-chapter-why');
       const ending = 'Así no se pueden armar las direcciones de los otros capítulos. Si sabés cómo son, escribila abajo con {n} en lugar del número.';
       why.hidden = !found.code && !found.file;
@@ -1742,7 +1795,7 @@
 
   function looksLikeChapter() {
     const dirs = new Map();
-    for (const img of document.querySelectorAll('img')) {
+    for (const img of (typeof imagenesDeLaPagina === 'function' ? imagenesDeLaPagina() : document.querySelectorAll('img'))) {
       if (img.closest(OURS)) continue;                // las miniaturas del diálogo no cuentan
       const u = imgUrl(img);                          // las blob: no tienen dirección: no cuentan
       if (u && img.naturalWidth >= MIN_SIDE && img.naturalHeight >= 600) {
@@ -1750,6 +1803,7 @@
         dirs.set(d, (dirs.get(d) || 0) + 1);
       }
     }
+    if (typeof hayAdaptador === 'function' && hayAdaptador()) return [...dirs.values()].reduce((a, b) => a + b, 0) >= 3;     // el adaptador ya dijo cuáles son
     return Math.max(0, ...dirs.values()) >= 3;      // 3+ imágenes grandes en la misma carpeta
   }
 
@@ -1875,6 +1929,9 @@
     if (ch.sagas) userSagas = ch.sagas.newValue || {};
     if (ch.esquemaNombres) { esquemaNombres = esquemaDe(ch.esquemaNombres.newValue); showRoute(); }
     if (ch.ritmo) ritmo = MR_AJUSTES.normalizarRitmo(ch.ritmo.newValue);
+    // Cambió el adaptador con el diálogo abierto: se busca de nuevo y la selección empieza de cero
+    // (lo que estaba destildado por sospechoso ahora puede ser justo lo que señala el adaptador)
+    if (ch.adaptadores) { adaptadores = ch.adaptadores.newValue || {}; fabTries = 0; if (saveEl && !saving) { pages = []; ordenManual = false; loadPages(); } }
     if (ch.fabEnabled || ch.fabBlockedHosts) {
       store.get(['fabEnabled', 'fabBlockedHosts']).then(s => {
         fabSettings(s);
@@ -1906,9 +1963,10 @@
       if (!fabEl && !fabOff && !fabBlocked && looksLikeChapter()) showFab();
     }, 700);
   }
-  store.get(['fabEnabled', 'fabBlockedHosts', 'sagas', 'esquemaNombres', 'ritmo']).then(s => {
+  store.get(['fabEnabled', 'fabBlockedHosts', 'sagas', 'esquemaNombres', 'ritmo', 'adaptadores']).then(s => {
     fabSettings(s); userSagas = s.sagas || {}; esquemaNombres = esquemaDe(s.esquemaNombres);
     if (s.ritmo) ritmo = MR_AJUSTES.normalizarRitmo(s.ritmo);
+    adaptadores = s.adaptadores || {};
   });
   on(document, 'load', (e) => { if (e.target?.tagName === 'IMG') checkFab(); }, true);
   on(window, 'scroll', checkFab, { passive: true });
@@ -1929,6 +1987,7 @@
         sendResponse({ ok: true, contexto: { nombre: suggestName(), capitulo: detectChapter(), clave: pageKey(), sitio: location.hostname, titulo: document.title } });
         return;
       case 'ceder': cedido = true; hideFab(); return;
+      case 'probarAdaptador': sendResponse({ ok: true, ...probarAdaptador(msg.adaptador), pagina: location.href }); return;
       case 'autoSave':
         autoSave(msg).then(r => sendResponse({ ok: true, ...r })).catch(e => sendResponse({ ok: false, error: e.message }));
         return true;

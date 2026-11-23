@@ -27,6 +27,21 @@ const { eq, fin } = probador();
   eq('  un Retry-After que no se entiende vale como si no estuviera', A.esperaReintento(1, 'pronto'), 4000);
   eq('reconoce el motivo "el sitio pidió esperar"', [A.pidioEsperar('No se pudo leer ninguna página (HTTP 429)'), A.pidioEsperar('HTTP 429: el sitio pidió esperar'), A.pidioEsperar('Sin páginas (encontré 0)')].join(','), 'true,true,false');
 
+  // ── Adaptadores por sitio ──
+  if (A.normalizarAdaptador) {
+    eq('adaptador: lo escrito queda limpio, y "ignorar" se parte por comas o renglones',
+      JSON.stringify(A.normalizarAdaptador({ contenedor: '  #visor ', imagenes: 'img.pagina', ignorar: '.aviso, .recomendados img\n.aviso', patron: ' https://s.com/leer/{n} ' })),
+      '{"contenedor":"#visor","imagenes":"img.pagina","ignorar":[".aviso",".recomendados img"],"patron":"https://s.com/leer/{n}"}');
+    eq('  una dirección de capítulos sin {n}, o que no es una dirección, no se guarda', [A.normalizarAdaptador({ patron: 'https://s.com/leer/5' }).patron, A.normalizarAdaptador({ patron: 'leer/{n}' }).patron].join('|'), '|');
+    eq('  lo que no es un adaptador da uno vacío, y uno vacío se reconoce', `${JSON.stringify(A.normalizarAdaptador(null))} · ${A.adaptadorVacio({ contenedor: ' ' })} · ${A.adaptadorVacio({ ignorar: ['.x'] })}`,
+      '{"contenedor":"","imagenes":"","ignorar":[],"patron":""} · true · false');
+    eq('el sitio se puede escribir como venga: una dirección, con mayúsculas o suelto', ['https://Sitio.com/manga/x?y=1', 'sitio.com', ' WWW.Sitio.com/leer ', '', 'no es un sitio !'].map(A.hostDe).join(' | '), 'sitio.com | sitio.com | www.sitio.com |  | ');
+    // (quién sabe si un selector es válido es el navegador: acá se lo simula con una regla simple)
+    const probar = (s) => { if (/>>|\[$|^\)/.test(s)) throw new Error('inválido'); };
+    eq('selectores que el navegador no entiende: se dicen cuáles son', A.selectoresInvalidos({ contenedor: '#visor >>', imagenes: 'img', ignorar: ['.a', 'div['] }, probar).join(' · '), '#visor >> · div[');
+    eq('  y si están todos bien, ninguno', A.selectoresInvalidos({ contenedor: '#visor', ignorar: '.a, .b' }, probar).length, 0);
+  }
+
   // ── La bajada de una página (offscreen.js), con el sitio y el reloj simulados ──
   // respuestas: lo que contesta el sitio en cada pedido de esa página, en orden
   const off = require(path.join(dir, 'offscreen.js'));

@@ -406,6 +406,68 @@ const AREAS = {
     eq('  el PDF sale 2, 3, 1', pdfOrden(archivo('Orden/Arrastrado', 'pdf')), '2,3,1');
     await p2.close();
   },
+
+  // ═══ 7. Adaptadores por sitio ═══
+  async adaptadores({ b, S, eq }) {
+    console.log('\n── 2.11 · Adaptadores por sitio');
+    const url = S + '/fx/raro.html', HOST = '127.0.0.1';
+    // Qué quedó tildado: cuántas páginas del capítulo (p1…p6) y cuántos señuelos (s01…s20)
+    const TILDADAS = `(() => { const t = [...document.querySelectorAll('#mr-save .mr-thumb')].map(x => ({ on: x.classList.contains('on'), k: (x.querySelector('img').src.match(/\\/([ps])\\d+\\.jpg$/) || [])[1] }));
+      const c = (k) => t.filter(x => x.k === k && x.on).length;
+      return c('p') + ' páginas y ' + c('s') + ' señuelos tildados · ' + t.length + ' miniaturas'; })()`;
+    const abrir = async () => {
+      const pg = await b.cdp.open(url);
+      await pg.waitFor(`document.readyState === 'complete' && document.images.length >= 26 && [...document.images].every(i => i.complete)`, 'la página con señuelos', 30000);
+      await pedir(b, url, 'save');
+      await pg.waitFor(`document.querySelectorAll('#mr-save .mr-thumb').length >= 6 && !/Recorriendo|Buscando/.test(document.querySelector('#mr-save-count').textContent)`, 'el diálogo', 40000);
+      return pg;
+    };
+    const poner = (a) => b.setStorage({ adaptadores: a ? { [HOST]: { contenedor: '', imagenes: '', ignorar: [], patron: '', ...a } } : {} });
+    await poner(null);
+    let pg = await abrir();
+    eq('sin adaptador: la detección automática se queda con los señuelos y deja 3 páginas afuera', await pg.eval(TILDADAS), '3 páginas y 20 señuelos tildados · 26 miniaturas');
+    await poner({ contenedor: '#visor-raro' });             // se guarda con la pestaña abierta: el diálogo se rehace solo
+    await pg.waitFor(`document.querySelectorAll('#mr-save .mr-thumb').length === 6`, 'el diálogo con el adaptador', 15000).catch(() => {});
+    eq('con un adaptador que dice el contenedor: exactamente las 6 páginas', await pg.eval(TILDADAS), '6 páginas y 0 señuelos tildados · 6 miniaturas');
+    await pg.eval(`document.querySelector('#mr-save-go').click()`);
+    eq('  y se guardan esas 6', await pdfDe(path.join(b.dl, 'MangaReader', 'Serie Rara', 'Serie Rara 0009.pdf')), '6 × 420x640');
+    await pg.close();
+
+    await poner({ imagenes: 'img', ignorar: ['.recomendados img'], patron: S + '/fx/rara/leer/{n}' });
+    pg = await abrir();
+    eq('con "imágenes" e "ignorar" en lugar del contenedor, lo mismo', await pg.eval(TILDADAS), '6 páginas y 0 señuelos tildados · 6 miniaturas');
+    await pedir(b, url, 'batch');
+    await pg.waitFor(`!!document.querySelector('#mr-chapter-tpl')`, 'el diálogo de varios capítulos');
+    eq('la dirección de los capítulos del adaptador ya viene puesta en el diálogo de varios capítulos',
+      (await pg.eval(`document.querySelector('#mr-chapter-tpl').value + ' · a la vista para revisar: ' + document.querySelector('#mr-chapter-more').open`)).replace(S, ''), '/fx/rara/leer/{n} · a la vista para revisar: false');
+    await pg.close();
+
+    await poner({ contenedor: '#visor-raro >>' });
+    pg = await abrir();
+    eq('un selector inválido no rompe nada: en esa página sigue la detección automática', await pg.eval(TILDADAS), '3 páginas y 20 señuelos tildados · 26 miniaturas');
+    await poner(null);
+
+    // La sección de opciones, con esa pestaña del sitio abierta
+    await b.ext.eval(`location.reload()`);
+    await b.ext.waitFor(`document.readyState === 'complete' && !!document.querySelector('#adGuardar') && !!document.querySelector('#adLista li')`, 'la sección de adaptadores en opciones');
+    const escribir = (v) => b.ext.eval(`(() => { const v = ${JSON.stringify(v)}; for (const [i, x] of Object.entries(v)) document.getElementById(i).value = x; })()`);
+    const mensaje = async (re) => (await b.ext.waitFor(`(() => { const t = document.querySelector('#adMsg').textContent; return ${re}.test(t) ? t : ''; })()`, 'el mensaje de adaptadores', 15000).catch(() => b.ext.eval(`document.querySelector('#adMsg').textContent`))).split(S).join('');
+    await escribir({ adHost: url, adContenedor: '#visor-raro >>', adImagenes: '', adIgnorar: '', adPatron: '' });
+    await b.ext.eval(`document.getElementById('adGuardar').click()`);
+    eq('opciones: avisa del selector que el navegador no entiende, y no lo guarda',
+      `${(await mensaje('/no entiende/')).split(':')[0]} · guardado: ${JSON.stringify((await b.storage('adaptadores')) || {})}`, 'El navegador no entiende este selector · guardado: {}');
+    await escribir({ adContenedor: '#visor-raro' });
+    await b.ext.eval(`document.getElementById('adProbar').click()`);
+    eq('  "Probar en esta página" cuenta lo que encuentra y muestra las primeras 3 direcciones', await mensaje('/Encuentra|No encuentra|No hay|no contestó|inválido/'),
+      'Encuentra 6 imágenes en /fx/raro.html. Las primeras: /fx/img/comun/p1.jpg · /fx/img/comun/p2.jpg · /fx/img/comun/p3.jpg');
+    await b.ext.eval(`document.getElementById('adGuardar').click()`);
+    await mensaje('/Guardado/');
+    const g = ((await b.storage('adaptadores')) || {})[HOST] || {};
+    eq('  al guardar queda por sitio, y aparece en la lista', `contenedor ${g.contenedor} · imágenes "${g.imagenes}" · ignorar ${JSON.stringify(g.ignorar)} · patrón "${g.patron}" · ${await b.ext.eval(`document.querySelector('#adLista .s-nombre')?.textContent + ' → ' + document.querySelector('#adLista .s-datos')?.textContent`)}`,
+      'contenedor #visor-raro · imágenes "" · ignorar [] · patrón "" · 127.0.0.1 → contenedor: #visor-raro');
+    await pg.close();
+    await b.ext.eval(`chrome.storage.local.remove('adaptadores')`);
+  },
 };
 
 // Corre las áreas pedidas (todas, o las de SOLO) y devuelve cuántas se cortaron

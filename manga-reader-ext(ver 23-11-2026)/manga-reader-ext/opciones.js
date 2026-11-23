@@ -96,7 +96,7 @@ function mergeBackup(local, data) {
     }
   }
   const out = { savedChapters: saved };
-  for (const key of ['sagas', 'sagasText', 'saveFolders', 'batchPad', 'esquemaNombres', 'ritmo']) {
+  for (const key of ['sagas', 'sagasText', 'saveFolders', 'batchPad', 'esquemaNombres', 'ritmo', 'adaptadores']) {
     const tipo = key === 'sagasText' || key === 'esquemaNombres' ? 'string' : 'object';
     if (local[key] == null && data[key] != null && typeof data[key] === tipo) out[key] = data[key];
   }
@@ -128,7 +128,7 @@ if (typeof module !== 'undefined') {
 if (typeof document !== 'undefined') {
   const $ = (id) => document.getElementById(id);
   const store = chrome.storage.local;
-  const KEYS = ['savedChapters', 'sagas', 'sagasText', 'saveFolders', 'fabBlockedHosts', 'batchPad', 'misSitios', 'esquemaNombres', 'ritmo'];
+  const KEYS = ['savedChapters', 'sagas', 'sagasText', 'saveFolders', 'fabBlockedHosts', 'batchPad', 'misSitios', 'esquemaNombres', 'ritmo', 'adaptadores'];
   const el = (tag, props = {}, ...kids) => {
     const e = Object.assign(document.createElement(tag), props);
     e.append(...kids);
@@ -451,9 +451,77 @@ if (typeof document !== 'undefined') {
     say('ritmoMsg', 'Quedó el ritmo de siempre.', true);
   };
 
+  // ── Adaptadores por sitio ────────────────────────────
+  // Uno por host. Lo escrito se revisa con las mismas reglas que usa la pestaña (ajustes.js);
+  // un selector que el navegador no entiende se avisa acá, y en la página no rompe nada: ahí
+  // sigue la detección automática.
+  const AD = ['adHost', 'adContenedor', 'adImagenes', 'adIgnorar', 'adPatron'];
+  const adEscrito = () => ({ host: A.hostDe($('adHost').value),
+    adaptador: A.normalizarAdaptador({ contenedor: $('adContenedor').value, imagenes: $('adImagenes').value, ignorar: $('adIgnorar').value, patron: $('adPatron').value }) });
+  // Lo que hay que corregir antes de guardar o probar, o '' si está bien
+  function adProblema({ host, adaptador }, paraProbar) {
+    if (!host) return 'Escribí el sitio (por ejemplo sitio.com, o pegá una dirección suya).';
+    const malos = A.selectoresInvalidos(adaptador, (s) => document.createDocumentFragment().querySelector(s));
+    if (malos.length) return `El navegador no entiende ${malos.length === 1 ? 'este selector' : 'estos selectores'}: ${malos.join(' · ')}. Así no se usaría: en ese sitio seguiría la detección automática.`;
+    if ($('adPatron').value.trim() && !adaptador.patron) return 'La dirección de los capítulos tiene que empezar con http y llevar {n} donde va el número.';
+    if (paraProbar ? !adaptador.contenedor && !adaptador.imagenes : A.adaptadorVacio(adaptador)) return 'Completá al menos el contenedor o las imágenes.';
+    return '';
+  }
+  function adLimpiar() {
+    for (const id of AD) $(id).value = '';
+    $('adCancelar').hidden = true;
+    $('adGuardar').textContent = 'Guardar adaptador';
+  }
+  function renderAdaptadores(todos) {
+    const ul = $('adLista');
+    ul.replaceChildren();
+    const hosts = Object.keys(todos || {}).sort();
+    if (!hosts.length) return ul.append(el('li', { className: 'vacio', textContent: 'Ninguno: en todos los sitios se usa la detección automática.' }));
+    for (const h of hosts) {
+      const a = A.normalizarAdaptador(todos[h]);
+      const editar = el('button', { textContent: 'Editar' });
+      editar.onclick = () => {
+        $('adHost').value = h; $('adContenedor').value = a.contenedor; $('adImagenes').value = a.imagenes; $('adIgnorar').value = a.ignorar.join(', '); $('adPatron').value = a.patron;
+        $('adCancelar').hidden = false;
+        $('adGuardar').textContent = 'Guardar cambios';
+        $('adContenedor').focus();
+      };
+      const quitar = el('button', { className: 'danger', textContent: 'Quitar' });
+      quitar.onclick = async () => {
+        const t = (await store.get(['adaptadores'])).adaptadores || {};
+        delete t[h];
+        await store.set({ adaptadores: t });
+        say('adMsg', `Se quitó el adaptador de ${h}: ahí vuelve la detección automática.`, true);
+      };
+      const datos = [a.contenedor && `contenedor: ${a.contenedor}`, a.imagenes && `imágenes: ${a.imagenes}`, a.ignorar.length && `ignorar: ${a.ignorar.join(', ')}`, a.patron && `capítulos: ${a.patron}`].filter(Boolean).join(' · ');
+      ul.append(el('li', {}, el('span', { className: 's-nombre', textContent: h }), el('span', { className: 's-datos', textContent: datos }), el('span', { className: 's-acc' }, editar, quitar)));
+    }
+  }
+  $('adGuardar').onclick = async () => {
+    const e = adEscrito(), mal = adProblema(e, false);
+    if (mal) return say('adMsg', mal, false);
+    const t = (await store.get(['adaptadores'])).adaptadores || {};
+    t[e.host] = e.adaptador;
+    await store.set({ adaptadores: t });
+    adLimpiar();
+    say('adMsg', `Guardado el adaptador de ${e.host}. Vale desde ya en las pestañas de ese sitio.`, true);
+  };
+  $('adCancelar').onclick = adLimpiar;
+  $('adProbar').onclick = async () => {
+    const e = adEscrito(), mal = adProblema(e, true);
+    if (mal) return say('adMsg', mal, false);
+    say('adMsg', 'Probando…', true);
+    const r = await chrome.runtime.sendMessage({ action: 'probarAdaptador', host: e.host, adaptador: e.adaptador }).catch(err => ({ ok: false, error: err.message }));
+    if (!r?.ok) return say('adMsg', r?.error || 'No se pudo probar.', false);
+    if (r.error) return say('adMsg', r.error, false);
+    say('adMsg', r.n ? `Encuentra ${r.n} ${r.n === 1 ? 'imagen' : 'imágenes'} en ${r.pagina}. Las primeras: ${r.urls.join(' · ')}`
+                     : `No encuentra ninguna imagen en ${r.pagina}. Revisá los selectores.`, !!r.n);
+  };
+
   async function load() {
     const st = await store.get(KEYS);
     verRitmo(A.normalizarRitmo(st.ritmo));
+    renderAdaptadores(st.adaptadores);
     saved = st.savedChapters || {};
     renderSaved();
     $('sagasText').value = typeof st.sagasText === 'string' && st.sagasText.trim() ? st.sagasText : includedText();
@@ -471,6 +539,7 @@ if (typeof document !== 'undefined') {
     if (ch.savedChapters) { saved = ch.savedChapters.newValue || {}; renderSaved(); }
     if (ch.fabBlockedHosts) renderHosts(ch.fabBlockedHosts.newValue || []);
     if (ch.misSitios) { renderMisSitios(ch.misSitios.newValue || []); verLista(); }
+    if (ch.adaptadores) renderAdaptadores(ch.adaptadores.newValue || {});
   });
 
   load();

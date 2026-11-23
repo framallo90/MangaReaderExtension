@@ -53,13 +53,13 @@
     .form-sitio select { background: #0f1a33; color: #fff; border: 1px solid #2a3a5e; border-radius: 6px; padding: 7px 8px; font: 13px 'Segoe UI', system-ui, sans-serif; }
     .form-sitio .chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #b9c2d8; }
     .form-sitio .chk input { accent-color: #667eea; }
-    ul#misSitios { list-style: none; margin: 0; padding: 0; }
-    ul#misSitios li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 6px 0; border-top: 1px solid #1c2947; }
-    ul#misSitios li:first-child { border-top: none; }
-    ul#misSitios .s-nombre { font-weight: 600; color: #fff; }
-    ul#misSitios .s-datos { font-size: 12px; color: #8fa6d8; }
-    ul#misSitios .s-desc { flex-basis: 100%; font-size: 12px; color: #b9c2d8; }
-    ul#misSitios .s-acc { margin-left: auto; display: flex; gap: 4px; }
+    ul#misSitios, ul#adLista { list-style: none; margin: 0; padding: 0; }
+    ul#misSitios li, ul#adLista li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 6px 0; border-top: 1px solid #1c2947; }
+    ul#misSitios li:first-child, ul#adLista li:first-child { border-top: none; }
+    ul#misSitios .s-nombre, ul#adLista .s-nombre { font-weight: 600; color: #fff; }
+    ul#misSitios .s-datos, ul#adLista .s-datos { font-size: 12px; color: #8fa6d8; }
+    ul#misSitios .s-desc, ul#adLista .s-desc { flex-basis: 100%; font-size: 12px; color: #b9c2d8; }
+    ul#misSitios .s-acc, ul#adLista .s-acc { margin-left: auto; display: flex; gap: 4px; }
     h3 { font-size: 13px; color: #fff; margin: 14px 0 6px; }
     #listaTexto { min-height: 150px; }
     .chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #b9c2d8; }
@@ -216,6 +216,32 @@
       <button id="ritmoDefecto">Volver al de siempre</button>
       <span class="msg" id="ritmoMsg"></span>
     </div>
+  </section>
+
+  <section id="adaptadores">
+    <h2>Adaptadores por sitio</h2>
+    <p>Para los sitios donde la extensión no acierta con las páginas (toma tapas de otras series, o deja páginas afuera).
+       Le decís dónde están con selectores CSS, y en ese sitio busca ahí y solo ahí, sin adivinar nada.</p>
+    <div class="bar">
+      <input type="text" id="adHost" placeholder="Sitio (sitio.com o una dirección suya)" spellcheck="false" autocomplete="off">
+    </div>
+    <div class="bar">
+      <input type="text" id="adContenedor" placeholder="Contenedor: el bloque que tiene las páginas (#visor)" spellcheck="false" autocomplete="off">
+      <input type="text" id="adImagenes" placeholder="Imágenes: cuáles son las páginas (img.pagina)" spellcheck="false" autocomplete="off">
+    </div>
+    <div class="bar">
+      <input type="text" id="adIgnorar" placeholder="Ignorar: lo que hay que dejar afuera, separado por comas (.aviso, .recomendados img)" spellcheck="false" autocomplete="off">
+    </div>
+    <div class="bar">
+      <input type="text" id="adPatron" placeholder="Dirección de los capítulos, con {n} donde va el número (https://sitio.com/leer/{n})" spellcheck="false" autocomplete="off">
+    </div>
+    <div class="bar">
+      <button class="main" id="adGuardar">Guardar adaptador</button>
+      <button id="adProbar" title="Cuenta lo que encuentra con estos selectores en la pestaña de ese sitio que tengas abierta, sin guardar nada">Probar en esta página</button>
+      <button id="adCancelar" hidden>Cancelar</button>
+    </div>
+    <div class="msg" id="adMsg"></div>
+    <ul id="adLista"></ul>
   </section>
 </main>
 <script src="sagas.js"></script>

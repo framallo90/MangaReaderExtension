@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Serie Rara Capítulo 9 | Sitio de prueba</title>
+</head>
+<body style="margin:0">
+<!-- Un lector que engaña a la detección automática: las 6 páginas del capítulo están en un
+     bloque propio, pero tres comparten carpeta con 20 tapas de "recomendados" y las otras tres
+     vienen cada una de otra carpeta. Sin ayuda, la carpeta con más imágenes es la de las tapas. -->
+<div id="visor-raro">
+  <img style="display:block" width="420" height="640" src="/fx/img/comun/p1.jpg">
+  <img style="display:block" width="420" height="640" src="/fx/img/comun/p2.jpg">
+  <img style="display:block" width="420" height="640" src="/fx/img/comun/p3.jpg">
+  <img style="display:block" width="420" height="640" src="/fx/img/otra/p4.jpg">
+  <img style="display:block" width="420" height="640" src="/fx/img/otra2/p5.jpg">
+  <img style="display:block" width="420" height="640" src="/fx/img/otra3/p6.jpg">
+</div>
+<div class="recomendados">
+<script>
+  for (let i = 1; i <= 20; i++) document.write('<img width="420" height="640" src="/fx/img/comun/s' + String(i).padStart(2, '0') + '.jpg">');
+</script>
+</div>
+</body>
+</html>
