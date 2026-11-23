@@ -17,7 +17,16 @@
       <button class="main" id="analizar" type="submit">Analizar</button>
       <button id="verPegar" type="button" title="Pegar una lista de links de capítulos">Pegar links</button>
       <button id="verGuardados" type="button" title="Tus favoritos: sitios, catálogos y series guardados">⭐ Favoritos</button>
+      <button id="verHistorial" type="button" title="El registro de todo lo que bajaste con el programa">🗂 Historial</button>
     </form>
+    <!-- Historial: lo que se bajó, por serie, aunque ya no esté en la carpeta -->
+    <div id="historial" hidden>
+      <div class="barra">
+        <input id="historialFiltro" type="text" spellcheck="false" autocomplete="off" placeholder="Buscar una serie en lo que ya bajaste…">
+        <span id="historialCuenta" class="tenue"></span>
+      </div>
+      <div id="historialLista"></div>
+    </div>
     <!-- Favoritos: arriba se pega (un link o muchos) y queda guardado; abajo, la lista -->
     <div id="guardados" hidden>
       <textarea id="listaLinks" spellcheck="false" placeholder="Pegá acá un link o muchos y quedan guardados en tus favoritos. Uno por renglón, como los tengas:&#10;Mi sitio: https://sitio.com/ — lo que quieras anotar&#10;https://otro.com/catalogo"></textarea>
@@ -122,6 +131,11 @@
       <label class="opcion"><input type="checkbox" id="saltear"> Saltear lo que ya está en la carpeta</label>
       <div class="campo">Carpeta
         <div class="carpeta"><span id="carpeta" title=""></span><button id="cambiarCarpeta" type="button">Cambiar</button></div>
+      </div>
+      <!-- Tu colección: otras carpetas donde mirar lo que ya tenés (por ejemplo, la de Google Drive) -->
+      <div class="campo">Tu colección
+        <div id="bibliotecas"></div>
+        <button id="agregarBiblioteca" type="button" title="Otra carpeta donde guardás tus mangas, cómics o libros: ahí también se mira lo que ya tenés">＋ Agregar una carpeta donde mirar</button>
       </div>
       <details id="nombres">
         <summary>Nombres y sagas</summary>

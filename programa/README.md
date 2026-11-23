@@ -4,7 +4,7 @@ Explora una página web por niveles (títulos → capítulos → páginas) y gua
 
 Todo corre en tu máquina: no hay servidor ni cuenta. Es independiente de la extensión de Chrome y usa su mismo código para detectar páginas, armar nombres y generar los archivos.
 
-**Estado: versión 0.6.0.** Funciona de punta a punta sobre los sitios de prueba. Los cambios de cada versión están en las [Actualizaciones](../README.md#actualizaciones) del README principal.
+**Estado: versión 0.7.0.** Funciona de punta a punta sobre los sitios de prueba. Los cambios de cada versión están en las [Actualizaciones](../README.md#actualizaciones) del README principal.
 
 ## Cómo abrirlo
 
@@ -67,6 +67,32 @@ Cuando la lista es de capítulos y se sabe de qué serie son (el cuadro **Serie*
 - **Cada formato se mira aparte:** con PDF tildado, un capítulo que solo está en CBZ figura como que falta.
 
 Con **Saltear lo que ya está en la carpeta**, al descargar se usa el mismo criterio: lo que ya está con otro nombre no se baja de nuevo.
+
+### El registro: lo que ya bajaste, aunque ya no esté
+
+El programa anota cada capítulo que termina de bajar. Ese registro no depende de los archivos: sigue ahí aunque los muevas, los subas a otro lado o los borres.
+
+- **En una lista de capítulos**, lo que bajaste y ya no está en la carpeta aparece con **✔ ya lo bajaste** (con la fecha al pasar el mouse), y no entra en "Te faltan" ni en **Marcar los que faltan**.
+- **En un catálogo**, los títulos de los que ya bajaste algo aparecen con **✔ N bajados**. Así, si volvés a encontrar una serie en otro sitio, se ve de entrada que ya la tenés empezada.
+- **🗂 Historial** (arriba) muestra todo el registro por serie: cuántos capítulos, de cuál a cuál, cuáles faltan en el medio y cuándo fue el último. Se busca por serie, y la ✕ quita una serie del registro sin borrar ningún archivo.
+- **Saltear** sigue mirando solo los archivos: si algo figura en el registro pero ya no lo tenés y lo tildás, se baja de nuevo.
+
+El registro vive en `descargas.json`, al lado de la configuración. Anota lo que se baja con el programa desde esta versión; lo que bajaste antes no está, pero se reconoce igual si los archivos siguen en la carpeta o en tu colección.
+
+### Tu colección (y Google Drive)
+
+En **Tu colección** (a la derecha) se agregan otras carpetas donde mirar lo que ya tenés, además de la de descargas: donde guardás tus mangas, cómics o libros.
+
+- **Se busca la carpeta de la serie por su nombre**, hasta dos niveles adentro: sirve tanto `Mangas/One Piece` como `One Piece` suelto.
+- **Los capítulos se reconocen** si el archivo dice "Capítulo 12" o lleva el número con cuatro cifras (`One Piece 0012`). Un "Tomo 12" no se toma por el capítulo 12.
+- **Aunque no reconozca los capítulos**, en un catálogo el título aparece con **✔ en tu colección** y dice en qué carpeta está.
+- Lo que está en tu colección también se saltea al descargar.
+
+**Con Google Drive.** El programa no entra a tu cuenta de Google: usa la carpeta que Google Drive deja en tu máquina.
+
+1. Instalá [Google Drive para ordenadores](https://www.google.com/drive/download/) e iniciá sesión. Aparece una unidad nueva, por ejemplo `G:\Mi unidad`.
+2. En el programa, en **Tu colección**, agregá la carpeta donde están tus mangas (por ejemplo `G:\Mi unidad\Mangas`). Desde ahí las listas marcan lo que ya tenés.
+3. Si querés que lo nuevo vaya directo al Drive, elegí esa carpeta también en **Carpeta**: lo que se guarda ahí lo sube Google Drive solo.
 
 ### Favoritos
 
@@ -141,7 +167,8 @@ Baja de a un capítulo, con una pausa entre uno y otro. Cada renglón dice en qu
 - **Al bajar varios capítulos no se revisan las páginas de cada uno:** va el filtro automático. La revisión es para un capítulo por vez.
 - **Las tapas son las que la página muestra.** Si una página no pone una imagen junto a cada título, no hay mosaico. Las miniaturas se piden a medida que quedan a la vista, de a 4, y no se guardan en el disco: al cerrar el programa se olvidan.
 - **Las sagas y la plantilla no se sincronizan con la extensión:** se copian a mano de una a otra. Los favoritos tampoco: son dos listas.
-- **No lleva un registro de guardados** aparte: lo que ya está lo sabe mirando la carpeta.
+- **No se conecta a Google Drive por internet:** usa la carpeta que Google Drive para ordenadores deja en la máquina. Sin eso instalado, no ve lo que tenés en el Drive.
+- **En tu colección, las series se encuentran por el nombre de su carpeta.** Si la carpeta se llama distinto que la serie, o está más de dos niveles adentro, no la ve.
 - **No recorre un sitio entero** de un saque: va nivel por nivel, y "Traer todas" para a las 50 páginas.
 - **Encuentra el catálogo por el nombre del link o por su dirección** ("Biblioteca", "Directorio", `/library`, `/series`…). Si el sitio lo llama de otra forma, hay que entrar a mano con la flecha ›.
 - **Reconoce las tapas porque son links.** Si un sitio arma su portada con tapas que no llevan a ningún lado (se abren con JavaScript), la puede seguir tomando por un capítulo. En la portada de un sitio igual entra al listado completo si lo encuentra, y en cualquier página queda el acceso **¿Buscás el listado completo?**
@@ -168,7 +195,7 @@ Baja de a un capítulo, con una pausa entre uno y otro. Cada renglón dice en qu
 - **Las páginas web corren aisladas:** sin acceso a Node ni al disco, sin poder abrir ventanas, bajar archivos por su cuenta ni pedir permisos.
 - **Las imágenes se piden con el Referer del capítulo,** como lo haría el navegador. Hay servidores que sin eso contestan 403.
 - **La interfaz no carga nada de internet por su cuenta.** Las tapas y las miniaturas de las páginas las pide el programa con la sesión de las páginas (y su Referer), las achica a 240 px de ancho y se las pasa a la interfaz ya como imagen incrustada.
-- **Los datos van siempre a la misma carpeta** (`%APPDATA%\manga-reader-programa`), se abra con `npm start` o instalado: `config.json` (opciones, plantilla, sagas, direcciones recientes) y `links.json` (favoritos).
+- **Los datos van siempre a la misma carpeta** (`%APPDATA%\manga-reader-programa`), se abra con `npm start` o instalado: `config.json` (opciones, plantilla, sagas, direcciones recientes, carpetas de tu colección), `links.json` (favoritos) y `descargas.json` (el registro de lo que se bajó).
 
 ## Pruebas
 
@@ -176,7 +203,7 @@ Baja de a un capítulo, con una pausa entre uno y otro. Cada renglón dice en qu
 npm run prueba
 ```
 
-Corren dentro de Electron contra un sitio de prueba servido en la máquina. Son 119 comprobaciones:
+Corren dentro de Electron contra un sitio de prueba servido en la máquina. Son 132 comprobaciones:
 
 - **Explorar:** portada, catálogo paginado, directorio que carga al bajar, serie y capítulo.
 - **Portada con tapas:** que no pase por capítulo (y que un capítulo con tapas al final lo siga siendo), que cada título traiga su tapa y que la miniatura se pida con el Referer del sitio.
@@ -185,7 +212,8 @@ Corren dentro de Electron contra un sitio de prueba servido en la máquina. Son 
 - **Plantilla y sagas:** el tomo y el nombre del capítulo en el nombre del archivo, y la carpeta por saga.
 - **Reintentar:** un capítulo que queda incompleto sale entero al reintentar, sin archivo repetido.
 - **Revisar páginas:** todas las imágenes con el motivo de las descartadas, y la bajada con las elegidas a mano.
+- **El registro y tu colección:** lo que se bajó sigue marcado aunque se borre el archivo; una carpeta de colección con otra organización; los títulos de un catálogo de los que ya hay algo.
 - **Favoritos:** pegar, buscar, filtrar por tipo e idioma y quitar.
 - **La interfaz:** todo lo anterior manejado desde la pantalla, más "Traer todas", las direcciones recientes y la serie puesta sola.
 
-Durante las pruebas el programa arranca con todo de fábrica y no escribe ni la configuración ni los favoritos, así que no tocan los tuyos. Con `CAPTURAS=<carpeta>` guardan además capturas de la interfaz.
+Durante las pruebas el programa arranca con todo de fábrica y no escribe ni la configuración ni los favoritos, ni el registro, así que no tocan los tuyos. Con `CAPTURAS=<carpeta>` guardan además capturas de la interfaz.

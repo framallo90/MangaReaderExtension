@@ -181,3 +181,16 @@ aside .barra button { padding: 6px 9px; font-size: 12px; }
 #sagasMsg.error { color: #ff8a7a; }
 #sagasMsg.bien { color: #7ee2a8; }
 .tarjeta .barra { flex: none; flex-wrap: nowrap; }
+
+/* ── Historial y tu colección ── */
+#historial { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+#historialFiltro { flex: 1; min-width: 160px; padding: 6px 9px; }
+#historialLista { max-height: 300px; overflow-y: auto; background: #0f1a33; border: 1px solid #2a3a5e; border-radius: 8px; }
+#historialLista .g-abrir { cursor: default; }
+.fila .esta.antes { color: #f1c40f; }
+#bibliotecas { display: flex; flex-direction: column; gap: 4px; }
+.biblioteca { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 8px; background: #0f1a33; border: 1px solid #2a3a5e; border-radius: 6px; }
+.biblioteca span { flex: 1; min-width: 0; font-size: 12px; color: #d0d0d0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.biblioteca .g-quitar { flex: none; border: none; background: none; padding: 0 6px; color: #8fa6d8; }
+.biblioteca .g-quitar:hover { color: #ff8a7a; }
+#agregarBiblioteca { align-self: flex-start; padding: 5px 9px; font-size: 12px; }

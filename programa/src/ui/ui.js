@@ -231,16 +231,22 @@ function dibujar() {
   $('lista').classList.toggle('tapas', mosaico);
 
   // Lo que ya está en la carpeta, si es una lista de capítulos y se sabe de qué serie
+  // (en la carpeta o en tu colección: "ya está"; o en el registro, aunque ya no esté: "ya lo bajaste")
   const tengo = enDisco && l && enDisco.clave === claveDisco() ? enDisco.tengo : null;
+  const antes = tengo ? enDisco.bajados : new Map();
   $('enDisco').hidden = !tengo;
   if (tengo) {
     const total = l.items.filter(i => Number.isFinite(i.numero)).length;
     const otra = enDisco.carpetas.filter(n => n !== $('serie').value.trim());
-    $('enDiscoTexto').textContent = (!tengo.size ? `De ${$('serie').value.trim()} todavía no tenés ninguno de estos ${total} en la carpeta.`
-      : enDisco.cuantosFaltan ? `Ya tenés ${tengo.size} de ${total}. Te faltan: ${enDisco.faltan}.` : `Ya tenés los ${total}.`) +
-      (otra.length ? ` (Los encontré en la carpeta «${otra.join('», «')}».)` : '');
-    $('marcarFaltan').hidden = !enDisco.cuantosFaltan || !tengo.size;
+    const falta = enDisco.cuantosFaltan ? ` Te faltan: ${enDisco.faltan}.` : '';
+    $('enDiscoTexto').textContent = (!tengo.size && !antes.size ? `De ${$('serie').value.trim()} todavía no tenés ninguno de estos ${total}.`
+      : !antes.size ? (enDisco.cuantosFaltan ? `Ya tenés ${tengo.size} de ${total}.${falta}` : `Ya tenés los ${total}.`)
+      : `Ya tenés ${tengo.size} de ${total} en la carpeta, y ${antes.size === 1 ? 'otro ya lo bajaste antes (no está ahí)' : `otros ${antes.size} ya los bajaste antes (no están ahí)`}.${falta || ' No te falta ninguno.'}`) +
+      (otra.length ? ` (Los encontré en «${otra.join('», «')}».)` : '');
+    $('marcarFaltan').hidden = !enDisco.cuantosFaltan || (!tengo.size && !antes.size);
   }
+  // En una lista de títulos: de cuáles ya tenés algo
+  const tuyos = marcas && l && marcas.clave === claveTitulos() ? marcas.por : null;
 
   // Renglones, con un encabezado por volumen o saga cuando la página los separa
   const items = visibles(), filas = [];
@@ -267,11 +273,15 @@ function dibujar() {
       ponerMiniatura(tapa, i.imagen);
       if (l.tipo === 'titulos') tapa.addEventListener('click', abrir);
     }
-    const ya = !!tengo && tengo.has(i.numero);
-    filas.push(el('label', { className: 'fila' + (ya ? ' ya' : ''), title: mosaico ? i.texto : i.url }, caja, tapa,
+    const ya = !!tengo && tengo.has(i.numero), fecha = antes.get(i.numero), tuyo = tuyos?.get(i.url);
+    const marca = ya ? el('span', { className: 'esta', textContent: '✔ ya está', title: 'Ya está en la carpeta o en tu colección' })
+      : fecha ? el('span', { className: 'esta antes', textContent: '✔ ya lo bajaste', title: `Lo bajaste el ${fecha}. Ya no está en la carpeta.` })
+      : tuyo ? el('span', { className: 'esta', textContent: tuyo.bajados ? `✔ ${plural(tuyo.bajados, 'bajado', 'bajados')}` : '✔ en tu colección',
+          title: [tuyo.bajados ? `Ya bajaste ${plural(tuyo.bajados, 'capítulo', 'capítulos')} de este título` : '', tuyo.carpeta ? `Está en «${tuyo.carpeta}»` : ''].filter(Boolean).join('. ') })
+      : null;
+    filas.push(el('label', { className: 'fila' + (ya || fecha || tuyo ? ' ya' : ''), title: mosaico ? i.texto : i.url }, caja, tapa,
       i.numero !== undefined && i.numero !== null ? el('span', { className: 'num', textContent: String(i.numero) }) : null,
-      el('span', { className: 'txt', textContent: i.texto }),
-      ya ? el('span', { className: 'esta', textContent: '✔ ya está', title: 'Ya está en la carpeta' }) : null, entrar));
+      el('span', { className: 'txt', textContent: i.texto }), marca, entrar));
   }
   $('lista').replaceChildren(...filas);
   refrescar();
@@ -333,10 +343,26 @@ function mirarDisco(pausa = 0) {
     try {
       const r = await mr.disco({ serie, numeros, formatos: opciones().formatos });
       if (clave !== claveDisco()) return;            // mientras tanto cambió la lista o la serie
-      enDisco = { clave, tengo: new Set(r.tengo), faltan: r.faltan, cuantosFaltan: r.cuantosFaltan, carpetas: r.carpetas };
+      enDisco = { clave, tengo: new Set(r.tengo), bajados: new Map(r.bajados.map(b => [b.numero, b.fecha])), faltan: r.faltan, cuantosFaltan: r.cuantosFaltan, carpetas: r.carpetas };
       dibujar();
     } catch {}
   }, pausa);
+  mirarTitulos();
+}
+
+// En una lista de títulos (un catálogo), de cuáles ya tenés algo: capítulos que bajaste con
+// el programa (el registro) o una carpeta con ese nombre en tu colección.
+let marcas = null;          // { clave, por: Map(dirección → { bajados, carpeta }) }
+const claveTitulos = () => { const l = listaActual(); return `${listaId}|${l ? l.items.length : 0}|${$('carpeta').textContent}`; };
+async function mirarTitulos(deNuevo = false) {
+  const l = listaActual(), clave = claveTitulos();
+  if (!l || l.tipo !== 'titulos' || (!deNuevo && marcas && marcas.clave === clave)) return;
+  try {
+    const r = await mr.titulos({ nombres: l.items.map(i => i.texto) });
+    if (clave !== claveTitulos()) return;
+    marcas = { clave, por: new Map(l.items.map((i, k) => [i.url, r[k]]).filter(([, m]) => m)) };
+    if (marcas.por.size) dibujar();
+  } catch {}
 }
 
 // ── Guardar ──
@@ -561,6 +587,42 @@ function quitarTodos() {
   quitarTodosArmado = setTimeout(() => { delete $('quitarTodos').dataset.armado; $('quitarTodos').textContent = 'Quitar todos'; }, 4000);
 }
 
+// ── Historial ──
+// El registro de lo que se bajó con el programa, por serie. Sigue ahí aunque muevas o borres
+// los archivos: sirve para acordarse de qué ya se bajó cuando se lo vuelve a encontrar.
+let historial = [];
+function dibujarHistorial() {
+  const q = $('historialFiltro').value.trim().toLowerCase();
+  const ver = historial.filter(s => !q || s.serie.toLowerCase().includes(q));
+  const total = historial.reduce((n, s) => n + s.cuantos, 0);
+  $('verHistorial').textContent = historial.length ? `🗂 Historial (${historial.length})` : '🗂 Historial';
+  $('historialCuenta').textContent = !historial.length ? '' : q ? `${ver.length} de ${plural(historial.length, 'serie', 'series')}`
+    : `${plural(historial.length, 'serie', 'series')} · ${plural(total, 'capítulo', 'capítulos')}`;
+  $('historialLista').replaceChildren(...(ver.length ? ver.map(s => {
+    const datos = plural(s.cuantos, 'capítulo', 'capítulos') + (s.desde === null ? '' : s.desde === s.hasta ? ` · el ${s.desde}` : ` · del ${s.desde} al ${s.hasta}`) +
+      (s.faltan ? ` · en el medio faltan: ${s.faltan}` : '') + ` · el último, el ${s.ultima}`;
+    const quitar = el('button', { type: 'button', className: 'g-quitar', textContent: '✕', title: 'Quitar esta serie del registro (no borra ningún archivo)' });
+    quitar.addEventListener('click', async () => { historial = await mr.quitarDelRegistro(s.clave); dibujarHistorial(); mirarDisco(); mirarTitulos(true); });
+    return el('div', { className: 'guardado' },
+      el('div', { className: 'g-abrir' }, el('span', { className: 'g-nombre', textContent: s.serie }), el('span', { className: 'g-datos', textContent: datos })), quitar);
+  }) : [el('div', { className: 'vacio', textContent: historial.length ? 'Ninguna serie coincide con lo que buscás.'
+    : 'Todavía no bajaste nada con el programa. Lo que bajes queda anotado acá.' })]));
+}
+async function cargarHistorial() {
+  try { historial = await mr.registro(); } catch { historial = []; }
+  dibujarHistorial();
+}
+
+// ── Tu colección ──
+// Otras carpetas donde mirar lo que ya tenés, además de la de descargas: donde guardás tus
+// mangas, cómics o libros (por ejemplo, la carpeta de Google Drive de tu máquina).
+function dibujarBibliotecas(lista) {
+  $('bibliotecas').replaceChildren(...(lista || []).map(c => {
+    const quitar = el('button', { type: 'button', className: 'g-quitar', textContent: '✕', title: 'Dejar de mirar esta carpeta (no borra nada)' });
+    quitar.addEventListener('click', async () => { dibujarBibliotecas(await mr.quitarBiblioteca(c)); mirarDisco(); mirarTitulos(true); });
+    return el('div', { className: 'biblioteca' }, el('span', { textContent: c, title: c }), quitar);
+  }));
+}
 // ── Nombres y sagas ──
 // La plantilla se guarda al escribirla, y debajo se ve cómo quedaría un capítulo bajado desde
 // una lista (con su tomo y su nombre) y uno suelto.
@@ -601,14 +663,21 @@ $('buscar').addEventListener('submit', (e) => {
   if (!/^[a-z][a-z0-9+.-]*:/i.test(url)) url = 'https://' + url;          // "sitio.com/serie" → "https://sitio.com/serie"
   ir(url, 0, true, '', true);
 });
-$('verPegar').addEventListener('click', () => { $('pegar').hidden = !$('pegar').hidden; $('guardados').hidden = true; if (!$('pegar').hidden) $('links').focus(); });
+$('verPegar').addEventListener('click', () => { $('pegar').hidden = !$('pegar').hidden; $('guardados').hidden = $('historial').hidden = true; if (!$('pegar').hidden) $('links').focus(); });
 $('usarLinks').addEventListener('click', usarLinks);
 $('verGuardados').addEventListener('click', () => {
   $('guardados').hidden = !$('guardados').hidden;
-  $('pegar').hidden = true;
+  $('pegar').hidden = $('historial').hidden = true;
   avisoGuardados('');
   if (!$('guardados').hidden) $('listaLinks').focus();          // listo para pegar con Ctrl+V
 });
+$('verHistorial').addEventListener('click', () => {
+  $('historial').hidden = !$('historial').hidden;
+  $('pegar').hidden = $('guardados').hidden = true;
+  if (!$('historial').hidden) { cargarHistorial(); $('historialFiltro').focus(); }
+});
+$('historialFiltro').addEventListener('input', dibujarHistorial);
+$('agregarBiblioteca').addEventListener('click', async () => { dibujarBibliotecas(await mr.agregarBiblioteca()); mirarDisco(); mirarTitulos(true); });
 $('guardarActual').addEventListener('click', guardarActual);
 $('agregarLista').addEventListener('click', agregarLista);
 // Pegar en el cuadro guarda directamente (cuando el texto pegado ya está en el cuadro)
@@ -628,7 +697,7 @@ $('ninguno').addEventListener('click', () => { for (const i of visibles()) marca
 $('marcarFaltan').addEventListener('click', () => {
   const l = listaActual();
   if (!l || !enDisco) return;
-  marcados = new Set(l.items.filter(i => Number.isFinite(i.numero) && !enDisco.tengo.has(i.numero)).map(i => i.url));
+  marcados = new Set(l.items.filter(i => Number.isFinite(i.numero) && !enDisco.tengo.has(i.numero) && !enDisco.bajados.has(i.numero)).map(i => i.url));
   dibujar();
 });
 $('siguiente').addEventListener('click', traerMas);
@@ -668,7 +737,7 @@ mr.alCambiarCola((cola) => {
   dibujarCola();
   // Cuando termina un capítulo, se vuelve a mirar qué hay en la carpeta
   const n = cola.filter(t => t.estado === 'listo' || t.estado === 'incompleto').length;
-  if (n !== terminadas) { terminadas = n; mirarDisco(300); }
+  if (n !== terminadas) { terminadas = n; mirarDisco(300); mirarTitulos(true); cargarHistorial(); }
 });
 mr.alAvanzar((texto) => { if (ocupado && !trayendoTodas) estado(texto, 'trabajando'); });
 mr.config().then((c) => {
@@ -679,8 +748,10 @@ mr.config().then((c) => {
   $('sagas').value = c.sagasTexto || '';
   mostrarCarpeta(c.carpeta);
   mostrarRecientes(c.recientes);
+  dibujarBibliotecas(c.bibliotecas);
   verPlantilla(false);
   if (actual) dibujar(); else refrescar();
 });
 mr.guardados().then((l) => { guardados = l; dibujarGuardados(); });
+cargarHistorial();
 $('url').focus();

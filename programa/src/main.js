@@ -27,14 +27,16 @@ app.setAppUserModelId('ar.mangareader.programa');     // para que Windows muestr
 
 // ── Configuración ────────────────────────────────────
 // plantilla: la plantilla de nombres ('' = la de siempre) · sagasTexto: las sagas propias, como
-// se escriben · recientes: las últimas direcciones analizadas a mano · tapas: lista en mosaico
+// se escriben · recientes: las últimas direcciones analizadas a mano · tapas: lista en mosaico ·
+// bibliotecas: las carpetas de tu colección, donde también se mira lo que ya tenés
 let config = { carpeta: '', formatos: { pdf: true, cbz: false, imgs: false }, saltear: true, tapas: true,
-               plantilla: '', sagasTexto: '', recientes: [] };
+               plantilla: '', sagasTexto: '', recientes: [], bibliotecas: [] };
 const archivoConfig = () => path.join(app.getPath('userData'), 'config.json');
 function leerConfig() {
   if (!PRUEBA) { try { config = { ...config, ...JSON.parse(fs.readFileSync(archivoConfig(), 'utf8')) }; } catch {} }      // las pruebas arrancan con todo de fábrica
   if (!config.carpeta) config.carpeta = path.join(app.getPath('downloads'), 'MangaReader');
   if (!Array.isArray(config.recientes)) config.recientes = [];
+  if (!Array.isArray(config.bibliotecas)) config.bibliotecas = [];
   aplicarNombres();
 }
 // Pasa al núcleo (el que arma los nombres) la plantilla y las sagas guardadas
@@ -45,6 +47,7 @@ function aplicarNombres() {
 function guardarConfig(c) {
   config = { ...config, ...c, formatos: { ...config.formatos, ...(c.formatos || {}) } };
   if ('plantilla' in c || 'sagasTexto' in c) aplicarNombres();
+  if ('bibliotecas' in c) indices.clear();          // cambió dónde mirar: lo recordado ya no vale
   if (!PRUEBA) { try { fs.writeFileSync(archivoConfig(), JSON.stringify(config, null, 2)); } catch {} }
   return config;
 }
@@ -325,37 +328,71 @@ async function armar({ urls, formatos, ruta, meta, carpeta, referer }, progreso)
   }
 }
 
-// ── Lo que ya está en el disco ───────────────────────
-// Sirve para marcar en la lista lo que ya se bajó y para no repetirlo, aunque haya quedado
-// con otro nombre de archivo o en una carpeta que se llama casi igual ("One Piece" y
-// "One Piece Manga"). No se comparan series por parecido: "Dragon Ball" y "Dragon Ball
-// Super" son dos, y tomar una por la otra haría saltear capítulos que faltan.
+// ── Lo que ya tenés: el disco, tu colección y el registro ──
+// Para marcar en las listas lo que ya se bajó y no repetirlo. Se mira en tres lados:
+//   · la carpeta de descargas;
+//   · las carpetas de "tu colección" (config.bibliotecas): donde guardás lo tuyo, por ejemplo
+//     la de Google Drive. Ahí puede estar con otra organización (Mangas/One Piece/…);
+//   · el registro de descargas (más abajo): lo que este programa bajó, aunque después lo
+//     hayas movido o borrado.
+// No se comparan series por parecido: "Dragon Ball" y "Dragon Ball Super" son dos, y tomar
+// una por la otra haría saltear capítulos que faltan.
 const sinAcentos = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+// De un renglón como "One Piece Capítulo 1134 hace 2 horas", el nombre de la serie
+const soloSerie = (texto) => String(texto || '').replace(/\s*(?:[-–—|:·]\s*)?(?:cap[ií]tulo|chapter|cap\.|ch\.|ep\.|#)\s*\d.*$/i, '').replace(/\s+/g, ' ').trim();
 // El nombre de una serie sin lo que cambia de un sitio a otro: mayúsculas, acentos, signos y
 // palabras de relleno ("manga", "leer", "online", "español")
 const claveSerie = (nombre) => sinAcentos(nombre)
   .replace(/\b(?:manga|manhwa|manhua|comics?|leer|read|online|espanol|castellano|spanish|english|ingles|gratis|free)\b/g, ' ')
   .replace(/[^a-z0-9]+/g, '');
 
-// Capítulos de una serie que ya están en `carpeta`: número → qué hay ('pdf', 'cbz', 'imgs').
+// Las carpetas donde se mira: la de descargas primero, después las de la colección
+const raices = (carpeta) => [...new Set([carpeta, ...(config.bibliotecas || [])].filter(Boolean).map(p => path.resolve(p)))];
+// Las carpetas de una raíz, hasta dos niveles (Mangas/One Piece), por la clave de su nombre.
+// Las de la colección se recuerdan un minuto: pueden estar en un disco lento o en la nube.
+const indices = new Map();           // raíz → { cuando, porClave }
+function carpetasDe(raiz, recordar) {
+  const ya = indices.get(raiz);
+  if (recordar && ya && Date.now() - ya.cuando < 60000) return ya.porClave;
+  const porClave = new Map();
+  const anotar = (dir, nombre) => { const k = claveSerie(nombre); if (k) (porClave.get(k) || porClave.set(k, []).get(k)).push(dir); };
+  const subcarpetas = (dir) => { try { return fs.readdirSync(dir, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name); } catch { return []; } };
+  for (const a of subcarpetas(raiz)) {
+    anotar(path.join(raiz, a), a);
+    for (const b of subcarpetas(path.join(raiz, a))) anotar(path.join(raiz, a, b), b);
+  }
+  indices.set(raiz, { cuando: Date.now(), porClave });
+  return porClave;
+}
+// Las carpetas de una serie, en todas las raíces: [{ dir, nombre }] (`nombre` es para mostrar:
+// el de la carpeta si está en descargas, o su ruta desde la colección: "Mi unidad/Mangas/One Piece")
+function carpetasDeSerie(carpeta, clave) {
+  const base = path.resolve(carpeta), lista = [];
+  for (const raiz of raices(carpeta)) {
+    for (const dir of carpetasDe(raiz, raiz !== base).get(clave) || []) {
+      const rel = path.relative(raiz, dir).split(path.sep).join('/');
+      lista.push({ dir, nombre: raiz === base && !rel.includes('/') ? rel : `${path.basename(raiz) || raiz}/${rel}` });
+    }
+  }
+  return lista;
+}
+
+// Capítulos de una serie que ya están en el disco: número → qué hay ('pdf', 'cbz', 'imgs').
 // Devuelve { porNumero, carpetas }, con las carpetas de la serie que se encontraron.
 function enDisco(carpeta, serie) {
   const clave = claveSerie(serie), porNumero = new Map();
-  let carpetas = [];
-  if (!clave) return { porNumero, carpetas };
-  try {
-    carpetas = fs.readdirSync(carpeta, { withFileTypes: true }).filter(d => d.isDirectory() && claveSerie(d.name) === clave).map(d => d.name);
-  } catch {}
+  if (!clave) return { porNumero, carpetas: [] };
   const anotar = (nombre, tipo) => {
-    // El número es el primero de 4 o 5 cifras del nombre, sin contar los que traiga la serie ("2001 Nights 0005")
-    let n = nombre.replace(/\.(?:pdf|cbz)$/i, '').replace(/ \(\d+\)$/, '');
+    // El número: el que sigue a "capítulo" o, si no, el primero de 4 o 5 cifras (así los guarda este
+    // programa), sin contar los que traiga el nombre de la serie ("2001 Nights 0005"). Un
+    // "Tomo 12" no es el capítulo 12: no se cuenta.
+    let n = nombre.replace(/\.(?:pdf|cbz|cbr|zip|epub)$/i, '').replace(/ \(\d+\)$/, '');
     if (sinAcentos(n).startsWith(sinAcentos(serie))) n = n.slice(String(serie).length);
-    const m = n.match(/(?<![\d.])(\d{4,5}(?:\.\d+)?)(?!\d)/);
-    if (!m) return false;
+    const m = n.match(/(?:cap[ií]tulo|chapter|cap\.?|ch\.?|#)\s*(\d{1,5}(?:\.\d+)?)/i) || n.match(/(?<![\d.])(\d{4,5}(?:\.\d+)?)(?!\d)/);
+    if (!m) return;
     const numero = parseFloat(m[1]);
     if (!porNumero.has(numero)) porNumero.set(numero, new Set());
     porNumero.get(numero).add(tipo);
-    return true;
   };
   const mirar = (dir, nivel) => {
     let ents = [];
@@ -364,7 +401,8 @@ function enDisco(carpeta, serie) {
       const ruta = path.join(dir, e.name);
       if (e.isFile()) {
         const ext = path.extname(e.name).toLowerCase();
-        if (ext === '.pdf' || ext === '.cbz') anotar(e.name, ext.slice(1));
+        if (ext === '.pdf') anotar(e.name, 'pdf');
+        else if (ext === '.cbz' || ext === '.cbr' || ext === '.zip') anotar(e.name, 'cbz');
       } else if (e.isDirectory()) {
         let suyas = false;                           // ¿es la carpeta de imágenes de un capítulo?
         try { suyas = fs.readdirSync(ruta).some(n => /^pagina_\d+\./.test(n)); } catch {}
@@ -373,8 +411,9 @@ function enDisco(carpeta, serie) {
       }
     }
   };
-  for (const c of carpetas) mirar(path.join(carpeta, c), 0);
-  return { porNumero, carpetas };
+  const carpetas = carpetasDeSerie(carpeta, clave);
+  for (const c of carpetas) mirar(c.dir, 0);
+  return { porNumero, carpetas: carpetas.map(c => c.nombre) };
 }
 const tieneTodo = (tipos, f) => !!tipos && (!f.pdf || tipos.has('pdf')) && (!f.cbz || tipos.has('cbz')) && (!f.imgs || tipos.has('imgs'));
 // "1–3, 7, 9–12": una lista de números como rangos (los seguidos van juntos)
@@ -386,14 +425,77 @@ function enRangos(numeros) {
   }
   return rangesText(rangos);
 }
-// Para la lista de capítulos de una serie: cuáles ya están en la carpeta y cuáles faltan
+
+// ── Registro de descargas ──
+// Lo que este programa bajó: una entrada por capítulo. Sirve para saber que algo ya se bajó
+// aunque ya no esté en la carpeta (lo moviste, lo subiste a otro lado, lo borraste) o aunque
+// lo encuentres de nuevo en otro sitio. Vive en descargas.json, al lado de la configuración.
+let registro = [];          // [{ clave, serie, numero, ruta, formatos, paginas, fecha, url }]
+const archivoRegistro = () => path.join(app.getPath('userData'), 'descargas.json');
+function leerRegistro() {
+  try {
+    const l = JSON.parse(fs.readFileSync(archivoRegistro(), 'utf8'));
+    if (Array.isArray(l)) registro = l.filter(r => r && typeof r.clave === 'string' && typeof r.serie === 'string');
+  } catch {}
+}
+function escribirRegistro() {
+  if (!PRUEBA) { try { fs.writeFileSync(archivoRegistro(), JSON.stringify(registro)); } catch {} }
+}
+// Anota un capítulo que se terminó de bajar. Si ya estaba (misma serie y número), se actualiza.
+function anotarDescarga({ serie, numero, ruta, formatos, paginas, url }) {
+  const clave = claveSerie(serie);
+  if (!clave) return;
+  const i = registro.findIndex(r => r.clave === clave && (numero != null ? r.numero === numero : r.ruta === ruta));
+  const tipos = Object.keys(formatos).filter(k => formatos[k]);
+  const nueva = { clave, serie, numero, ruta, formatos: [...new Set([...(i >= 0 ? registro[i].formatos || [] : []), ...tipos])], paginas, fecha: new Date().toISOString(), url };
+  if (i >= 0) registro[i] = nueva; else registro.push(nueva);
+  escribirRegistro();
+}
+// El registro, por serie: cuántos capítulos, de cuál a cuál, cuáles faltan en el medio y cuándo fue el último
+function verRegistro() {
+  const series = new Map();
+  for (const r of registro) {
+    if (!series.has(r.clave)) series.set(r.clave, { clave: r.clave, serie: r.serie, numeros: [], sueltos: 0, ultima: '' });
+    const s = series.get(r.clave);
+    if (r.numero != null) s.numeros.push(r.numero); else s.sueltos++;
+    if (r.fecha > s.ultima) { s.ultima = r.fecha; s.serie = r.serie; }
+  }
+  return [...series.values()].map(s => {
+    const n = s.numeros.sort((a, b) => a - b);
+    return { clave: s.clave, serie: s.serie, cuantos: n.length + s.sueltos, desde: n.length ? n[0] : null, hasta: n.length ? n[n.length - 1] : null,
+             faltan: rangesText(missingRanges(n)), ultima: s.ultima.slice(0, 10) };
+  }).sort((a, b) => b.ultima.localeCompare(a.ultima) || a.serie.localeCompare(b.serie));
+}
+function quitarDelRegistro(clave) {
+  registro = registro.filter(r => r.clave !== clave);
+  escribirRegistro();
+  return verRegistro();
+}
+
+// Para la lista de capítulos de una serie: cuáles ya están (en el disco o en tu colección),
+// cuáles se bajaron alguna vez aunque ya no estén, y cuáles faltan
 function revisarDisco({ serie, numeros, carpeta, formatos } = {}) {
   const f = { ...config.formatos, ...(formatos || {}) };
   const lista = (Array.isArray(numeros) ? numeros : []).filter(Number.isFinite);
   const { porNumero, carpetas } = enDisco(carpeta || config.carpeta, String(serie || ''));
+  const clave = claveSerie(serie);
+  const anotados = new Map(registro.filter(r => clave && r.clave === clave && r.numero != null).map(r => [r.numero, r.fecha.slice(0, 10)]));
   const tengo = lista.filter(n => tieneTodo(porNumero.get(n), f));
-  const faltan = lista.filter(n => !tieneTodo(porNumero.get(n), f));
-  return { tengo, faltan: enRangos(faltan), cuantosFaltan: faltan.length, carpetas };
+  const bajados = lista.filter(n => !tieneTodo(porNumero.get(n), f) && anotados.has(n)).map(n => ({ numero: n, fecha: anotados.get(n) }));
+  const faltan = lista.filter(n => !tieneTodo(porNumero.get(n), f) && !anotados.has(n));
+  return { tengo, bajados, faltan: enRangos(faltan), cuantosFaltan: faltan.length, carpetas };
+}
+// Para una lista de títulos (un catálogo): de cuáles ya tenés algo. Devuelve, en el mismo
+// orden, null o { bajados: capítulos en el registro, carpeta: dónde está en tu colección }
+function revisarTitulos({ nombres, carpeta } = {}) {
+  const cuantos = new Map();
+  for (const r of registro) cuantos.set(r.clave, (cuantos.get(r.clave) || 0) + 1);
+  return (Array.isArray(nombres) ? nombres : []).map((nombre) => {
+    const clave = claveSerie(soloSerie(nombre));
+    if (!clave) return null;
+    const bajados = cuantos.get(clave) || 0, dirs = carpetasDeSerie(carpeta || config.carpeta, clave);
+    return bajados || dirs.length ? { bajados, carpeta: dirs.length ? dirs[0].nombre : '' } : null;
+  });
 }
 
 // ── Cola de descargas ────────────────────────────────
@@ -518,6 +620,11 @@ async function bajar(t) {
     if (r.faltantes) problemas.push(r.faltantes === 1 ? '1 página no cargó' : `${r.faltantes} páginas no cargaron`);
     if (errores.length) problemas.push('no se pudo escribir: ' + errores[0].error);
     const fuera = t.elegidas ? 0 : (r.descartadas || 0);          // lo que el filtro dejó afuera como publicidad
+    // Lo que salió entero queda en el registro de descargas
+    if (!problemas.length) {
+      anotarDescarga({ serie: serie || ruta.split('/')[0], numero: numero != null && !isNaN(numero) ? numero : null, ruta,
+                       formatos: o.formatos, paginas: res.pages, url: r.clave || t.url });
+    }
     paso(t, problemas.length ? 'incompleto' : 'listo', `${res.pages} páginas` + (fuera ? ` (${fuera} descartada${fuera === 1 ? '' : 's'} como publicidad)` : '') +
       (problemas.length ? ' · ' + problemas.join(' · ') : ''));
   } catch (e) {
@@ -637,6 +744,16 @@ atender('disco', (pedido) => revisarDisco(pedido || {}));
 atender('plantilla:vista', (texto) => vistaDePlantilla(texto));
 atender('sagas:revisar', (texto) => { const r = parseSagas(String(texto || '')); return { series: Object.keys(r.table).length, errores: r.errors }; });
 atender('reciente', (dato) => agregarReciente(dato || {}));
+atender('titulos', (pedido) => revisarTitulos(pedido || {}));
+atender('registro:leer', () => verRegistro());
+atender('registro:quitar', (clave) => quitarDelRegistro(String(clave || '')));
+// Tu colección: carpetas donde también se mira lo que ya tenés (por ejemplo, la de Google Drive)
+atender('biblioteca:agregar', async () => {
+  const r = await dialog.showOpenDialog(ui, { title: 'Una carpeta de tu colección', properties: ['openDirectory'] });
+  if (r.canceled || !r.filePaths[0]) return config.bibliotecas;
+  return guardarConfig({ bibliotecas: [...new Set([...config.bibliotecas, r.filePaths[0]])] }).bibliotecas;
+});
+atender('biblioteca:quitar', (carpeta) => guardarConfig({ bibliotecas: config.bibliotecas.filter(c => c !== carpeta) }).bibliotecas);
 atender('tapa', ({ url, pagina }) => tapa(String(url || ''), String(pagina || '')));
 atender('carpeta', async () => {
   const r = await dialog.showOpenDialog(ui, { title: 'Carpeta donde guardar', defaultPath: config.carpeta, properties: ['openDirectory', 'createDirectory'] });
@@ -655,7 +772,7 @@ app.on('window-all-closed', () => { if (!PRUEBA) app.quit(); });
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   leerConfig();
-  if (!PRUEBA) leerGuardados();               // las pruebas arrancan con la lista vacía y no la escriben
+  if (!PRUEBA) { leerGuardados(); leerRegistro(); }      // las pruebas arrancan con todo vacío y no lo escriben
   prepararSesion();
   if (HUMO) {
     try {
@@ -675,7 +792,7 @@ app.whenReady().then(async () => {
     // "electron . --prueba": corre las pruebas del programa contra un sitio de prueba local
     const fallas = await require('../tests/prueba.js')({ analizar, seguir, encolar, colaVacia, cancelar, limpiar, guardarConfig, abrirUI, nucleo,
       guardarLinks, quitarLinks, guardados: () => guardados, tapa, reintentar, paginasDe, revisarDisco, vistaDePlantilla, agregarReciente,
-      ultimoAviso: () => ultimoAviso, config: () => config })
+      revisarTitulos, verRegistro, quitarDelRegistro, ultimoAviso: () => ultimoAviso, config: () => config })
       .catch((e) => { console.log('FALLA la prueba se cortó: ' + (e.stack || e)); return 1; });
     app.exit(fallas ? 1 : 0);
     return;

@@ -5,7 +5,7 @@ Dos herramientas para guardar capítulos de manga y cómics como **PDF**, **CBZ*
 | | Qué es | Versión | Dónde está |
 |---|---|---|---|
 | 🧩 **La extensión** | Se usa desde Chrome, sobre la página que tenés abierta | 2.10.0 | `manga-reader-ext(ver 22-11-2026-7)/manga-reader-ext` |
-| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.6.0 | `programa/` |
+| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.7.0 | `programa/` |
 
 Funcionan por separado y comparten el mismo código para detectar páginas, armar nombres y generar los archivos. Son de uso personal, están en español y todo corre en tu máquina, sin servidor.
 
@@ -191,6 +191,8 @@ Aplicación de escritorio para Windows, hecha con Electron y JavaScript plano. H
 | 📚 **Volúmenes y sagas** | Si la página separa los capítulos en volúmenes o sagas, aparecen agrupados y se tilda el grupo entero |
 | 🧹 **Revisar páginas** | En un capítulo, muestra todas sus imágenes con lo que tomó por publicidad apagado y el motivo. Un toque pone o saca cada una |
 | ✔ **Lo que ya tenés** | Marca en la lista los capítulos que ya están en la carpeta, dice cuáles faltan y los tilda. Los reconoce aunque estén con otro nombre |
+| 🗂 **Registro e historial** | Anota todo lo que baja. Lo que ya bajaste queda marcado aunque muevas o borres los archivos, y en un catálogo se ve qué títulos ya tenés empezados |
+| 💽 **Tu colección** | Otras carpetas donde mirar lo que ya tenés, como la de Google Drive de tu máquina |
 | 📦 **Cola de descargas** | Baja de a un capítulo y muestra en qué anda cada uno. Se cancela, y se reintenta todo lo que falló. Avisa al terminar y muestra el avance en la barra de tareas |
 | 📁 **Carpeta a elección** | Guarda donde quieras, y saltea lo que ya está mirando el disco |
 | 🗂 **Nombres y sagas** | `Serie/Saga/Serie 0012` por defecto. Se cambia con una plantilla (`{serie}/{volumen}/{serie} {numero} - {titulo}`) y se cargan sagas propias |
@@ -243,6 +245,12 @@ Lo que todavía le falta y cómo está armado: [programa/README.md](programa/REA
 # Actualizaciones
 
 Lo más nuevo arriba. El historial completo de la extensión está en la sección 15 de [DOCUMENTACION.md](DOCUMENTACION.md).
+
+### 23-11-2026 · Programa 0.7.0
+
+- **Registro de descargas:** el programa anota cada capítulo que baja. Lo que ya bajaste aparece marcado ("✔ ya lo bajaste") aunque hayas movido o borrado los archivos, y en un catálogo los títulos que ya tenés empezados dicen cuántos capítulos bajaste.
+- **Historial:** el registro completo por serie, con cuántos capítulos, de cuál a cuál y cuáles faltan en el medio.
+- **Tu colección:** otras carpetas donde mirar lo que ya tenés, con cualquier organización hasta dos niveles (`Mangas/One Piece`). Sirve para la carpeta de Google Drive de tu máquina: no hace falta dar acceso a la cuenta.
 
 ### 22-11-2026 · Programa 0.6.0
 

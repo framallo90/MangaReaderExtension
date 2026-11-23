@@ -29,6 +29,11 @@ contextBridge.exposeInMainWorld('mr', {
   vistaPlantilla: (texto) => pedir('plantilla:vista', texto),
   revisarSagas: (texto) => pedir('sagas:revisar', texto),
   reciente: (dato) => pedir('reciente', dato),              // anota una dirección analizada a mano: { url, titulo }
+  titulos: (pedido) => pedir('titulos', pedido),            // de una lista de títulos, de cuáles ya tenés algo: { nombres }
+  registro: () => pedir('registro:leer'),                   // lo que se bajó con el programa, por serie
+  quitarDelRegistro: (clave) => pedir('registro:quitar', clave),
+  agregarBiblioteca: () => pedir('biblioteca:agregar'),     // suma una carpeta de tu colección (abre el diálogo para elegirla)
+  quitarBiblioteca: (carpeta) => pedir('biblioteca:quitar', carpeta),
   elegirCarpeta: () => pedir('carpeta'),
   abrirCarpeta: () => pedir('abrir-carpeta'),
   // (entre llaves: no devuelve nada. Lo que devuelve ipcRenderer.on no se puede pasar a la página)
