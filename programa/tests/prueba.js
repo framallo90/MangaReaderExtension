@@ -243,6 +243,37 @@ module.exports = async function probar(api) {
     eq('una serie con el número en el renglón y no en el link, y más de un link por capítulo: igual arma su lista de capítulos',
       (lista(dos, 'capitulos')?.items || []).map(i => `${i.numero}=${i.texto}` + (i.versiones > 1 ? ` (${i.versiones})` : '')).join(' | '),
       '1=Capítulo 1 Leer | 2=Capítulo 2: El viaje Grupo A Grupo B (2) | 3=Capítulo 3: El final Grupo A');
+    const nvd = await api.analizar(T + "/novedades");
+    eq('tarjetas con tapa que dicen "Cap. N" (últimas actualizaciones) o con un código en la dirección: son títulos, no capítulos',
+      nvd.listas.map(l => `${l.tipo} ${l.items.length}`).join(' | '), 'titulos 4 | titulos 4 | titulos 4');
+    eq('  de cada tarjeta queda el nombre (lo escrito más grande) y, aparte, lo demás que decía', nvd.listas.slice(0, 2).map(l => `${l.items.map(i => i.texto).join(', ')} [${l.items[0].detalle}]`).join(' | '),
+      'Uno, Dos, Tres, Cuatro [MANHWA · 9.00 · Cap. 12] | Cinco, Seis, Siete, Ocho [Finalizado · 204 caps]');
+    const tres = await api.analizar(T + '/obra/3/tres'), seis = await api.analizar(T + '/obra/6/seis');
+    const molde = (r) => { const l = lista(r, 'capitulos'); return !l ? 'sin capítulos' : `${l.items.map(i => i.numero).join(',')} · ${l.molde ? l.molde.pre.replace(T, '') + '#' + l.molde.post + ' · ' + l.molde.ancho : 'sin molde'}`; };
+    eq('una obra que muestra solo el primer capítulo y el último: da el molde para pedir los del medio por número', molde(tres), '1,40 · /lector-tres/# · 0');
+    eq('  con ceros adelante en la dirección, dice de cuántas cifras', molde(seis), '7,120 · /leer-seis/cap-#-es · 3');
+    const cuatro = await api.analizar(T + '/obra/4/cuatro'), cinco = await api.analizar(T + '/obra/5/cinco');
+    eq('una lista que aparece al tocar la pestaña "Capítulos" y sigue con "Mostrar más": la despliega entera', `${lista(cuatro, 'capitulos')?.items.length} capítulos`, '15 capítulos');
+    eq('una lista en un panel con su propia barra, que carga más al bajar: lo baja hasta el final', `${lista(cinco, 'capitulos')?.items.length} capítulos`, '12 capítulos');
+
+    console.log('\n── El buscador del sitio');
+    const app = await api.analizar(S + '/app/');
+    eq('lo encuentra en un formulario (con sus campos ocultos), en lo que declara el sitio y en un cuadro suelto; y si no hay, no inventa',
+      [pt.buscador?.plantilla?.replace(T, ''), cat.buscador?.plantilla?.replace(S, ''), JSON.stringify(app.buscador).split(S).join(''), String(alfa.buscador)].join(' | '),
+      '/buscar?tipo=todo&q={q} | /buscar?s={q} | {"enPagina":true,"pagina":"/app/"} | null');
+    const b1 = await api.buscarEnSitio({ ...pt.buscador, texto: 'ci', conocidas: [pt.listas[0].id] });
+    eq('buscar con el formulario del sitio: un resultado solo también arma lista, con su tapa', `${b1.listas[0].items.map(i => i.texto + (i.imagen ? ' (con tapa)' : '')).join(', ')} · ${tapas.pedidos.busquedas.join(' ')}`,
+      'Cinco (con tapa) · tipo=todo&q=ci');
+    await api.buscarEnSitio({ ...pt.buscador, texto: '  año   1 ' });
+    eq('  lo buscado viaja bien escrito en la dirección', tapas.pedidos.busquedas[1], 'tipo=todo&q=a%C3%B1o%201');
+    const b2 = await api.buscarEnSitio({ ...cat.buscador, texto: 'et' });
+    eq('buscar con la dirección que declara el sitio', b2.listas.find(l => l.nombre === '/serie')?.items.map(i => i.texto).join(', '), 'Beta, Zeta, Eta, Theta');
+    const b3 = await api.buscarEnSitio({ ...app.buscador, texto: 'pi' });
+    eq('buscar escribiendo en un cuadro suelto: quedan solo los links que aparecieron (los resultados), no el menú', b3.listas.map(l => `${l.tipo}: ${l.items.map(i => i.texto).join(', ')}`).join(' | '), 'titulos: Pi');
+    eq('  sin nada que buscar, lo dice', await api.buscarEnSitio({ ...pt.buscador, texto: '  ' }).then(() => 'pasó', e => e.message), 'Escribí qué querés buscar');
+    eq('  y una plantilla que no es una dirección no se usa', await api.buscarEnSitio({ plantilla: 'file:///c:/x?{q}', texto: 'a' }).then(() => 'pasó', e => e.message), 'El buscador de este sitio no se puede usar desde acá');
+
+    console.log('\n── Portada con tapas (sigue)');
     const bib = await api.analizar(T + '/biblioteca');
     eq('el listado completo, con una tapa por obra, tampoco es un capítulo', `${bib.capitulo} · ${lista(bib, 'titulos').items.length} títulos`, 'null · 12 títulos');
     const l5 = await api.analizar(T + '/lector/5'), l7 = await api.analizar(T + '/lector/7');
@@ -310,7 +341,7 @@ module.exports = async function probar(api) {
     // Volver a la portada por la ruta: muestra lo que tiene, la pista del catálogo y deja traer más páginas
     await en(`document.querySelector('#ruta button').click()`);
     await hasta(`document.querySelectorAll('#lista .fila').length === 4 && !document.querySelector('#siguiente').hidden`, 'la portada');
-    eq('la portada: sus títulos y la pista del listado completo', await titulos() + ' · ' + await en(`[...document.querySelectorAll('#pistas button')].map(e => e.textContent).join(', ')`),
+    eq('la portada: sus títulos y la pista del listado completo', await titulos() + ' · ' + await en(`[...document.querySelectorAll('#pistasLinks button')].map(e => e.textContent).join(', ')`),
       'Alfa, Beta, Gama 3, Delta · Directorio ›');
     await en(`document.querySelector('#siguiente').click()`);
     await hasta(`document.querySelectorAll('#lista .fila').length === 7`, 'las páginas siguientes');
@@ -318,7 +349,7 @@ module.exports = async function probar(api) {
       'Alfa, Beta, Gama 3, Delta, Épsilon, Zeta, Eta · Sumé 3 renglones a esta lista, de 2 páginas. No hay más páginas. · true');
 
     // "Traer todas": se vuelve a la portada (pasando por el directorio) y se junta el listado entero de un toque
-    await en(`document.querySelector('#pistas button').click()`);
+    await en(`document.querySelector('#pistasLinks button').click()`);
     await hasta(`document.querySelectorAll('#lista .fila').length === 15`, 'el directorio');
     await en(`document.querySelector('#ruta button').click()`);
     await hasta(`document.querySelectorAll('#lista .fila').length === 4 && !document.querySelector('#todasLasPaginas').hidden`, 'la portada otra vez');
@@ -397,7 +428,7 @@ module.exports = async function probar(api) {
       'Sitio de tapas — Leer online › Sitio de tapas — Biblioteca › Obra Uno — capítulos · false block 0 0 sin botón');
     await en(`document.querySelector('#ruta button').click()`);
     await hasta(`document.querySelectorAll('#lista .fila').length === 8`, 'la portada de tapas');
-    eq('  la portada muestra sus títulos y las pistas del listado completo', await titulos() + ' · ' + await en(`[...document.querySelectorAll('#pistas button')].map(e => e.textContent).join(', ') + ' · ' + document.querySelector('#capitulo').hidden`),
+    eq('  la portada muestra sus títulos y las pistas del listado completo', await titulos() + ' · ' + await en(`[...document.querySelectorAll('#pistasLinks button')].map(e => e.textContent).join(', ') + ' · ' + document.querySelector('#capitulo').hidden`),
       'Uno, Dos, Tres, Cuatro, Cinco, Seis, Siete, Ocho · 📚 Biblioteca ›, Explorar todo › · true');
     eq('  una lista de títulos es para entrar: sin casillas ni "Todos", y los géneros van en su pestaña',
       await en(`document.querySelectorAll('#lista .fila input').length + ' ' + document.querySelector('#todos').hidden + ' · ' + [...document.querySelectorAll('#tabs button')].map(b => b.textContent).join(' | ')`),
@@ -413,6 +444,24 @@ module.exports = async function probar(api) {
     await en(`document.querySelector('#verTapas').click()`);
     eq('  y las vuelve a prender, con las miniaturas que ya tenía', await mosaico() + ' · ' + api.config().tapas, 'true grid 8 8 botón prendido · true');
     eq('  las tapas se pidieron una sola vez cada una, con el Referer del sitio', `${tapas.pedidos.sinReferer} sin Referer`, '0 sin Referer');
+
+    // El buscador del sitio, dentro del programa: al lado del catálogo
+    eq('el buscador del sitio queda a mano, junto al catálogo', await en(`document.querySelector('#buscarSitio').hidden + ' ' + document.querySelector('#buscarTexto').placeholder`), 'false 🔎 Buscar en este sitio…');
+    await en(`document.querySelector('#buscarTexto').value = 'tre'; document.querySelector('#buscarSitio').requestSubmit()`);
+    await hasta(`/Búsqueda/.test(document.querySelector('#ruta').textContent) && document.querySelectorAll('#lista .fila').length === 1`, 'los resultados de la búsqueda');
+    eq('  buscar muestra lo que trajo el sitio, como una lista de títulos para entrar', await titulos() + ' · ' + await rutaEnPantalla() + ' · ' + (await avisoEnPantalla()).split('.')[0],
+      'Tres · Sitio de tapas — Leer online › Búsqueda: tre · Esto trajo el buscador del sitio para «tre»');
+    await capturar('programa-busqueda');
+    // Entrar al resultado: una obra que solo muestra el primer capítulo y el último
+    await en(`document.querySelector('#lista .fila').click()`);
+    await hasta(`!document.querySelector('#completar').hidden`, 'la obra con el primer capítulo y el último');
+    eq('  entrar a un resultado: la serie queda con su nombre, y ofrece completar los capítulos del medio',
+      await en(`document.querySelector('#serie').value + ' · ' + document.querySelectorAll('#lista .fila').length + ' · ' + document.querySelector('#completar').textContent`), 'Tres · 2 · Completar del 1 al 40');
+    await en(`document.querySelector('#completar').click()`);
+    eq('  "Completar" suma los del medio por número, cada uno con su dirección',
+      await en(`document.querySelectorAll('#lista .fila').length + ' · ' + [...document.querySelectorAll('#lista .fila')][1].title.replace(${JSON.stringify(T)}, '') + ' · ' + document.querySelector('#completar').hidden`), '40 · /lector-tres/2 · true');
+    await hasta(`!document.querySelector('#enDisco').hidden`, 'lo que ya está de la serie');
+    eq('  entre los botones de la serie no queda texto suelto', await en(`[...document.querySelector('#enDiscoBotones').childNodes].filter(n => n.nodeType === 3).map(n => n.textContent).join('|') + '.'`), '.');
 
     // Favoritos: quedaron dos de las pruebas de arriba
     const filasG = async () => (await en(`[...document.querySelectorAll('#guardadosLista .guardado')].map(g => g.querySelector('.g-nombre').textContent + ' (' + g.querySelector('.g-datos').textContent + ')').join(' | ')`)).split(S.replace('http://', '')).join('');

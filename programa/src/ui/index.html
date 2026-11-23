@@ -88,7 +88,14 @@
         <div class="tenue">Las últimas que analizaste</div>
         <div id="inicioLista"></div>
       </div>
-      <div id="pistas" class="barra" hidden></div>
+      <!-- Del sitio que se está mirando: el link a su listado completo y su buscador -->
+      <div id="pistas" class="barra" hidden>
+        <span id="pistasLinks" class="barra"></span>
+        <form id="buscarSitio" class="barra" hidden>
+          <input id="buscarTexto" type="text" spellcheck="false" autocomplete="off" placeholder="🔎 Buscar en este sitio…" title="Usa el buscador del propio sitio y muestra acá lo que encuentra">
+          <button id="buscarBoton" type="submit">Buscar</button>
+        </form>
+      </div>
       <div id="capitulo" class="tarjeta" hidden>
         <div><b id="capNombre"></b><span id="capDatos"></span></div>
         <div class="barra">
@@ -122,6 +129,7 @@
         <button id="todos" type="button">Todos</button>
         <button id="ninguno" type="button">Ninguno</button>
         <button id="sonCapitulos" type="button" hidden title="Si estos renglones son los capítulos de una serie (sin número en el nombre), tocá acá para poder tildarlos y bajarlos">Son capítulos</button>
+        <button id="completar" type="button" hidden></button>
         <button id="verTapas" type="button" hidden title="Mostrar la lista como un mosaico, con la tapa de cada título">🖼 Tapas</button>
         <span id="cuenta" class="tenue"></span>
       </div>

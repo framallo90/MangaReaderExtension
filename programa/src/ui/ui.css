@@ -211,3 +211,9 @@ aside .barra button { padding: 6px 9px; font-size: 12px; }
 #pistas { padding: 8px 10px; background: #1f2c50; border: 1px solid #667eea; border-radius: 8px; }
 #pistas .pista { color: #fff; font-weight: 600; font-size: 13px; }
 #pistas button { background: linear-gradient(135deg, #667eea, #764ba2); border: none; font-weight: 600; }
+#buscarSitio { flex: 1; min-width: 240px; flex-wrap: nowrap; }
+#buscarSitio input { flex: 1; min-width: 0; padding: 5px 10px; font-size: 13px; }
+/* Lo demás que decía la tarjeta de un título, al lado de su nombre */
+.fila .det { margin-left: 10px; color: #8fa6d8; font-size: 12px; }
+#lista.tapas .fila .det { display: none; }
+.fila.supuesto .txt { color: #a9b8dc; }

@@ -9,6 +9,8 @@ const pedir = async (canal, arg) => {
 contextBridge.exposeInMainWorld('mr', {
   analizar: (url) => pedir('analizar', url),
   seguir: (url, max, conocidas) => pedir('seguir', { url, max, conocidas }),
+  // Busca con el buscador del propio sitio: { plantilla | pagina, texto, conocidas }. Devuelve lo mismo que analizar
+  buscarEnSitio: (dato) => pedir('buscar-en-sitio', dato),
   alAvanzar: (fn) => { ipcRenderer.on('avance', (_e, texto) => fn(texto)); },
   links: (texto, modo, desde) => pedir('links', { texto, modo, desde }),
   descargar: (items, opciones) => pedir('descargar', { items, opciones }),

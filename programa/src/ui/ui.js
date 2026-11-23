@@ -46,6 +46,7 @@ async function ir(url, nivel = ruta.length, buscarCatalogo = false, nombre = '',
   estado('Analizando la página…', 'trabajando');
   try {
     let r = await mr.analizar(url), entre = '';
+    anotarSitio(r);                                // (la portada, aunque después se entre sola al catálogo)
     if (aMano) mr.reciente({ url: r.url, titulo: r.titulo }).then(mostrarRecientes).catch(() => {});
     ruta = ruta.slice(0, nivel);
     ruta.push({ url: r.url, titulo: r.titulo || r.url });
@@ -98,6 +99,7 @@ function marcarSerie() {
 
 function mostrar(r, tildarTodo = false) {
   actual = r;
+  anotarSitio(r);
   listaId = r.listas[0]?.id || '';
   marcados = new Set(tildarTodo && r.listas[0] ? r.listas[0].items.map(i => i.url) : []);
   $('filtro').value = '';
@@ -185,9 +187,73 @@ async function traerTodas() {
 }
 
 const listaActual = () => actual?.listas.find(l => l.id === listaId) || null;
+// Los capítulos que faltan en el medio de una lista que se puede completar por número
+// (`molde`: cómo se arma la dirección de cualquier capítulo). null si no falta ninguno.
+function huecosDe(l) {
+  if (!l || l.tipo !== 'capitulos' || !l.molde) return null;
+  const tengo = new Set(l.items.map(i => i.numero).filter(Number.isInteger));
+  if (tengo.size < 2) return null;
+  const desde = Math.min(...tengo), hasta = Math.max(...tengo), faltan = hasta - desde + 1 - tengo.size;
+  return faltan > 0 && hasta - desde <= 5000 ? { desde, hasta, faltan, tengo } : null;
+}
+function completarPorNumero() {
+  const l = listaActual(), h = huecosDe(l);
+  if (!h) return;
+  for (let n = h.desde + 1; n < h.hasta; n++) {
+    if (!h.tengo.has(n)) l.items.push({ url: l.molde.pre + String(n).padStart(l.molde.ancho || 0, '0') + l.molde.post, texto: `Capítulo ${n}`, detalle: 'por número', numero: n, seccion: '', imagen: '', supuesto: true });
+  }
+  l.items.sort((a, b) => a.numero - b.numero);
+  estado(`Sumé ${plural(h.faltan, 'capítulo', 'capítulos')} por número, del ${h.desde} al ${h.hasta}. Si alguno no existe en el sitio, al bajarlo va a decir que no encontró páginas.`, 'bien');
+  dibujar();
+  mirarDisco();
+}
+
+// ── El buscador del sitio ──
+// El que el explorador le encontró a cada sitio (por su origen) y la lista de títulos
+// principal de cada página que se le fue viendo (la de las series, no la del menú). Con esos
+// ids un resultado solo también arma lista, y entre los resultados esa lista va primero.
+const buscadores = new Map(), idsDelSitio = new Map();
+const origenDe = (url) => { try { return new URL(url).origin; } catch { return ''; } };
+const buscadorActual = () => (actual && buscadores.get(origenDe(actual.url))) || null;
+function anotarSitio(r) {
+  const o = origenDe(r.url);
+  if (!o) return;
+  if (r.buscador) buscadores.set(o, r.buscador);
+  if (!idsDelSitio.has(o)) idsDelSitio.set(o, new Set());
+  const principal = r.listas.find(l => l.tipo === 'titulos');
+  if (principal && !r.capitulo && !r.deBusqueda) idsDelSitio.get(o).add(principal.id);
+}
+async function buscarEnElSitio() {
+  const b = buscadorActual(), texto = $('buscarTexto').value.trim();
+  if (!b || !texto || ocupado) return;
+  ocupado = true;
+  $('analizar').disabled = $('buscarBoton').disabled = true;
+  cerrarRevision();
+  estado(`Buscando «${texto}» con el buscador del sitio…`, 'trabajando');
+  try {
+    const ids = idsDelSitio.get(origenDe(actual.url)) || new Set();
+    const r = await mr.buscarEnSitio({ ...b, texto, conocidas: [...ids] });
+    r.deBusqueda = true;
+    ruta = ruta.slice(0, 1);                       // la búsqueda cuelga del sitio, no de donde se estaba
+    ruta.push({ url: r.url, titulo: `Búsqueda: ${texto}` });
+    $('url').value = r.url;
+    proponerSerie('');
+    mostrar(r);
+    // Si entre lo que vino está la lista de series que ya se le conoce al sitio, esa es la de los resultados
+    const suya = r.listas.find(l => l.tipo === 'titulos' && ids.has(l.id));
+    if (suya && suya.id !== listaId) { listaId = suya.id; dibujar(); mirarDisco(); }
+    if (!r.listas.length) estado(`El buscador del sitio no trajo nada para «${texto}», o no pude leer sus resultados.`, 'error');
+    else estado(`Esto trajo el buscador del sitio para «${texto}». ` + ayuda(r), 'bien');
+  } catch (e) {
+    estado('⚠️ ' + e.message, 'error');
+  } finally {
+    ocupado = false;
+    $('analizar').disabled = $('buscarBoton').disabled = false;
+  }
+}
 const visibles = () => {
   const l = listaActual(), q = $('filtro').value.trim().toLowerCase();
-  return !l ? [] : l.items.filter(i => !q || `${i.numero ?? ''} ${i.texto} ${i.seccion || ''}`.toLowerCase().includes(q));
+  return !l ? [] : l.items.filter(i => !q || `${i.numero ?? ''} ${i.texto} ${i.detalle || ''} ${i.seccion || ''}`.toLowerCase().includes(q));
 };
 
 function dibujar() {
@@ -209,13 +275,16 @@ function dibujar() {
 
   // Links al listado completo del sitio, si la página los tiene (también cuando parece un
   // capítulo: si en realidad era una portada, por acá se sale)
-  const pistas = actual?.catalogos || [];
-  $('pistas').hidden = !pistas.length;
-  $('pistas').replaceChildren(el('span', { className: 'pista', textContent: '📚 El catálogo del sitio:' }), ...pistas.map(c => {
+  // Y el buscador del sitio, si se le encontró uno en esta página o en otra de antes
+  const pistas = actual?.catalogos || [], buscador = buscadorActual();
+  $('pistas').hidden = !pistas.length && !buscador;
+  $('pistasLinks').hidden = !pistas.length;
+  $('pistasLinks').replaceChildren(el('span', { className: 'pista', textContent: '📚 El catálogo del sitio:' }), ...pistas.map(c => {
     const b = el('button', { type: 'button', textContent: c.texto + ' ›', title: c.url });
     b.addEventListener('click', () => ir(c.url));
     return b;
   }));
+  $('buscarSitio').hidden = !buscador;
 
   // Listas encontradas
   const listas = actual?.listas || [];
@@ -235,6 +304,14 @@ function dibujar() {
   $('todos').hidden = $('ninguno').hidden = !elegible;
   $('sonCapitulos').hidden = listaActual()?.tipo !== 'titulos';
   $('sonCapitulos').textContent = elegible ? 'No son capítulos' : 'Son capítulos';
+  // Una lista de capítulos con huecos (la página mostraba solo el primero y el último) cuyas
+  // direcciones solo cambian en el número: los del medio se pueden sumar por número
+  const hueco = huecosDe(listaActual());
+  $('completar').hidden = !hueco;
+  if (hueco) {
+    $('completar').textContent = `Completar del ${hueco.desde} al ${hueco.hasta}`;
+    $('completar').title = `En esta lista faltan ${plural(hueco.faltan, 'capítulo', 'capítulos')} entre el ${hueco.desde} y el ${hueco.hasta}. Las direcciones solo cambian en el número: tocá para sumarlos.`;
+  }
   $('siguiente').hidden = $('todasLasPaginas').hidden = !actual?.siguiente;
 
   // Con tapas: si la página trae una imagen para buena parte de los renglones, la lista se
@@ -267,12 +344,14 @@ function dibujar() {
     const serie = $('serie').value.trim(), boton = (texto, title, alTocar) => { const b = el('button', { type: 'button', textContent: texto, title }); b.addEventListener('click', alTocar); return b; };
     const atar = async (carpeta) => { try { await mr.vincular(serie, carpeta); mirarDisco(); mirarTitulos(true); } catch (e) { estado('⚠️ ' + e.message, 'error'); } };
     const seguida = siguiendo.some(x => x.url === actual.url);
-    $('enDiscoBotones').replaceChildren(
+    // (sin los null: replaceChildren los escribiría como texto)
+    $('enDiscoBotones').replaceChildren(...[
       ...enDisco.parecidas.map(p => boton(`Es «${p.nombre}»`, `Esa carpeta es ${serie}: de ahora en más se mira ahí lo que ya tenés`, () => atar(p.dir))),
       boton('Elegir su carpeta…', `Si ${serie} está en una carpeta que se llama de otra forma, elegila y queda atada a esta serie`, () => atar('')),
       enDisco.vinculadas ? boton('Quitar el vínculo', 'Dejar de mirar la carpeta atada a mano (no borra nada)', async () => { await mr.desvincular(serie); mirarDisco(); mirarTitulos(true); }) : null,
       actual.url ? boton(seguida ? '📌 Siguiendo' : '📌 Seguir esta serie', seguida ? 'Ya la seguís: tocá para dejar de seguirla' : 'La suma a "Siguiendo", para buscar lo nuevo de un toque',
-        async () => { siguiendo = seguida ? await mr.dejarDeSeguir(actual.url) : await mr.seguirSerie({ url: actual.url, serie }); dibujarSiguiendo(); dibujar(); }) : null);
+        async () => { siguiendo = seguida ? await mr.dejarDeSeguir(actual.url) : await mr.seguirSerie({ url: actual.url, serie }); dibujarSiguiendo(); dibujar(); }) : null,
+    ].filter(Boolean));
   }
   // En una lista de títulos: de cuáles ya tenés algo
   const tuyos = marcas && l && marcas.clave === claveTitulos() ? marcas.por : null;
@@ -310,9 +389,11 @@ function dibujar() {
       : tuyo ? el('span', { className: 'esta', textContent: tuyo.bajados ? `✔ ${plural(tuyo.bajados, 'bajado', 'bajados')}` : '✔ en tu colección',
           title: [tuyo.bajados ? `Ya bajaste ${plural(tuyo.bajados, 'capítulo', 'capítulos')} de este título` : '', tuyo.carpeta ? `Está en «${tuyo.carpeta}»` : ''].filter(Boolean).join('. ') })
       : null;
-    const fila = el('label', { className: 'fila' + (elegible ? '' : ' entra') + (ya || fecha || (tuyo && !tuyo.parecida) ? ' ya' : ''), title: mosaico ? i.texto : i.url }, caja, tapa,
+    // El nombre y, más apagado, lo demás que decía su tarjeta (tipo, estado, "204 caps"…)
+    const fila = el('label', { className: 'fila' + (elegible ? '' : ' entra') + (ya || fecha || (tuyo && !tuyo.parecida) ? ' ya' : '') + (i.supuesto ? ' supuesto' : ''),
+        title: mosaico ? [i.texto, i.detalle].filter(Boolean).join(' · ') : i.url }, caja, tapa,
       i.numero !== undefined && i.numero !== null ? el('span', { className: 'num', textContent: String(i.numero) }) : null,
-      el('span', { className: 'txt', textContent: i.texto + (i.versiones > 1 ? ` (${i.versiones} versiones)` : '') }), marca, entrar);
+      el('span', { className: 'txt' }, i.texto + (i.versiones > 1 ? ` (${i.versiones} versiones)` : ''), i.detalle ? el('span', { className: 'det', textContent: i.detalle }) : null), marca, entrar);
     if (!elegible) fila.addEventListener('click', abrir);        // todo el renglón (o la tarjeta) abre ese título
     filas.push(fila);
   }
@@ -798,6 +879,8 @@ $('revLista').addEventListener('scroll', alMoverLista);
 addEventListener('resize', alMoverLista);
 $('todos').addEventListener('click', () => { for (const i of visibles()) marcados.add(i.url); dibujar(); });
 $('ninguno').addEventListener('click', () => { for (const i of visibles()) marcados.delete(i.url); dibujar(); });
+$('completar').addEventListener('click', completarPorNumero);
+$('buscarSitio').addEventListener('submit', (e) => { e.preventDefault(); buscarEnElSitio(); });
 $('sonCapitulos').addEventListener('click', () => {
   const k = claveLista();
   comoCapitulos.has(k) ? comoCapitulos.delete(k) : comoCapitulos.add(k);

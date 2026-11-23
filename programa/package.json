@@ -1,6 +1,6 @@
 {
   "name": "manga-reader-programa",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "description": "Programa de escritorio de Manga Reader: explora una página y guarda capítulos como PDF, CBZ o imágenes.",
   "private": true,
   "main": "src/main.js",

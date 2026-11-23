@@ -225,21 +225,26 @@ async function abrirPagina(url) {
     clearTimeout(limite);
     if (codigo >= 400) throw new Error(`La página respondió HTTP ${codigo}`);
 
-    // Armada = la misma cantidad de imágenes y de links en tres consultas seguidas
-    let antes = '', iguales = 0;
-    for (let i = 0; i < 24 && iguales < 3; i++) {
-      await espera(500);
-      const c = await pedir(win, 'contar', {}, 8000).catch(() => null);
-      const ahora = c ? `${c.imagenes}/${c.links}/${c.listo}` : '';
-      iguales = c && c.listo && ahora === antes ? iguales + 1 : 0;
-      antes = ahora;
-    }
-    if (vencio && !antes) throw new Error('La página tardó demasiado en cargar');
+    if (vencio && !(await armada(win))) throw new Error('La página tardó demasiado en cargar');
+    else if (!vencio) await armada(win);
     return win;
   } catch (e) {
     win.destroy();
     throw e;
   }
+}
+// Espera a que la página termine de armarse: la misma cantidad de imágenes y de links en
+// tres consultas seguidas. Devuelve lo último que contó ('' si la página nunca contestó).
+async function armada(win) {
+  let antes = '', iguales = 0;
+  for (let i = 0; i < 24 && iguales < 3; i++) {
+    await espera(500);
+    const c = await pedir(win, 'contar', {}, 8000).catch(() => null);
+    const ahora = c ? `${c.imagenes}/${c.links}/${c.listo}` : '';
+    iguales = c && c.listo && ahora === antes ? iguales + 1 : 0;
+    antes = ahora;
+  }
+  return antes;
 }
 
 function mensajeDeCarga(e) {
@@ -256,6 +261,32 @@ async function analizar(url, conocidas = []) {
   const win = await abrirPagina(url);
   try { return await pedir(win, 'explorar', { conocidas }, 90000); }
   finally { win.destroy(); }
+}
+
+// Busca `texto` con el buscador del propio sitio y devuelve lo mismo que `analizar`, con los
+// resultados como listas. Hay dos formas, según lo que el explorador encontró en la página:
+//   plantilla  una dirección con {q} donde va lo buscado (un formulario, o la que declara el sitio)
+//   pagina     la página que tiene un cuadro de búsqueda suelto: se abre, se escribe ahí y se da
+//              Enter. Si los resultados aparecen sin cambiar de página, son los links nuevos.
+// `conocidas`: ids de las listas de títulos ya vistas en el sitio; con eso un resultado solo
+// también arma lista.
+async function buscarEnSitio({ plantilla, pagina, texto, conocidas } = {}) {
+  texto = String(texto || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (!texto) throw new Error('Escribí qué querés buscar');
+  conocidas = Array.isArray(conocidas) ? conocidas.map(String).slice(0, 200) : [];
+  if (plantilla) {
+    plantilla = String(plantilla);
+    if (!/^https?:\/\//i.test(plantilla) || !plantilla.includes('{q}')) throw new Error('El buscador de este sitio no se puede usar desde acá');
+    return analizar(plantilla.split('{q}').join(encodeURIComponent(texto)), conocidas);
+  }
+  const win = await abrirPagina(String(pagina || ''));
+  try {
+    // (si al dar Enter la página cambia, puede que la respuesta no llegue: no importa)
+    await pedir(win, 'buscar', { texto }, 8000).catch((e) => { if (/No encontré/.test(e.message)) throw e; });
+    await espera(1200);
+    await armada(win);
+    return await pedir(win, 'explorar', { conocidas, soloNuevos: true }, 90000);
+  } finally { win.destroy(); }
 }
 
 // Sigue la paginación de un listado desde `url`: lee hasta `max` páginas, de a una y con una
@@ -849,6 +880,7 @@ function agregarReciente({ url, titulo } = {}) {
 
 atender('analizar', (url) => analizar(String(url || '').trim()));
 atender('seguir', ({ url, max, conocidas }) => seguir(url, Math.min(Math.max(1, +max || 10), 50), Array.isArray(conocidas) ? conocidas.map(String) : []));
+atender('buscar-en-sitio', (dato) => buscarEnSitio(dato || {}));
 atender('links', ({ texto, modo, desde }) => nucleo.chaptersFromLinks(texto, modo, desde));
 atender('descargar', ({ items, opciones }) => encolar(items, opciones));
 atender('cancelar', () => cancelar());
@@ -926,7 +958,7 @@ app.whenReady().then(async () => {
   }
   if (PRUEBA) {
     // "electron . --prueba": corre las pruebas del programa contra un sitio de prueba local
-    const fallas = await require('../tests/prueba.js')({ analizar, seguir, encolar, colaVacia, cancelar, limpiar, guardarConfig, abrirUI, nucleo,
+    const fallas = await require('../tests/prueba.js')({ analizar, seguir, buscarEnSitio, encolar, colaVacia, cancelar, limpiar, guardarConfig, abrirUI, nucleo,
       guardarLinks, quitarLinks, guardados: () => guardados, tapa, reintentar, paginasDe, revisarDisco, vistaDePlantilla, agregarReciente,
       revisarTitulos, verRegistro, quitarDelRegistro, vincular, desvincular, sinMirar, seguirSerie, dejarDeSeguir, buscarNovedades, bajarNovedades, ultimoAviso: () => ultimoAviso, config: () => config })
       .catch((e) => { console.log('FALLA la prueba se cortó: ' + (e.stack || e)); return 1; });
