@@ -8,6 +8,9 @@
 </head>
 <body>
   <script src="armador_antes.js"></script>
+  <!-- ajustes.js antes que offscreen.js: de ahí sale cuánto esperar cuando una imagen responde
+       429 o 503 (lo que diga Retry-After). Sin él, el armador espera 2, 4 y 8 s sin mirarlo. -->
+  <script src="../../generado/ajustes.js"></script>
   <script src="../../generado/offscreen.js"></script>
   <script src="armador.js"></script>
 </body>

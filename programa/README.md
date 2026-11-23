@@ -4,7 +4,7 @@ Explora una página web por niveles (títulos → capítulos → páginas) y gua
 
 Todo corre en tu máquina: no hay servidor ni cuenta. Es independiente de la extensión de Chrome y usa su mismo código para detectar páginas, armar nombres y generar los archivos.
 
-**Estado: versión 0.10.1.** Funciona de punta a punta sobre los sitios de prueba. Los cambios de cada versión están en las [Actualizaciones](../README.md#actualizaciones) del README principal.
+**Estado: versión 0.10.2.** Funciona de punta a punta sobre los sitios de prueba. Los cambios de cada versión están en las [Actualizaciones](../README.md#actualizaciones) del README principal.
 
 ## Cómo abrirlo
 
@@ -179,6 +179,7 @@ Baja de a un capítulo, con una pausa entre uno y otro. Cada renglón dice en qu
 
 - **Cancelar** corta lo que falta.
 - **Reintentar lo que falló** vuelve a poner en la cola todo lo que falló, quedó incompleto o se canceló. De lo incompleto borra antes los archivos que había escrito, para que no quede `nombre (1).pdf` al lado del que salió mal.
+- **Si el sitio pide esperar** (responde 429 o 503), el renglón lo dice: "el sitio pidió esperar". Cuando además dice cuánto (`Retry-After`), el programa no le vuelve a pedir nada a ese sitio antes de ese tiempo, con tope de un minuto: ni el capítulo que sigue en la cola ni un reintento, aunque toques **Reintentar** enseguida (el renglón muestra "sigo en N s"). Si no dice cuánto, corre la pausa de siempre. Vale igual para la página del capítulo y para sus imágenes, que se vuelven a pedir solas después de esa espera (0.10.2).
 - **El avance se ve en el ícono** de la barra de tareas.
 - **Al terminar**, si el programa no está a la vista, Windows muestra un aviso con el resumen ("12 guardados · 1 con problemas") y el ícono titila.
 
@@ -230,7 +231,7 @@ Baja de a un capítulo, con una pausa entre uno y otro. Cada renglón dice en qu
 npm run prueba
 ```
 
-Corren dentro de Electron contra un sitio de prueba servido en la máquina. Son 180 comprobaciones:
+Corren dentro de Electron contra un sitio de prueba servido en la máquina. Son 191 comprobaciones:
 
 - **Explorar:** portada, catálogo paginado, directorio que carga al bajar, serie y capítulo.
 - **Portada con tapas:** que no pase por capítulo (y que un capítulo con tapas al final lo siga siendo), que cada título traiga su tapa y que la miniatura se pida con el Referer del sitio.
@@ -242,7 +243,8 @@ Corren dentro de Electron contra un sitio de prueba servido en la máquina. Son 
 - **Bajar:** los tres formatos a una carpeta temporal, lo que ya estaba, lo que falla.
 - **Lo que ya está:** por número, con otros nombres de archivo y en carpetas que se llaman casi igual; que otra serie parecida no cuente; cada formato aparte.
 - **Plantilla y sagas:** el tomo y el nombre del capítulo en el nombre del archivo, y la carpeta por saga.
-- **Reintentar:** un capítulo que queda incompleto sale entero al reintentar, sin archivo repetido.
+- **Reintentar:** un capítulo que queda incompleto sale entero al reintentar, sin archivo repetido. La página que le falta responde 503 las seis veces que el armador la pide, y se comprueba que las esperas ocurrieron: se cuentan los pedidos y se mide el tiempo entre el primero y el último (más de 16 s).
+- **El sitio pide esperar:** la página de un capítulo responde 503 sin `Retry-After` (el siguiente sale con la pausa de siempre y el reintento, enseguida) y con `Retry-After: 3` (ni el reintento ni el capítulo siguiente se piden antes de los 3 s); y una imagen con `Retry-After: 3` se vuelve a pedir recién a los 3 s. Todo medido por la hora a la que le llega cada pedido al sitio de prueba.
 - **Revisar páginas:** todas las imágenes con el motivo de las descartadas, y la bajada con las elegidas a mano.
 - **Carpetas y series seguidas:** el aviso cuando una carpeta no está, atar a una serie una carpeta de otro nombre, y buscar y bajar lo nuevo de las series seguidas.
 - **El registro y tu colección:** lo que se bajó sigue marcado aunque se borre el archivo; una carpeta de colección con otra organización; los títulos de un catálogo de los que ya hay algo.

@@ -14,7 +14,9 @@
 //   /capitulos-ranking/    data-number con la posición del renglón, que no es el número del capítulo
 //   /mas-leidas/           un ranking de series con el puesto en data-number
 //   /leer/alfa-N/     capítulo con carga diferida de imágenes
-//   /leer/inestable-1/  capítulo con una página que falla al principio (para reintentar)
+//   /leer/inestable-1/  capítulo con una página que responde 503 las primeras seis veces (para reintentar)
+//   /leer/ocupado-N/    capítulos de un sitio que pide esperar: 503 en la página, con Retry-After y sin él,
+//                       y en una imagen (ver más abajo qué hace cada uno)
 //   /leer/avisos-1/   capítulo con un aviso en el medio (para revisar las páginas a mano)
 //   /ver/900000N      capítulo sin número en la dirección ni en el título; su servidor de
 //                     imágenes exige el Referer del sitio
@@ -206,10 +208,12 @@ const lectorTapas = (n) => pagina(`Obra Uno Capítulo ${n} | Sitio de tapas`, me
   (n === 5 ? `<h3>También te puede gustar</h3>${grilla(OBRAS.slice(1, 4))}` : ''));
 
 function iniciar({ tapas = false } = {}) {
-  const pedidos = { sinReferer: 0, capitulos: {}, portada: 0 };
+  const pedidos = { sinReferer: 0, capitulos: {}, portada: 0, horas: {} };
   const srv = http.createServer((req, res) => {
     const [u, consulta = ''] = req.url.split('?');
-    const enviar = (tipo, cuerpo, estado = 200) => { res.writeHead(estado, { 'Content-Type': tipo, 'Cache-Control': 'no-store' }); res.end(cuerpo); };
+    const enviar = (tipo, cuerpo, estado = 200, cabeceras = {}) => { res.writeHead(estado, { 'Content-Type': tipo, 'Cache-Control': 'no-store', ...cabeceras }); res.end(cuerpo); };
+    // A qué hora llegó cada pedido de las páginas que piden esperar: las pruebas miden con eso cuánto se esperó
+    const anotarHora = () => (pedidos.horas[u] = pedidos.horas[u] || []).push(Date.now());
     const html = (cuerpo) => enviar('text/html; charset=utf-8', cuerpo);
     if (tapas) {
       if (u === '/') return html(portadaTapas);
@@ -263,15 +267,39 @@ function iniciar({ tapas = false } = {}) {
       pedidos.capitulos[u] = (pedidos.capitulos[u] || 0) + 1;
       return +m[1] >= 1 && +m[1] <= 4 ? html(pagina(`Alfa Capítulo ${m[1]} | Sitio de prueba`, menu + imagenes('alfa/' + m[1], true))) : enviar('text/plain', 'no', 404);
     }
-    // Un capítulo con una página que falla las tres primeras veces que se la pide: la primera
-    // bajada queda incompleta y al reintentar sale entera.
-    // Falla con un 500 y no con un 503: desde la 2.11 de la extensión, el armador (que es el
-    // mismo) a un 503 o a un 429 los espera y los reintenta más veces, y con eso este capítulo
-    // saldría entero de entrada.
+    // Un capítulo con una página que responde 503 las seis primeras veces que se la pide: la
+    // primera bajada queda incompleta y al reintentar sale entera.
+    // Son seis porque el armador (el mismo de la extensión) a un 503 lo espera y lo reintenta:
+    // 3 esperas (WAIT_RETRIES: 2, 4 y 8 s) más el primer intento y 2 reintentos comunes
+    // (FETCH_RETRIES: 0,7 y 1,4 s). Con menos, el capítulo saldría entero de entrada.
     if (u === '/leer/inestable-1/') return html(pagina('Inestable Capítulo 1 | Sitio de prueba', menu + imagenes('inestable/1', false)));
     if (/^\/img\/inestable\/1\/\d\.jpg$/.test(u)) {
       // (solo cuenta cuando la pide el armador, que manda "Accept: image/*"; a la página se la entrega siempre)
-      if (u.endsWith('/3.jpg') && req.headers.accept === 'image/*' && (pedidos.inestable = (pedidos.inestable || 0) + 1) <= 3) return enviar('text/plain', 'falla', 500);
+      if (u.endsWith('/3.jpg') && req.headers.accept === 'image/*') {
+        anotarHora();
+        if ((pedidos.inestable = (pedidos.inestable || 0) + 1) <= 6) return enviar('text/plain', 'ocupado', 503);
+      }
+      return enviar('image/jpeg', JPG);
+    }
+    // Capítulos de un sitio que pide esperar. La primera vez que se pide:
+    //   ocupado-1      la página responde 503 sin decir cuánto esperar
+    //   ocupado-2 y 5  la página responde 503 con Retry-After: 3
+    //   ocupado-4      la página sale bien, pero su 2ª imagen responde 503 con Retry-After: 3
+    // Después (y los demás, siempre) salen bien.
+    m = u.match(/^\/leer\/ocupado-(\d)\/$/);
+    if (m) {
+      anotarHora();
+      const n = +m[1], primera = pedidos.horas[u].length === 1;
+      const espera = '<!doctype html><meta charset="UTF-8"><title>Sitio ocupado</title><p>Probá en un rato.</p>';
+      if (primera && n === 1) return enviar('text/html; charset=utf-8', espera, 503);
+      if (primera && (n === 2 || n === 5)) return enviar('text/html; charset=utf-8', espera, 503, { 'Retry-After': '3' });
+      return html(pagina(`Ocupado Capítulo ${n} | Sitio de prueba`, menu + imagenes('ocupado/' + n, false)));
+    }
+    if (/^\/img\/ocupado\/\d\/\d\.jpg$/.test(u)) {
+      if (u === '/img/ocupado/4/2.jpg' && req.headers.accept === 'image/*') {
+        anotarHora();
+        if (pedidos.horas[u].length === 1) return enviar('text/plain', 'ocupado', 503, { 'Retry-After': '3' });
+      }
       return enviar('image/jpeg', JPG);
     }
     // Un capítulo con un aviso en el medio (una imagen que lleva a otro sitio)

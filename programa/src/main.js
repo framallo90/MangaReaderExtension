@@ -13,6 +13,7 @@ const fs = require('fs'), path = require('path'), crypto = require('crypto');
 const nucleo = require('../generado/nucleo.js');
 const sitios = require('../generado/sitios.js');     // leer una lista de links pegada, igual que la extensión
 const { parseSagas, missingRanges, rangesText } = require('../generado/opciones.js');   // sagas escritas como texto, y lo que falta
+const ajustes = require('../generado/ajustes.js');   // cuánto esperar cuando el sitio lo pide (Retry-After), con la regla de la extensión
 
 const PARTICION = 'persist:paginas';          // sesión de las páginas web: cookies aparte de las del programa
 const PRUEBA = process.argv.includes('--prueba');
@@ -133,7 +134,18 @@ function prepararSesion() {
     }
     cb({ requestHeaders: d.requestHeaders });
   });
+  // Cuando una página contesta "esperá" (429) o "ahora no" (503), se anota cuánto pide esperar
+  // (Retry-After): de la navegación solo llega el código, y la cola lo necesita para no volver
+  // a pedirle antes de tiempo.
+  ses.webRequest.onHeadersReceived((d, cb) => {
+    if (d.resourceType === 'mainFrame' && (d.statusCode === 429 || d.statusCode === 503)) {
+      const k = Object.keys(d.responseHeaders || {}).find(h => h.toLowerCase() === 'retry-after');
+      pedidoDeEspera.set(d.webContentsId, k ? String([].concat(d.responseHeaders[k])[0] || '') : '');
+    }
+    cb({});
+  });
 }
+const pedidoDeEspera = new Map();        // id de la página → lo que dijo en Retry-After ('' si no dijo)
 
 // ── Tapas ────────────────────────────────────────────
 // La miniatura de la imagen que acompaña a un título, para mostrarla en la lista. Se pide
@@ -227,6 +239,11 @@ async function abrirPagina(url) {
     const limite = setTimeout(() => { vencio = true; wc.stop(); }, 45000);
     await win.loadURL(url).catch((e) => { if (!/ERR_ABORTED/.test(e.message)) throw new Error(mensajeDeCarga(e)); });
     clearTimeout(limite);
+    const retryAfter = pedidoDeEspera.get(wc.id) || '';
+    pedidoDeEspera.delete(wc.id);
+    // Un 429 o un 503 no es una página rota: el sitio pidió esperar. El error lleva cuánto
+    // (`esperar`), que es lo que mira la cola antes de pedirle otra cosa a ese sitio.
+    if (codigo === 429 || codigo === 503) throw Object.assign(new Error(`La página respondió HTTP ${codigo}: el sitio pidió esperar`), { esperar: { status: codigo, retryAfter } });
     if (codigo >= 400) throw new Error(`La página respondió HTTP ${codigo}`);
 
     if (vencio && !(await armada(win))) throw new Error('La página tardó demasiado en cargar');
@@ -361,7 +378,11 @@ async function armar({ urls, formatos, ruta, meta, carpeta, referer }, progreso)
   refererActual = referer || '';
   try {
     const msg = { urls, formats: formatos, title: ruta.split('/').pop(), meta, jobId, path: ruta };
-    return await win.webContents.executeJavaScript(`armar(${JSON.stringify(msg)})`, true);
+    const r = await win.webContents.executeJavaScript(`armar(${JSON.stringify(msg)})`, true);
+    // Si no se pudo armar nada llega { error, esperar } en vez de un Error (que al cruzar de la
+    // ventana a este proceso pierde lo que lleve de más): acá vuelve a ser uno, con su `esperar`
+    if (r && r.error) throw Object.assign(new Error(r.error), { esperar: r.esperar || null });
+    return r;
   } finally {
     trabajos.delete(jobId);
     refererActual = '';
@@ -633,12 +654,37 @@ function encolar(items, opciones) {
   return cola.length;
 }
 
+// Cuando un sitio pide esperar —un 429 o un 503 con Retry-After, en la página del capítulo o en
+// sus imágenes—, no se le vuelve a pedir nada antes de ese momento: ni el capítulo siguiente ni
+// un reintento. Lo que pidió vale con tope de un minuto (esperaPedida, la regla de la
+// extensión); si no dijo cuánto, no se anota nada y corre la pausa de siempre.
+const PAUSA = PRUEBA ? 100 : 1500;      // respiro entre capítulos, para no cargar al sitio
+const noAntesDe = new Map();            // sitio → hasta cuándo no pedirle (Date.now())
+const sitioDe = (u) => { try { return new URL(u).host; } catch { return ''; } };
+function anotarEspera(t, esperar) {
+  const ms = esperar ? ajustes.esperaPedida(esperar.retryAfter) : null;
+  if (ms) noAntesDe.set(sitioDe(t.url), Date.now() + ms);
+}
+const faltaEsperar = (t) => (noAntesDe.get(sitioDe(t.url)) || 0) - Date.now();
+
 async function procesar() {
   if (trabajando) return;
   trabajando = true;
-  for (let t; (t = cola.find(x => x.estado === 'en cola'));) {
+  for (;;) {
+    const enCola = cola.filter(x => x.estado === 'en cola');
+    if (!enCola.length) break;
+    const t = enCola.find(x => faltaEsperar(x) <= 0);
+    if (!t) {
+      // Todo lo que queda es de sitios que pidieron esperar. Se espera de a poco, y se vuelve
+      // a mirar la cola: mientras tanto se puede haber cancelado o sumado algo.
+      const falta = Math.min(...enCola.map(faltaEsperar));
+      for (const x of enCola) x.detalle = `el sitio pidió esperar: sigo en ${Math.ceil(faltaEsperar(x) / 1000)} s`;
+      avisar();
+      await espera(Math.min(falta, 1000));
+      continue;
+    }
     await bajar(t);
-    if (cola.some(x => x.estado === 'en cola')) await espera(PRUEBA ? 100 : 1500);      // respiro entre capítulos, para no cargar al sitio
+    if (cola.some(x => x.estado === 'en cola')) await espera(PAUSA);
   }
   trabajando = false;
   avisar();
@@ -716,6 +762,8 @@ async function bajar(t) {
     const errores = res.archivos.filter(a => a.error);
     const problemas = [];
     if (res.failed.length) problemas.push(res.failed.length === 1 ? `no bajó la página ${res.failed[0]}` : `no bajaron ${res.failed.length} páginas`);
+    // Si faltaron porque el sitio pidió esperar (429 o 503), se dice y se anota cuánto pidió
+    if (res.failed.length && res.esperar) { problemas.push(`el sitio pidió esperar (HTTP ${res.esperar.status})`); anotarEspera(t, res.esperar); }
     if (r.faltantes) problemas.push(r.faltantes === 1 ? '1 página no cargó' : `${r.faltantes} páginas no cargaron`);
     if (errores.length) problemas.push('no se pudo escribir: ' + errores[0].error);
     const fuera = t.elegidas ? 0 : (r.descartadas || 0);          // lo que el filtro dejó afuera como publicidad
@@ -727,6 +775,7 @@ async function bajar(t) {
     paso(t, problemas.length ? 'incompleto' : 'listo', `${res.pages} páginas` + (fuera ? ` (${fuera} descartada${fuera === 1 ? '' : 's'} como publicidad)` : '') +
       (problemas.length ? ' · ' + problemas.join(' · ') : ''));
   } catch (e) {
+    if (e.esperar) anotarEspera(t, e.esperar);            // el capítulo entero falló porque el sitio pidió esperar
     if (t.estado !== 'cancelado') paso(t, 'falló', String(e.message || e));
   } finally {
     if (win && !win.isDestroyed()) win.destroy();

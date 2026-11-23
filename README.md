@@ -5,7 +5,7 @@ Dos herramientas para guardar capítulos de manga y cómics como **PDF**, **CBZ*
 | | Qué es | Versión | Dónde está |
 |---|---|---|---|
 | 🧩 **La extensión** | Se usa desde Chrome, sobre la página que tenés abierta | 2.11.1 | `manga-reader-ext(ver 23-11-2026-2)/manga-reader-ext` |
-| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.10.1 | `programa/` |
+| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.10.2 | `programa/` |
 
 Funcionan por separado y comparten el mismo código para detectar páginas, armar nombres y generar los archivos. Son de uso personal, están en español y todo corre en tu máquina, sin servidor.
 
@@ -255,6 +255,16 @@ Lo que todavía le falta y cómo está armado: [programa/README.md](programa/REA
 
 Lo más nuevo arriba. El historial completo de la extensión está en la sección 15 de [DOCUMENTACION.md](DOCUMENTACION.md).
 
+### 23-11-2026 · Programa 0.10.2
+
+Lee lo que el sitio pide esperar:
+
+- **`Retry-After` se respeta.** Cuando un sitio responde 429 o 503 y dice cuánto esperar, el programa no le vuelve a pedir nada antes de ese tiempo (con tope de un minuto): ni el capítulo que sigue en la cola ni un reintento, aunque toques **Reintentar** enseguida. El renglón muestra "el sitio pidió esperar: sigo en N s". Si el sitio no dice cuánto, corre la pausa de siempre. Antes seguía con la pausa fija entre capítulos, dijera lo que dijera el sitio.
+- **Vale para la página del capítulo y para sus imágenes.** El armador ahora carga las mismas reglas que la extensión (`ajustes.js`): una imagen que responde 503 con `Retry-After: 3` se vuelve a pedir a los 3 segundos, no a los 2 de siempre.
+- **El motivo queda a la vista:** "La página respondió HTTP 503: el sitio pidió esperar", o "no bajó la página 3 · el sitio pidió esperar (HTTP 503)" en un capítulo incompleto.
+- **Pruebas:** `npm run prueba` hace 191 comprobaciones. La página "inestable" vuelve a fallar con 503 (en la 0.10.1 había pasado a 500 y el 503 quedaba sin probar): lo hace las seis veces que el armador la pide, y se comprueba que las esperas ocurrieron contando los pedidos y midiendo el tiempo entre el primero y el último (más de 16 s). Hay capítulos nuevos de un sitio "ocupado": 503 en la página sin `Retry-After` y con él, y en una imagen; en cada caso se mide cuánto pasó hasta el pedido siguiente.
+- **Falta:** la espera es por sitio y solo para la cola de descargas; explorar una página no la mira. Sin `Retry-After` no se inventa una espera: queda la pausa de siempre.
+
 ### 23-11-2026 · Extensión 2.11.1
 
 Cierre de la 2.11: una revisión, sin funciones nuevas. La carpeta es `manga-reader-ext(ver 23-11-2026-2)`.
@@ -351,6 +361,7 @@ Cierra seis agujeros que la 0.10.0 dejó en los capítulos con link `#`:
 - **La serie se completa sola** al entrar a un título, para que todos sus capítulos vayan a la misma carpeta.
 - **Plantilla de nombres y sagas propias**, como en la extensión. El tomo y el nombre de cada capítulo de la lista se pueden usar en el nombre del archivo.
 - **Reintentar lo que falló:** vuelve a la cola todo lo que falló, quedó incompleto o se canceló.
+- **Si el sitio pide esperar** (429 o 503 con `Retry-After`), no le vuelve a pedir nada antes de ese tiempo, con tope de un minuto: ni el capítulo siguiente ni un reintento.
 - **Traer todas** las páginas de un listado, hasta el final (para a las 50, con una pausa entre cada una).
 - **Favoritos con filtros** por tipo e idioma, y cada uno muestra los suyos.
 - **Direcciones recientes:** las últimas que se analizaron a mano.

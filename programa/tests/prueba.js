@@ -151,14 +151,64 @@ module.exports = async function probar(api) {
 
     console.log('\n── Reintentar lo que falló');
     api.encolar([{ url: S + '/leer/inestable-1/', texto: 'Capítulo 1', numero: 1 }, { url: S + '/leer/alfa-9/', texto: 'No existe', numero: 9 }], { carpeta: tmp, serie: 'Inestable', formatos: soloPdf });
-    eq('un capítulo al que no le baja una página y otro que no existe', estados(await api.colaVacia()),
-      'Inestable/Inestable 0001: incompleto (5 páginas · no bajó la página 3) ; No existe: falló (La página respondió HTTP 404)');
+    eq('un capítulo al que no le baja una página (responde 503) y otro que no existe', estados(await api.colaVacia()),
+      'Inestable/Inestable 0001: incompleto (5 páginas · no bajó la página 3 · el sitio pidió esperar (HTTP 503)) ; No existe: falló (La página respondió HTTP 404)');
+    // Que el capítulo quede incompleto no alcanza: hay que ver que el armador esperó de verdad.
+    // Son 6 pedidos de esa imagen (el primero, 3 después de esperar 2, 4 y 8 s, y 2 reintentos
+    // comunes a los 0,7 y 1,4 s): entre el primero y el último pasan más de 16 segundos.
+    const horas = (u) => sitio.pedidos.horas[u] || [];
+    const tramo = (h, a, b) => (h.length > Math.max(a, b) ? h[b] - h[a] : -1);
+    const inestable = horas('/img/inestable/1/3.jpg');
+    eq('  el armador la pidió 6 veces, con sus esperas en el medio (2 + 4 + 8 + 0,7 + 1,4 s)',
+      `${inestable.length} pedidos · ${tramo(inestable, 0, 5) >= 16100 ? 'más de 16 s' : tramo(inestable, 0, 5) + ' ms'} entre el primero y el último · la primera espera, ${tramo(inestable, 0, 1) >= 2000 ? 'de 2 s o más' : tramo(inestable, 0, 1) + ' ms'}`,
+      '6 pedidos · más de 16 s entre el primero y el último · la primera espera, de 2 s o más');
     eq('  el aviso de fin de cola lo cuenta', api.ultimoAviso(), '2 con problemas');
     eq('reintentar: vuelve a la cola todo lo que no terminó bien', api.reintentar(), 2);
     eq('  el incompleto sale entero y no queda un archivo repetido al lado', estados(await api.colaVacia()) + ' · ' + ls('Inestable') + ' · ' + pdfPages(path.join(tmp, 'Inestable', 'Inestable 0001.pdf')),
       'Inestable/Inestable 0001: listo (6 páginas) ; No existe: falló (La página respondió HTTP 404) · Inestable 0001.pdf · 6 × 420x640');
+    eq('  al séptimo pedido el sitio la entrega', horas('/img/inestable/1/3.jpg').length, 7);
     eq('  y el aviso de fin de cola', api.ultimoAviso(), '1 guardado · 1 con problemas');
     api.limpiar();
+
+    console.log('\n── El sitio pide esperar (503, con Retry-After y sin él)');
+    const ocupado = (n) => ({ url: `${S}/leer/ocupado-${n}/`, texto: `Capítulo ${n}`, numero: n });
+    const enOcupado = { carpeta: tmp, serie: 'Ocupado', formatos: soloPdf };
+    const pedidosDe = (n) => horas(`/leer/ocupado-${n}/`);
+    // La página de un capítulo responde 503 sin decir cuánto esperar: el siguiente sale con la pausa de siempre
+    api.encolar([ocupado(1), ocupado(3)], enOcupado);
+    eq('la página de un capítulo responde 503 sin Retry-After: falla con ese motivo y la cola sigue', estados(await api.colaVacia()),
+      'Capítulo 1: falló (La página respondió HTTP 503: el sitio pidió esperar) ; Ocupado/Ocupado 0003: listo (6 páginas)');
+    const pausa = pedidosDe(3)[0] - pedidosDe(1)[0];
+    eq('  el capítulo siguiente se pidió con la pausa de siempre, sin esperar de más', pausa >= 0 && pausa < 2500 ? 'menos de 2,5 s' : `${pausa} ms`, 'menos de 2,5 s');
+    let cuando = Date.now();
+    api.reintentar();
+    eq('  y su reintento sale enseguida', estados(await api.colaVacia()).split(' ; ')[0] + ' · ' + (pedidosDe(1)[1] - cuando < 2500 ? 'menos de 2,5 s' : `${pedidosDe(1)[1] - cuando} ms`),
+      'Ocupado/Ocupado 0001: listo (6 páginas) · menos de 2,5 s');
+    api.limpiar();
+    // Con Retry-After: 3 → el reintento del capítulo no sale antes de esos 3 segundos
+    api.encolar([ocupado(2)], enOcupado);
+    eq('la página responde 503 con Retry-After: 3', estados(await api.colaVacia()), 'Capítulo 2: falló (La página respondió HTTP 503: el sitio pidió esperar)');
+    cuando = Date.now();
+    api.reintentar();                                        // enseguida: el que tiene que esperar es el programa
+    const trasReintentar = estados(await api.colaVacia());
+    eq('  el reintento, pedido enseguida, espera lo que pidió el sitio: entre el fallo y el pedido nuevo pasan 3 s o más',
+      `${trasReintentar} · ${tramo(pedidosDe(2), 0, 1) >= 3000 ? '3 s o más' : tramo(pedidosDe(2), 0, 1) + ' ms'} · ${Date.now() - cuando >= 2000 ? 'esperó' : 'no esperó'}`,
+      'Ocupado/Ocupado 0002: listo (6 páginas) · 3 s o más · esperó');
+    api.limpiar();
+    // …y el capítulo siguiente de la cola tampoco. El que sigue tiene una imagen que también pide esperar 3 s.
+    api.encolar([ocupado(5), ocupado(4)], enOcupado);
+    eq('en una cola, el capítulo que sigue a uno con Retry-After: 3 también espera', estados(await api.colaVacia()),
+      'Capítulo 5: falló (La página respondió HTTP 503: el sitio pidió esperar) ; Ocupado/Ocupado 0004: listo (6 páginas)');
+    eq('  entre el 503 y el pedido del capítulo siguiente pasan 3 s o más', pedidosDe(4)[0] - pedidosDe(5)[0] >= 3000 ? '3 s o más' : `${pedidosDe(4)[0] - pedidosDe(5)[0]} ms`, '3 s o más');
+    const imagen = horas('/img/ocupado/4/2.jpg');
+    eq('  una imagen que responde 503 con Retry-After: 3 se vuelve a pedir recién a los 3 s (sin leerlo serían 2), y el capítulo sale entero',
+      `${imagen.length} pedidos · ${tramo(imagen, 0, 1) >= 3000 ? '3 s o más' : tramo(imagen, 0, 1) + ' ms'} · ${pdfPages(path.join(tmp, 'Ocupado', 'Ocupado 0004.pdf'))}`, '2 pedidos · 3 s o más · 6 × 420x640');
+    api.reintentar();
+    eq('  con el sitio ya libre, Reintentar baja el que había fallado', estados(await api.colaVacia()).split(' ; ')[0], 'Ocupado/Ocupado 0005: listo (6 páginas)');
+    api.limpiar();
+    // Esta serie no queda para las pruebas que siguen, que cuentan lo que hay en el registro y en la carpeta
+    api.quitarDelRegistro('ocupado');
+    fs.rmSync(path.join(tmp, 'Ocupado'), { recursive: true, force: true });
 
     console.log('\n── Revisar las páginas de un capítulo');
     const rev = await api.paginasDe(S + '/leer/avisos-1/');

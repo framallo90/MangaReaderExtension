@@ -100,4 +100,7 @@ fs.writeFileSync(path.join(salida, 'nucleo.js'), nucleo);
 fs.copyFileSync(path.join(ext, 'offscreen.js'), path.join(salida, 'offscreen.js'));
 fs.copyFileSync(path.join(ext, 'sitios.js'), path.join(salida, 'sitios.js'));
 fs.copyFileSync(path.join(ext, 'opciones.js'), path.join(salida, 'opciones.js'));
-console.log(`Generado a partir de ${version}: pagina.js (${FUNCIONES_PAGINA.length} funciones), nucleo.js, offscreen.js, sitios.js, opciones.js`);
+// ajustes.js: las esperas ante un 429 o un 503 (Retry-After). Lo cargan el armador, antes que
+// offscreen.js, y el proceso principal, para la cola.
+fs.copyFileSync(path.join(ext, 'ajustes.js'), path.join(salida, 'ajustes.js'));
+console.log(`Generado a partir de ${version}: pagina.js (${FUNCIONES_PAGINA.length} funciones), nucleo.js, offscreen.js, sitios.js, opciones.js, ajustes.js`);
