@@ -4,7 +4,7 @@ Dos herramientas para guardar capítulos de manga y cómics como **PDF**, **CBZ*
 
 | | Qué es | Versión | Dónde está |
 |---|---|---|---|
-| 🧩 **La extensión** | Se usa desde Chrome, sobre la página que tenés abierta | 2.11.1 | `manga-reader-ext(ver 23-11-2026-2)/manga-reader-ext` |
+| 🧩 **La extensión** | Se usa desde Chrome, sobre la página que tenés abierta | 2.11.2 | `manga-reader-ext(ver 24-11-2026)/manga-reader-ext` |
 | 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.10.2 | `programa/` |
 
 Funcionan por separado y comparten el mismo código para detectar páginas, armar nombres y generar los archivos. Son de uso personal, están en español y todo corre en tu máquina, sin servidor.
@@ -29,7 +29,7 @@ JavaScript plano (Manifest V3), sin dependencias ni compilación.
 | 🧭 **Adaptadores por sitio** | Donde el filtro no acierta, le decís con selectores CSS dónde están las páginas, y lo probás antes de guardarlo |
 | 🪟 **Lectores en un iframe** | Encuentra las páginas aunque estén en un marco aparte, incluso de otro sitio |
 | ⏯ **Cola del lote** | Queda guardada: si se corta o algo falla, se reanuda o se reintenta. El ícono muestra el avance y al terminar llega una notificación |
-| 🐢 **Ritmo** | Pausa entre capítulos, descansos y espera automática cuando el sitio responde "esperá" (429 o 503), con la página de un capítulo o con sus imágenes |
+| 🐢 **Ritmo** | Pausa entre capítulos, descansos y espera automática cuando el sitio responde "esperá" (429 o 503), con la página de un capítulo o con sus imágenes: lo que el sitio pida (con tope de un minuto), o un minuto si no dice cuánto |
 | ⌨️ **Teclado** | Los diálogos se usan sin mouse: Tab, flechas entre las miniaturas, espacio para incluir o quitar |
 | 🗂 **Nombre y carpetas automáticos** | `Serie/Saga/Serie 0012`, con ceros adelante para que ordenen bien. Se cambia con una plantilla (`{serie}/{volumen}/{serie} {numero}`) |
 | ✔ **Registro de guardados** | Avisa lo que ya guardaste, lo saltea en los lotes y muestra los capítulos que te faltan |
@@ -255,6 +255,19 @@ Lo que todavía le falta y cómo está armado: [programa/README.md](programa/REA
 
 Lo más nuevo arriba. El historial completo de la extensión está en la sección 15 de [DOCUMENTACION.md](DOCUMENTACION.md).
 
+### 24-11-2026 · Extensión 2.11.2
+
+El sitio dice cuánto esperar, también con la página del capítulo. La carpeta es `manga-reader-ext(ver 24-11-2026)`.
+
+- **`Retry-After` de la página del capítulo.** Hasta la 2.11.1 la extensión lo leía solo de las imágenes; si lo pedía la página, el lote paraba siempre un minuto. Ahora lo lee de la respuesta de la página (con el permiso `webRequest`) y frena lo que el sitio pidió: 12 s si dice 12, un minuto si dice 300 (el tope), y un minuto si no dice cuánto o manda algo que no se entiende. Un sitio que no dice cuánto pidió un minuto: no se baja a los 2, 4 u 8 s de una imagen suelta.
+- **Frena todo el lote de ese sitio**, con la cuenta regresiva que ya existía ("sigo en N s"): el reintento del capítulo y también el capítulo que sigue, que antes salía enseguida.
+- **El permiso nuevo no cambia nada al instalar:** Chromium muestra las mismas tres advertencias que antes, y `chrome://extensions` no marca advertencias ni errores. Se escucha solo mientras un lote tiene un capítulo abierto.
+- **Pruebas:** 510 comprobaciones en Node (13 nuevas) y un área nueva en el navegador (`espera`, 10): con `Retry-After: 4` el reintento llegó a los 4,7 s y el capítulo siguiente a los 4,5 s; sin cabecera la cuenta arranca en 60 y el capítulo no se vuelve a pedir antes. Contra la 2.11.1, 4 de esas fallan (esperaba 60,9 s y el siguiente no esperaba). Los pedidos que cuenta el área `ritmo` ya no están escritos a mano: salen de las constantes del armador.
+- **Contra sitios reales** (detalle y horas en la sección 11 de la documentación): un capítulo **dentro de un iframe** de otro sitio (Comic Rocket mostrando The Oatmeal) se guardó entero con un adaptador, y sin él salieron 2 de 7 viñetas por el tamaño mínimo. Issuu va en un iframe pero dibuja las páginas como fondo CSS y la extensión no las ve, e Internet Archive no usa iframe. Para provocar un **429 o un 503**: 20 capítulos seguidos sin pausa con la extensión, 20 con el programa y una ráfaga de 120 pedidos; one-piece-fans2.com no limitó nunca.
+- **`probar_sitio.js`** dice qué marcos tiene la página y en cuál se abrió el diálogo, baja el capítulo abierto con `guardar`, y acepta `PAUSA`, `CONCURRENCIA` y `ADAPTADOR`.
+- **También se corrigió la documentación del aviso de versión nueva:** el popup de la 2.11.0 mostró "Hay una versión nueva: 2.11.1" el 23-11-2026, ya subida la 2.11.1; el documento decía que eso no se había visto.
+- **Falta:** el freno no mira la respuesta de un iframe del lector (solo la de la página); los botones de la notificación siguen sin poder apretarse desde una prueba; y un 429 o un 503 real no se pudo provocar.
+
 ### 23-11-2026 · Programa 0.10.2
 
 Lee lo que el sitio pide esperar:
@@ -466,7 +479,7 @@ node tests/lote_largo.js    # un lote de decenas de capítulos seguidos
 
 - El programa tiene las suyas: `cd programa` y `npm run prueba`.
 - Las pruebas en navegador necesitan el Chromium de Playwright (`%LOCALAPPDATA%\ms-playwright\chromium-*`) o el de la variable `CHROMIUM`. El Chrome común ya no acepta cargar extensiones por línea de comandos.
-- `node tests/probar_sitio.js "<dirección>"` informa qué detecta la extensión en una página, sin dejar archivos.
+- `node tests/probar_sitio.js "<dirección>"` informa qué detecta la extensión en una página, sin dejar archivos: también si el lector está en un iframe y en qué marco se abre el diálogo. Con un rango (`1100 1119`) baja esos capítulos, y con `guardar` el capítulo abierto, a una carpeta temporal que se borra. `PAUSA=0 CONCURRENCIA=8` ponen el ritmo del lote y `ADAPTADOR='{"sitio":"…","contenedor":"…"}'` un adaptador.
 - `node tests/probar_version.js` hace de verdad el pedido a GitHub del aviso de versión nueva y dice qué contestó (con `--navegador`, además desde el popup). No es parte de ninguna suite: depende de la red.
 - Las dos pruebas en navegador aceptan la carpeta de otra versión como argumento: `node tests/e2e_211.js "manga-reader-ext(ver 22-11-2026-7)"` muestra qué de lo nuevo fallaba antes.
 - Las páginas de prueba de la 2.11 están en `tests/fixtures/`.

@@ -76,7 +76,8 @@ Lo que pide un lote y cómo le fue a cada capítulo queda guardado, no en la mem
 En ⚙️ → **Ritmo de las descargas** elegís la pausa entre capítulos (0 a 10 segundos; 1,5 si no tocás nada), un descanso más largo cada tantos capítulos, y cuántas imágenes se miden a la vez (2 a 8).
 
 - Si el sitio responde "esperá" (error 429) o "ahora no" (error 503) en una página, la extensión espera lo que el sitio pida y la reintenta sola, hasta 3 veces.
-- Si aun así no la entrega, o responde eso con el capítulo entero, el lote para un minuto, una sola vez, y reintenta ese capítulo. Si vuelve a fallar queda marcado con **el sitio pidió esperar**: bajá el ritmo y usá **Reintentar**. Da igual que lo haya pedido la página del capítulo o sus imágenes (desde la 2.11.1).
+- Si aun así no la entrega, o responde eso con el capítulo entero, el lote frena lo que el sitio pidió y reintenta ese capítulo una vez. Si vuelve a fallar queda marcado con **el sitio pidió esperar**: bajá el ritmo y usá **Reintentar**. Da igual que lo haya pedido la página del capítulo o sus imágenes (desde la 2.11.1).
+- Cuánto frena (desde la 2.11.2): lo que diga el sitio ("esperá 12 s" son 12 s), con un tope de un minuto aunque pida más. Si no dice cuánto, o dice algo que no se entiende, un minuto. Mientras tanto se ve la cuenta regresiva ("sigo en 12 s"), y el capítulo que sigue también espera: a ese sitio no se le pide nada antes de tiempo. Para leer lo que dice el sitio la extensión pide un permiso más, `webRequest`; Chrome no muestra ningún aviso nuevo al cargarla.
 - En un lote, un capítulo al que el sitio le negó páginas así **no se guarda a medias**: queda para reintentar y, cuando sale, sale entero y con su nombre. Guardando de a uno sí se guarda lo que bajó, y el aviso dice que el sitio pidió esperar.
 
 ### Cuánto va a ocupar
