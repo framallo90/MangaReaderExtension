@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Manga Reader — Guardados, sagas, sitios y opciones</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: 'Segoe UI', system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; font-size: 14px; line-height: 1.45; }
+    main { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+    h1 { font-size: 20px; color: #fff; margin: 0 0 20px; }
+    h2 { font-size: 15px; color: #a0c4ff; text-transform: uppercase; letter-spacing: .5px; margin: 0 0 6px; }
+    section { background: #16213e; border: 1px solid #2a3a5e; border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; }
+    p { margin: 0 0 10px; color: #b9c2d8; }
+    code { background: #0f1a33; padding: 1px 5px; border-radius: 4px; color: #a0c4ff; }
+    .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+    input[type="text"], textarea {
+      background: #0f1a33; color: #fff; border: 1px solid #2a3a5e; border-radius: 6px; padding: 8px 10px;
+      font: 13px 'Segoe UI', system-ui, sans-serif; outline: none;
+    }
+    input[type="text"]:focus, textarea:focus { border-color: #667eea; }
+    #filtro { flex: 1; min-width: 180px; }
+    textarea { width: 100%; min-height: 260px; font-family: Consolas, 'Courier New', monospace; line-height: 1.5; resize: vertical; }
+    button {
+      padding: 8px 12px; border: 1px solid #2a3a5e; border-radius: 6px; background: #1f2c50; color: #e0e0e0;
+      font: 13px 'Segoe UI', system-ui, sans-serif; cursor: pointer;
+    }
+    button:hover { border-color: #667eea; color: #fff; }
+    button.main { border: none; background: linear-gradient(135deg, #667eea, #764ba2); color: #fff; font-weight: 600; }
+    button.danger:hover { border-color: #e74c3c; }
+    button.link { border: none; background: none; padding: 0 4px; color: #8fa6d8; font-size: 12px; }
+    button.link:hover { color: #e74c3c; }
+    .msg { font-size: 12px; white-space: pre-line; }
+    .msg.ok { color: #2ecc71; }
+    .msg.err { color: #e74c3c; }
+    .vacio { color: #777; font-style: italic; }
+    details.serie { border-top: 1px solid #2a3a5e; padding: 8px 0; }
+    details.serie:first-child { border-top: none; }
+    details.serie summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+    .serie-nombre { font-weight: 600; color: #fff; font-size: 15px; }
+    .serie-datos { color: #8fa6d8; font-size: 12px; }
+    .serie-faltan { color: #f39c12; font-size: 12px; flex-basis: 100%; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+    th { text-align: left; color: #777; font-weight: 500; padding: 4px 8px; border-bottom: 1px solid #2a3a5e; }
+    td { padding: 4px 8px; border-bottom: 1px solid #1c2947; vertical-align: top; }
+    td.num { text-align: right; white-space: nowrap; color: #b9c2d8; }
+    td a { color: #a0c4ff; text-decoration: none; }
+    td a:hover { text-decoration: underline; }
+    .ruta { color: #777; font-size: 11px; }
+    ul#hosts { list-style: none; margin: 0; padding: 0; }
+    ul#hosts li { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
+    .form-sitio { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; align-items: center; margin-bottom: 10px; }
+    .form-sitio #sitioDesc { grid-column: 1 / -1; }
+    .form-sitio select { background: #0f1a33; color: #fff; border: 1px solid #2a3a5e; border-radius: 6px; padding: 7px 8px; font: 13px 'Segoe UI', system-ui, sans-serif; }
+    .form-sitio .chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #b9c2d8; }
+    .form-sitio .chk input { accent-color: #667eea; }
+    ul#misSitios, ul#adLista { list-style: none; margin: 0; padding: 0; }
+    ul#misSitios li, ul#adLista li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 6px 0; border-top: 1px solid #1c2947; }
+    ul#misSitios li:first-child, ul#adLista li:first-child { border-top: none; }
+    ul#misSitios .s-nombre, ul#adLista .s-nombre { font-weight: 600; color: #fff; }
+    ul#misSitios .s-datos, ul#adLista .s-datos { font-size: 12px; color: #8fa6d8; }
+    ul#misSitios .s-desc, ul#adLista .s-desc { flex-basis: 100%; font-size: 12px; color: #b9c2d8; }
+    ul#misSitios .s-acc, ul#adLista .s-acc { margin-left: auto; display: flex; gap: 4px; }
+    h3 { font-size: 13px; color: #fff; margin: 14px 0 6px; }
+    #listaTexto { min-height: 150px; }
+    .chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #b9c2d8; }
+    .chk input { accent-color: #667eea; }
+    button:disabled { opacity: .45; cursor: default; }
+    #listaVista { font-size: 12px; color: #b9c2d8; margin: -4px 0 10px; }
+    #listaVista:empty { display: none; }
+    #listaVista ol { margin: 6px 0 0; padding-left: 26px; max-height: 190px; overflow-y: auto; }
+    #listaVista li b { color: #fff; font-weight: 600; }
+    #listaVista .v-dato { color: #8fa6d8; }
+    .cabecera { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 14px 0 6px; }
+    .cabecera h3 { margin: 0; flex: 1; }
+    #tplNombre { flex: 1; min-width: 260px; font-family: Consolas, 'Courier New', monospace; }
+    ul.marcadores { margin: 0 0 10px; padding-left: 20px; color: #b9c2d8; font-size: 13px; }
+    ul.marcadores li { margin-bottom: 2px; }
+    .vista-titulo { font-size: 12px; color: #a0c4ff; font-weight: 600; letter-spacing: .5px; margin-bottom: 4px; }
+    #tplVista, #carpetaVista { background: #0f1a33; border: 1px solid #2a3a5e; border-radius: 6px; padding: 8px 10px; font: 12px/1.6 Consolas, 'Courier New', monospace; color: #7ee2a8; white-space: pre-line; word-break: break-all; }
+    #tplVista span, #carpetaVista span { color: #8fa6d8; }
+    #tplAviso { margin-top: 6px; }
+    #tplAviso:empty { display: none; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>📖 Manga Reader — Guardados, sagas, sitios y opciones</h1>
+
+  <section>
+    <h2>Capítulos guardados</h2>
+    <p>El registro de lo que guardaste completo. Vive solo en este navegador y se pierde si desinstalás la extensión:
+       con <b>Exportar copia</b> lo bajás a un archivo, y con <b>Importar copia</b> lo recuperás (lo importado se suma a lo que haya).
+       No mira el disco: si borrás un archivo a mano, quitalo de acá.</p>
+    <div class="bar">
+      <input type="text" id="filtro" placeholder="Buscar serie o capítulo…">
+      <button id="exportar">Exportar copia</button>
+      <button id="exportarCsv" title="El registro como planilla (CSV), con las mismas columnas de esta tabla">Exportar CSV</button>
+      <button id="importar">Importar copia</button>
+      <input type="file" id="archivo" accept="application/json,.json" hidden>
+    </div>
+    <div class="msg" id="guardadosMsg"></div>
+    <div id="series"></div>
+  </section>
+
+  <section>
+    <h2>Sagas</h2>
+    <p>Con una tabla de sagas, los capítulos de esa serie se guardan en una carpeta por saga
+       (<code>One Piece/11 Saga Final/One Piece 1134</code>). Un bloque por serie, separados por una línea en blanco:
+       primero el nombre de la serie <b>tal como sale en el nombre del archivo</b>, y debajo una saga por línea con
+       <code>desde-hasta Nombre</code>. Dejá el "hasta" vacío en la última (<code>1058- Saga Final</code>).</p>
+    <textarea id="sagasText" spellcheck="false"></textarea>
+    <div class="bar" style="margin-top: 10px;">
+      <button class="main" id="sagasSave">Guardar sagas</button>
+      <button id="sagasReset">Volver a las que vienen incluidas</button>
+      <span class="msg" id="sagasMsg"></span>
+    </div>
+  </section>
+
+  <section id="mis-sitios">
+    <h2>Mis sitios de manga y cómics</h2>
+    <p>Tu lista de accesos directos. Aparece en <b>📚 Sitios de manga y cómics</b> (ícono de la extensión), dividida en
+       <b>📥 Descargables</b> y <b>👁 Para leer en el sitio</b>. La extensión no trae sitios cargados: la lista es la tuya.</p>
+
+    <h3>Pegar una lista</h3>
+    <p>Pegá tu lista como la tengas, con una dirección por renglón. El nombre, la descripción, el tipo y el idioma se detectan solos:
+       <code>Nombre: https://sitio.com — descripción</code>, la dirección sola, o sin <code>https://</code>.
+       Un renglón sin dirección, como <code>Manga en español:</code>, vale de título para los que siguen.</p>
+    <textarea id="listaTexto" spellcheck="false" placeholder="Manga en español:&#10;Mi lector: https://sitio.com/manga — series completas&#10;otro-sitio.com&#10;&#10;Cómics en inglés:&#10;https://sitio-de-comics.com/"></textarea>
+    <div class="bar" style="margin-top: 10px;">
+      <label class="chk" title="Van a la sección Descargables. Destildalo si esta lista es de sitios para leer"><input type="checkbox" id="listaDescarga" checked> Se pueden descargar</label>
+      <button class="main" id="listaAgregar" disabled>Agregar lista</button>
+      <span class="msg" id="listaMsg"></span>
+    </div>
+    <div id="listaVista"></div>
+
+    <h3>Agregar o editar uno</h3>
+    <div class="form-sitio">
+      <input type="text" id="sitioNombre" placeholder="Nombre" maxlength="60">
+      <input type="text" id="sitioUrl" placeholder="Dirección (https://…)">
+      <select id="sitioTipo">
+        <option value="manga">Manga</option>
+        <option value="manhwa">Manhwa</option>
+        <option value="webtoon">Webtoon</option>
+        <option value="comics">Cómics</option>
+        <option value="tiras">Tiras</option>
+        <option value="historieta">Historieta</option>
+        <option value="mixto" selected>Manga y cómics</option>
+      </select>
+      <label class="chk"><input type="checkbox" id="sitioEs"> Español</label>
+      <label class="chk"><input type="checkbox" id="sitioEn"> Inglés</label>
+      <label class="chk" title="El sitio da el archivo (PDF, CBZ…) o la extensión guarda sus capítulos"><input type="checkbox" id="sitioDescarga"> Se puede descargar</label>
+      <input type="text" id="sitioDesc" placeholder="Descripción (lo que vas a ver en la i)" maxlength="200">
+      <button class="main" id="sitioGuardar">Agregar sitio</button>
+      <button id="sitioCancelar" hidden>Cancelar</button>
+    </div>
+    <div class="msg" id="sitiosMsg"></div>
+    <div class="cabecera">
+      <h3 id="sitiosCuenta">Tu lista</h3>
+      <input type="text" id="sitiosFiltro" placeholder="Buscar en tu lista…" hidden>
+      <button class="danger" id="sitiosQuitarTodos" hidden>Quitar todos</button>
+    </div>
+    <ul id="misSitios"></ul>
+  </section>
+
+  <section>
+    <h2>Sitios donde la burbuja no aparece</h2>
+    <p>Se agregan con "No mostrar en este sitio" en el cartel de la burbuja, o desde el ícono de la extensión.</p>
+    <ul id="hosts"></ul>
+  </section>
+
+  <section id="nombres">
+    <h2>Cómo se guardan los archivos</h2>
+    <p>El nombre y las carpetas de cada capítulo se arman con una plantilla. Una <code>/</code> crea una carpeta, y lo que
+       está entre llaves se reemplaza por el dato de cada capítulo:</p>
+    <ul class="marcadores">
+      <li><code>{serie}</code> el nombre de la serie</li>
+      <li><code>{numero}</code> el número del capítulo, con 4 cifras (<code>0005</code>)</li>
+      <li><code>{saga}</code> la saga, si la serie las tiene cargadas arriba (<code>01 East Blue</code>)</li>
+      <li><code>{volumen}</code> el tomo del capítulo, y <code>{titulo}</code> su nombre en la lista. Solo se conocen al
+          bajar varios capítulos de una página que los separa en tomos; al guardar de a uno quedan vacíos</li>
+      <li><code>{anio}</code> el año en que lo guardás, y <code>{sitio}</code> el sitio de donde sale</li>
+    </ul>
+    <p>Si un dato está vacío no queda nada en su lugar: ni la carpeta, ni el guion que lo separaba. Los caracteres que
+       Windows no acepta (<code>\ : * ? " &lt; &gt; |</code>) se cambian por <code>-</code>.</p>
+    <div class="bar">
+      <input type="text" id="tplNombre" placeholder="{serie}/{saga}/{serie} {numero}" spellcheck="false" autocomplete="off">
+      <button class="main" id="tplGuardar">Guardar plantilla</button>
+      <span class="msg" id="tplMsg"></span>
+    </div>
+    <div class="bar">
+      <button id="tplDefault" title="{serie}/{saga}/{serie} {numero}">Predeterminada</button>
+      <button id="tplPlana" title="{serie}/{serie} {numero}">Sin sagas</button>
+      <button id="tplVolumen" title="{serie}/{volumen}/{serie} {numero}">Por tomo</button>
+      <button id="tplAnio" title="{serie}/{anio}/{serie} {numero}">Por año</button>
+    </div>
+    <div class="vista-titulo">Así quedaría guardado</div>
+    <div id="tplVista"></div>
+    <div class="msg err" id="tplAviso"></div>
+
+    <h3>Carpeta de las descargas</h3>
+    <p>Todo se guarda adentro de una carpeta de Descargas: <code>MangaReader</code>, si no elegís otra. Puede llevar
+       <code>{sitio}</code>, <code>{serie}</code> y <code>{anio}</code>, y <code>/</code> para subcarpetas
+       (por ejemplo <code>Manga/{sitio}</code>). Tiene que quedar adentro de Descargas: Chrome no deja guardar en otro lado.</p>
+    <div class="bar">
+      <input type="text" id="carpetaBase" placeholder="MangaReader" spellcheck="false" autocomplete="off">
+      <button class="main" id="carpetaGuardar">Guardar carpeta</button>
+      <span class="msg" id="carpetaMsg"></span>
+    </div>
+    <div id="carpetaVista" class="vista-carpeta"></div>
+  </section>
+
+  <section id="ritmo">
+    <h2>Ritmo de las descargas</h2>
+    <p>Para no cargar al sitio cuando bajás varios capítulos seguidos. Si un sitio responde "esperá" (error 429),
+       la extensión espera lo que el sitio pida y reintenta sola; con esto podés ir más despacio desde el principio.</p>
+    <div class="bar">
+      <label class="chk">Pausa entre capítulos <input type="number" id="ritmoPausa" min="0" max="10" step="0.5" style="width:70px"> segundos (0 a 10)</label>
+    </div>
+    <div class="bar">
+      <label class="chk">Descanso cada <input type="number" id="ritmoCada" min="0" max="500" step="1" style="width:70px"> capítulos</label>
+      <label class="chk">de <input type="number" id="ritmoSeg" min="1" max="600" step="1" style="width:70px"> segundos (0 capítulos = sin descanso)</label>
+    </div>
+    <div class="bar">
+      <label class="chk">Imágenes que se miden a la vez <input type="number" id="ritmoConc" min="2" max="8" step="1" style="width:70px"> (2 a 8)</label>
+    </div>
+    <div class="bar">
+      <button class="main" id="ritmoGuardar">Guardar ritmo</button>
+      <button id="ritmoDefecto">Volver al de siempre</button>
+      <span class="msg" id="ritmoMsg"></span>
+    </div>
+  </section>
+
+  <section id="adaptadores">
+    <h2>Adaptadores por sitio</h2>
+    <p>Para los sitios donde la extensión no acierta con las páginas (toma tapas de otras series, o deja páginas afuera).
+       Le decís dónde están con selectores CSS, y en ese sitio busca ahí y solo ahí, sin adivinar nada.</p>
+    <div class="bar">
+      <input type="text" id="adHost" placeholder="Sitio (sitio.com o una dirección suya)" spellcheck="false" autocomplete="off">
+    </div>
+    <div class="bar">
+      <input type="text" id="adContenedor" placeholder="Contenedor: el bloque que tiene las páginas (#visor)" spellcheck="false" autocomplete="off">
+      <input type="text" id="adImagenes" placeholder="Imágenes: cuáles son las páginas (img.pagina)" spellcheck="false" autocomplete="off">
+    </div>
+    <div class="bar">
+      <input type="text" id="adIgnorar" placeholder="Ignorar: lo que hay que dejar afuera, separado por comas (.aviso, .recomendados img)" spellcheck="false" autocomplete="off">
+    </div>
+    <div class="bar">
+      <input type="text" id="adPatron" placeholder="Dirección de los capítulos, con {n} donde va el número (https://sitio.com/leer/{n})" spellcheck="false" autocomplete="off">
+    </div>
+    <div class="bar">
+      <button class="main" id="adGuardar">Guardar adaptador</button>
+      <button id="adProbar" title="Cuenta lo que encuentra con estos selectores en la pestaña de ese sitio que tengas abierta, sin guardar nada">Probar en esta página</button>
+      <button id="adCancelar" hidden>Cancelar</button>
+    </div>
+    <div class="msg" id="adMsg"></div>
+    <ul id="adLista"></ul>
+  </section>
+</main>
+<script src="sagas.js"></script>
+<script src="plantilla.js"></script>
+<script src="ajustes.js"></script>
+<script src="sitios.js"></script>
+<script src="opciones.js"></script>
+</body>
+</html>

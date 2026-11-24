@@ -58,11 +58,14 @@ function cbzOrden(archivo) {
 // /fx/<serie>/leer/<n> cada capítulo (capitulo.html). `estado` deja romperlas desde la prueba:
 //   estado.rotos    capítulos que dan 404, como "cola/2"
 //   estado.imagen   función (dirección, pedido) → { status, headers } para que una imagen falle
-async function sitio(pedidos = {}, estado = { rotos: new Set(), imagen: null }) {
+//   estado.capitulo función (serie/n) → { status, headers } para que la página de un capítulo falle
+//   estado.horas    a qué hora llegó cada pedido, por dirección: con eso se mide cuánto se esperó
+async function sitio(pedidos = {}, estado = { rotos: new Set(), imagen: null, horas: {} }) {
   let otro = '';
   const atender = (req, res) => {
     const u = req.url.split('?')[0];
     pedidos[u] = (pedidos[u] || 0) + 1;
+    (estado.horas[u] = estado.horas[u] || []).push(Date.now());
     const send = (type, body, status = 200, headers = {}) => { res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store', ...headers }); res.end(body); };
     const pagina = (archivo) => send('text/html; charset=utf-8', fs.readFileSync(path.join(FIXTURES, archivo), 'utf8').split('%OTRO%').join(otro));
     let m = u.match(/^\/fx\/([\w-]+\.html)$/);
@@ -115,8 +118,14 @@ const enMarcos = (b, url, cuerpo) => b.ext.eval(`(async () => {
   const r = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, func: ${cuerpo} });
   return r.sort((x, y) => x.frameId - y.frameId).map(x => x.result); })()`);
 // Lo mismo que el popup o Alt+S: pedirle al service worker que abra un diálogo en esa pestaña
+// (la pestaña puede tardar un instante en aparecer con su dirección; si no aparece, se dice cuáles hay)
 const pedir = (b, url, cmd) => b.ext.eval(`(async () => {
-  const tab = (await chrome.tabs.query({})).find(t => t.url === ${JSON.stringify(url)});
+  let tab;
+  for (let i = 0; i < 50 && !tab; i++) {
+    tab = (await chrome.tabs.query({})).find(t => t.url === ${JSON.stringify(url)});
+    if (!tab) await new Promise(r => setTimeout(r, 100));
+  }
+  if (!tab) throw new Error('no hay una pestaña en ' + ${JSON.stringify(url)} + '; hay: ' + (await chrome.tabs.query({})).map(t => t.url || t.pendingUrl || '(sin dirección)').join(' , '));
   return (await chrome.runtime.sendMessage({ action: 'tab', tabId: tab.id, command: ${JSON.stringify(cmd)} })).ok; })()`);
 // Espera hasta que `listo(lo que devuelven los marcos)` y devuelve eso; pasado el tiempo, lo último que vio
 async function esperarMarcos(b, url, cuerpo, listo, ms = 20000) {
@@ -368,16 +377,26 @@ const AREAS = {
     let parado = '(no paró)', fin5 = '';
     for (const hasta = Date.now() + 240000; Date.now() < hasta && !fin5; await sleep(120)) {
       const t = await p5.eval(`document.querySelector('#mr-chapter-status')?.textContent || ''`).catch(() => '');
-      if (/pidió esperar, sigo en/.test(t)) parado = t.replace(/\d+ s/, 'N s');
+      // (la primera cuenta, que es la del capítulo que pidió esperar: desde la 2.11.2 el que sigue también espera)
+      if (parado === '(no paró)' && /pidió esperar, sigo en/.test(t)) parado = t.replace(/\d+ s/, 'N s');
       if (/^(✅ )?(Listo|Cancelado|Parado)/.test(t)) fin5 = t;
     }
     eq('las imágenes de un capítulo responden 503: el lote para igual que cuando lo responde la página, y la falla dice que el sitio pidió esperar',
       `${parado} · ${fin5.split('\n').filter(l => /^Listo|Capítulo 2/.test(l)).join(' / ')}`,
       '(2/3) Capítulo 2: el sitio pidió esperar, sigo en N s… · Listo: 2 capítulos guardados · 1 con problemas / Capítulo 2: el sitio pidió esperar');
     const quedo = () => fs.readdirSync(path.join(b.dl, 'MangaReader', 'Serie Imagenes')).sort().join(' | ');
-    eq('  no queda nada guardado a medias, la cola lo tiene como falla y el armador dejó de pedir apenas lo supo (4 páginas por intento, 6 pedidos cada una)',
+    // Cuántos pedidos le llegan al sitio sale de las constantes del armador que está cargado (no se
+    // escribe a mano: tocar la concurrencia no tiene que romper esta prueba). Por cada intento del
+    // capítulo arrancan a la vez tantas páginas como FETCH_CONCURRENCY (hay 6), cada una se pide
+    // 1 + FETCH_RETRIES + WAIT_RETRIES veces, y después de la primera que queda afuera no se pide
+    // ninguna más. El capítulo se intenta dos veces: la primera y el reintento del lote.
+    const armador = await b.ext.eval(`fetch(chrome.runtime.getURL('offscreen.js')).then(r => r.text())`);
+    const constante = (n) => +((armador.match(new RegExp(`const ${n} = (\\d+)`)) || [])[1]);
+    const porPagina = 1 + constante('FETCH_RETRIES') + constante('WAIT_RETRIES');
+    const porIntento = Math.min(constante('FETCH_CONCURRENCY'), 6) * porPagina;
+    eq(`  no queda nada guardado a medias, la cola lo tiene como falla y el armador dejó de pedir apenas lo supo (${Math.min(constante('FETCH_CONCURRENCY'), 6)} páginas por intento, ${porPagina} pedidos cada una, 2 intentos)`,
       `${quedo()} · cola: ${colaComo(await b.storage('cola'))} · ${negadas} pedidos negados`,
-      'Serie Imagenes 0001.pdf | Serie Imagenes 0003.pdf · cola: 1 listo, 2 fallo (el sitio pidió esperar), 3 listo · 48 pedidos negados');
+      `Serie Imagenes 0001.pdf | Serie Imagenes 0003.pdf · cola: 1 listo, 2 fallo (el sitio pidió esperar), 3 listo · ${2 * porIntento} pedidos negados`);
     estado.imagen = null;                                   // el sitio vuelve a andar
     await p5.eval(`document.querySelector('#mr-cola-reintentar').click()`);
     await p5.waitFor(`/Cancelar/.test(document.querySelector('#mr-chapter-go').textContent)`, 'que arranque el reintento', 10000).catch(() => {});
@@ -398,6 +417,93 @@ const AREAS = {
     eq('  lo que se pasa de los límites se guarda en el límite (pausa 0–10, concurrencia 2–8), y los campos lo muestran',
       `${r.pausa} · ${r.descansoCada} · ${r.descansoSeg} · ${r.concurrencia} · campos: ${await b.ext.eval(`document.getElementById('ritmoPausa').value + ' y ' + document.getElementById('ritmoConc').value`)}`, '10 · 10 · 45 · 2 · campos: 10 y 2');
     await b.ext.eval(`chrome.storage.local.remove('ritmo')`);
+  },
+
+  // ═══ 4b. El sitio dice cuánto esperar: Retry-After de la página del capítulo (2.11.2) ═══
+  async espera({ b, S, OTRO, eq, estado }) {
+    console.log('\n── 2.11.2 · Retry-After de la página del capítulo, y el permiso webRequest');
+    // ── El permiso: lo que dice chrome://extensions de la extensión cargada ──
+    const cx = await b.cdp.open('chrome://extensions');
+    await cx.waitFor(`!!(window.chrome && chrome.developerPrivate)`, 'chrome://extensions');
+    const info = () => cx.eval(`new Promise(r => chrome.developerPrivate.getExtensionsInfo({ includeDisabled: true, includeTerminated: true }, (l) => {
+      const e = (l || []).find(x => x.id === ${JSON.stringify(b.extId)});
+      r(e ? { avisos: e.installWarnings || [], manifest: (e.manifestErrors || []).map(x => x.message), errores: (e.runtimeErrors || []).map(x => x.message) } : null); }))`);
+    // (Chromium junta los errores de una extensión solo en modo desarrollador: se prende acá para mirarlos al final)
+    await cx.eval(`new Promise(r => chrome.developerPrivate.updateProfileConfiguration({ inDeveloperMode: true }, () => r(true)))`).catch(() => false);
+    const i0 = (await info()) || { avisos: ['la extensión no está'], manifest: [], errores: [] };
+    const manifest = await b.ext.eval(`chrome.runtime.getManifest()`);
+    const avisos = (m) => b.ext.eval(`new Promise(r => chrome.management.getPermissionWarningsByManifest(${JSON.stringify(JSON.stringify(m))}, (w) => r(w || [])))`);
+    const con = await avisos(manifest), sin = await avisos({ ...manifest, permissions: (manifest.permissions || []).filter(p => p !== 'webRequest') });
+    eq('el manifest pide webRequest, y la extensión carga sin advertencias ni errores (chrome://extensions)',
+      `webRequest: ${(manifest.permissions || []).includes('webRequest')} · advertencias: ${i0.avisos.join(' | ') || 'ninguna'} · errores del manifest: ${i0.manifest.join(' | ') || 'ninguno'}`,
+      'webRequest: true · advertencias: ninguna · errores del manifest: ninguno');
+    eq('  y no suma advertencias de permisos al instalar: son las mismas que sin webRequest (el acceso a todos los sitios ya estaba)',
+      `${JSON.stringify(con) === JSON.stringify(sin) ? 'las mismas' : 'distintas: ' + con.join(' | ')} (${con.length})`, `las mismas (${sin.length})`);
+
+    // ── 503 con Retry-After: 4 en la página del capítulo 2, todas las veces ──
+    await b.ext.eval(`chrome.storage.local.remove(['cola', 'esperaSitio'])`);
+    await b.setStorage({ ritmo: { pausa: 0 } });             // sin pausa entre capítulos; sin cabecera, la parada es el minuto de siempre
+    const horas = (u) => estado.horas[u] || [];
+    const seg = (ms) => (Number.isFinite(ms) ? (ms / 1000).toFixed(1).replace('.', ',') + ' s' : 'no llegó');
+    const rango = (ms) => (ms >= 4000 && ms < 15000 ? 'entre 4 y 15 s' : seg(ms));
+    estado.capitulo = (clave) => (clave === 'espera/2' ? { status: 503, headers: { 'Retry-After': '4' } } : null);
+    const pg = await abrirLote(b, S + '/fx/espera/?caps=3', 3);
+    await pg.eval(`document.querySelector('#mr-chapter-all').click(); document.querySelector('#mr-chapter-go').click()`);
+    // Se mira el estado cada 100 ms: los números de cada cuenta regresiva y cómo termina
+    const cuentas = [];
+    let fin = '';
+    for (const hasta = Date.now() + 120000; Date.now() < hasta && !fin; await sleep(100)) {
+      const t = await pg.eval(`document.querySelector('#mr-chapter-status')?.textContent || ''`).catch(() => '');
+      const n = +((t.match(/sigo en (\d+) s/) || [])[1] || 0);
+      const ultima = cuentas[cuentas.length - 1];
+      if (n && (!ultima || n > ultima[ultima.length - 1])) cuentas.push([n]);       // una cuenta nueva
+      else if (n && n < ultima[ultima.length - 1]) ultima.push(n);
+      if (/^(✅ )?(Listo|Cancelado|Parado)/.test(t)) fin = t;
+    }
+    const h2 = horas('/fx/espera/leer/2'), h3 = horas('/fx/espera/leer/3');
+    const reintento = h2[1] - h2[0], siguiente = h3[0] - h2[1];
+    eq('503 con Retry-After: 4 en la página del capítulo: "sigo en 4 s" y baja, antes del reintento y antes del capítulo siguiente',
+      cuentas.map(c => c.join(',')).join(' / '), '4,3,2,1 / 4,3,2,1');
+    eq(`  el reintento llega a los 4 s o más, y bastante antes de 60 (llegó a los ${seg(reintento)})`, rango(reintento), 'entre 4 y 15 s');
+    eq(`  el capítulo siguiente también espera: llega a los 4 s o más del segundo 503 (llegó a los ${seg(siguiente)})`, rango(siguiente), 'entre 4 y 15 s');
+    eq('  el capítulo 2 queda con "el sitio pidió esperar" y los otros se guardan',
+      `${fin.split('\n').filter(l => /^Listo|Capítulo 2/.test(l)).join(' / ')} · cola: ${colaComo(await b.storage('cola'))}`,
+      'Listo: 2 capítulos guardados · 1 con problemas / Capítulo 2: el sitio pidió esperar · cola: 1 listo, 2 fallo (el sitio pidió esperar), 3 listo');
+    await pg.close();
+
+    // ── Sin cabecera, o con una que no se entiende: un minuto ──
+    // No se espera el minuto entero: en el mismo instante se lee el número de la cuenta, el botón y
+    // cuántas veces se pidió el capítulo, y se cancela. Va al otro sitio (otro nombre): esa parada
+    // no frena a las pruebas que siguen, que usan el primero.
+    const unMinuto = async (serie, mal) => {
+      await b.ext.eval(`chrome.storage.local.remove(['cola', 'esperaSitio'])`);
+      estado.capitulo = (clave) => (clave === serie + '/2' ? mal : null);
+      const pc = await abrirLote(b, `${OTRO}/fx/${serie}/?caps=3`, 3);
+      await pc.eval(`document.querySelector('#mr-chapter-all').click(); document.querySelector('#mr-chapter-go').click()`);
+      await pc.waitFor(`/sigo en \\d+ s/.test(document.querySelector('#mr-chapter-status').textContent)`, 'la cuenta regresiva', 60000);
+      const r = await pc.eval(`(() => { const s = document.querySelector('#mr-chapter-status').textContent, g = document.querySelector('#mr-chapter-go');
+        const boton = g.textContent; g.click(); return { n: +((s.match(/sigo en (\\d+) s/) || [])[1] || 0), boton, despues: document.querySelector('#mr-chapter-status').textContent }; })()`);
+      const pedidosAlCancelar = horas(`/fx/${serie}/leer/2`).length;
+      const final = String(await lote.fin(pc, 30000).catch(e => e.message)).split('\n')[0].replace(/\d+ capítulos? guardados?/, 'N guardados');
+      await sleep(1500);                                   // si saliera el reintento, este es el momento
+      const out = { n: r.n, boton: r.boton, despues: r.despues, pedidos: `${pedidosAlCancelar} y ${horas(`/fx/${serie}/leer/2`).length}`, final, cola: colaComo(await b.storage('cola')) };
+      await pc.close();
+      return out;
+    };
+    const cerca = (n) => (n >= 55 && n <= 60 ? 'entre 55 y 60 s' : `${n} s`);
+    const s1 = await unMinuto('callado', { status: 503 });
+    eq(`503 sin Retry-After: la cuenta arranca cerca de 60 (decía "sigo en ${s1.n} s")`, cerca(s1.n), 'entre 55 y 60 s');
+    eq('  en ese instante el lote sigue esperando (el botón es Cancelar) y el capítulo se pidió una sola vez; al cancelar, el reintento no sale',
+      `botón: ${s1.boton} → ${s1.despues} · pedidos del capítulo 2: ${s1.pedidos} · ${s1.final} · cola: ${s1.cola}`,
+      'botón: Cancelar → Cancelando… · pedidos del capítulo 2: 1 y 1 · Cancelado: N guardados · cola: 1 listo, 2 pendiente, 3 pendiente');
+    const s2 = await unMinuto('basura', { status: 503, headers: { 'Retry-After': 'pronto' } });
+    eq(`una cabecera que no se entiende (Retry-After: pronto) vale lo mismo: un minuto (decía "sigo en ${s2.n} s")`, `${cerca(s2.n)} · pedidos del capítulo 2: ${s2.pedidos}`, 'entre 55 y 60 s · pedidos del capítulo 2: 1 y 1');
+
+    estado.capitulo = null;
+    await b.ext.eval(`chrome.storage.local.remove(['cola', 'esperaSitio', 'ritmo'])`);
+    const i1 = (await info()) || { errores: ['la extensión no está'] };
+    eq('  y mientras corrieron esos lotes la extensión no anotó ningún error (chrome://extensions)', i1.errores.join(' | ') || 'ninguno', 'ninguno');
+    await cx.close();
   },
 
   // ═══ 5. Insignia del ícono y notificación al terminar ═══
@@ -785,7 +891,7 @@ async function correr({ b, eq, solo = (process.env.SOLO || '').split(',').filter
   return cortes;
 }
 
-module.exports = { correr, AREAS };
+module.exports = { correr, AREAS, sitio };
 
 if (require.main === module) (async () => {
   const version = process.argv[2] || ultimaVersion();

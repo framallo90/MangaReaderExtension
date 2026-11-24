@@ -33,6 +33,16 @@ const { eq, fin } = probador();
   eq('lo que pidió el sitio en Retry-After, para quien decide por su cuenta cuánto esperar: segundos, o una fecha',
     [pedida('3'), pedida('0'), pedida('Mon, 23 Nov 2026 12:00:05 GMT', Date.parse('Mon, 23 Nov 2026 12:00:00 GMT'))].join(','), '3000,0,5000');
   eq('  con tope de un minuto, y null si no vino o no se entiende', [pedida('3600'), pedida(''), pedida(undefined), pedida('pronto'), pedida('-5')].join(','), '60000,null,null,null,null');
+  // (2.11.2) Los cuatro casos de la página de un capítulo, y cuánto frena el lote con cada uno
+  const VENCIDA = 'Mon, 23 Nov 2026 12:00:00 GMT', AHORA = Date.parse('Mon, 23 Nov 2026 12:00:30 GMT');
+  eq('esperaPedida: "4" → 4 s · una fecha vencida → null · "300" → 60 s (el tope) · vacío → null',
+    [pedida('4', AHORA), pedida(VENCIDA, AHORA), pedida('300', AHORA), pedida('', AHORA)].join(' · '), '4000 · null · 60000 · null');
+  const delSitio = (...a) => (A.esperaDelSitio ? String(A.esperaDelSitio(...a)) : '(no está)');
+  eq('lo que frena un lote: lo pedido, y si no dijo cuánto (o mandó una fecha vencida), un minuto',
+    [delSitio('4', undefined, AHORA), delSitio(VENCIDA, undefined, AHORA), delSitio('300', undefined, AHORA), delSitio('', undefined, AHORA)].join(' · '), '4000 · 60000 · 60000 · 60000');
+  eq('  basura en la cabecera también es un minuto, no los 2, 4 u 8 s de una imagen', [delSitio('pronto'), delSitio('-5'), delSitio('4 segundos')].join(' · '), '60000 · 60000 · 60000');
+  eq('  el minuto de cuando no dice nada es el de las opciones (ritmo.espera429); lo que pide el sitio no se toca',
+    [delSitio('', { espera429: 30 }), delSitio('4', { espera429: 30 })].join(' · '), '30000 · 4000');
 
   // ── Adaptadores por sitio ──
   if (A.normalizarAdaptador) {

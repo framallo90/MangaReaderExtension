@@ -54,6 +54,8 @@ function setup({ build, results = {}, invalidName = false, onTabMessage, marcos 
     contextMenus: { onClicked: ev(), removeAll: f => f && f(), create() {} },
     commands: { onCommand: ev() },
     storage: { local, onChanged: ev() },
+    // Las respuestas que ve el service worker (2.11.2: la cabecera Retry-After de la página del capítulo)
+    webRequest: { onHeadersReceived: ev() },
     // La insignia del ícono y las notificaciones: se anota lo que se les pide
     action: { setBadgeText: (o) => { t.insignias.push(o.text); }, setBadgeBackgroundColor: (o) => { t.colores.push(o.color); } },
     notifications: { onButtonClicked: ev(), create: (id, o) => { t.avisos.push({ id, ...o }); }, clear: (id) => { t.avisosCerrados.push(id); } },
@@ -75,7 +77,8 @@ function setup({ build, results = {}, invalidName = false, onTabMessage, marcos 
     tabs: {
       // (el marco de arriba es el 0 y no se anota: "msg 9 save" va arriba, "msg 9#3 save" al marco 3)
       sendMessage: async (tabId, m, o) => { tabLog.push(`msg ${tabId}${o?.frameId ? '#' + o.frameId : ''} ${m.action}`); return onTabMessage ? onTabMessage(tabId, m, o?.frameId || 0) : { ok: true }; },
-      create: async (o) => { tabLog.push(`create ${o.url} active=${o.active}`); return { id: 50 }; },
+      // (alAbrir: lo que pasa cuando la pestaña del capítulo carga, por ejemplo la respuesta que ve webRequest)
+      create: async (o) => { tabLog.push(`create ${o.url} active=${o.active}`); if (t.alAbrir) t.alAbrir(50, o.url); return { id: 50 }; },
       query: async () => t.abiertas,                       // las pestañas que hay abiertas: [{ id, url }]
       get: async (id) => ({ id, status: 'complete' }),
       remove: async (id) => { tabLog.push(`remove ${id}`); if (t.onRemove) t.onRemove(id); },
@@ -84,6 +87,8 @@ function setup({ build, results = {}, invalidName = false, onTabMessage, marcos 
     scripting: {
       insertCSS: async (o) => { tabLog.push('css ' + o.files.join('+')); },
       executeScript: async (o) => {
+        // el código con que respondió la página del capítulo (solo mira el marco de arriba): t.codigo, o 200
+        if (o.func && !o.target.allFrames) return [{ frameId: 0, result: t.codigo || 200 }];
         if (o.func) {                                     // la cuenta de candidatas, marco por marco
           tabLog.push(`cuenta ${o.target.tabId}`);
           return (typeof marcos === 'function' ? marcos(o.target.tabId) : marcos).map(([frameId, result]) => ({ frameId, result }));
@@ -312,6 +317,56 @@ const brief = (r) => `páginas=${r.pages} fallidas=[${r.failed}] archivos=[${r.f
     const t = setup({});
     let r; try { await t.ctx.batchChapter({ ...CHAP, url: 'javascript:alert(1)' }, SENDER); r = 'no falló'; } catch (e) { r = e.message; }
     eq('dirección que no es http', r + ' · pestañas abiertas: ' + t.tabLog.length, 'Dirección no válida · pestañas abiertas: 0');
+  }
+
+  // ── El sitio dice cuánto esperar (2.11.2): Retry-After de la página del capítulo ──
+  // La página del capítulo responde `codigo` con esa cabecera (null: sin cabecera). Devuelve el
+  // error, cuántos segundos queda frenado ese sitio para el lote ("esperaSitio") y si el oyente de
+  // webRequest estaba registrado mientras el capítulo estuvo abierto y quedó sacado después.
+  {
+    const capitulo = async ({ codigo = 503, retryAfter = null, guardado = {} } = {}) => {
+      const t = setup({ marcos: [[0, 15]], guardado, onTabMessage: () => ({ ok: true, complete: true, pages: 15, name: 'S/S 0005', lines: [] }) });
+      t.codigo = codigo;
+      const oyente = t.ctx.chrome.webRequest.onHeadersReceived;
+      let mientras = -1;
+      t.alAbrir = (id) => {
+        mientras = oyente.count();
+        oyente.emit({ tabId: id, statusCode: codigo, type: 'main_frame', responseHeaders: retryAfter == null ? [] : [{ name: 'Retry-After', value: retryAfter }] });
+      };
+      const antes = Date.now();
+      let error = 'no falló';
+      try { await t.ctx.batchChapter(CHAP, SENDER); } catch (e) { error = e.message; }
+      const hasta = (t.datos.esperaSitio || {})['s.com'];
+      return `${error} · frena ${hasta ? Math.round((hasta - antes) / 1000) + ' s' : 'nada'} · oyente: ${mientras} mientras, ${oyente.count()} después`;
+    };
+    eq('la página del capítulo responde 503 con Retry-After: 4: ese sitio queda frenado 4 s para el lote',
+      await capitulo({ retryAfter: '4' }), 'HTTP 503: el sitio pidió esperar · frena 4 s · oyente: 1 mientras, 0 después');
+    eq('  429 con Retry-After: 12 → 12 s, no los 60 de siempre', await capitulo({ codigo: 429, retryAfter: '12' }), 'HTTP 429: el sitio pidió esperar · frena 12 s · oyente: 1 mientras, 0 después');
+    eq('  si pide 300, un minuto: el tope', (await capitulo({ retryAfter: '300' })).split(' · ')[1], 'frena 60 s');
+    eq('  sin cabecera, un minuto: no se baja a 2, 4 u 8 s', (await capitulo({})).split(' · ')[1], 'frena 60 s');
+    eq('  una cabecera que no se entiende, o una fecha ya vencida, también un minuto',
+      `${(await capitulo({ retryAfter: 'pronto' })).split(' · ')[1]} | ${(await capitulo({ retryAfter: 'Mon, 23 Nov 2026 12:00:00 GMT' })).split(' · ')[1]}`, 'frena 60 s | frena 60 s');
+    eq('  sin cabecera, la parada sale de las opciones (ritmo.espera429)', (await capitulo({ guardado: { ritmo: { espera429: 30 } } })).split(' · ')[1], 'frena 30 s');
+    eq('una página que responde bien no frena nada, y el oyente igual se saca', await capitulo({ codigo: 200 }), 'no falló · frena nada · oyente: 1 mientras, 0 después');
+
+    // Las imágenes del capítulo pidieron esperar: el armador lo dice, y se anota con lo que pidieron
+    const imagenes = async (sender) => {
+      const ARMADO = { ok: false, error: 'HTTP 503: el sitio pidió esperar', esperar: { status: 503, retryAfter: '7' } };
+      const BUILD = { action: 'build', urls: ['https://s.com/i/1.jpg'], formats: { pdf: true }, path: 'S/S 0005', title: 'S 0005', meta: {}, soloEntero: true };
+      let t;
+      t = setup({ marcos: [[0, 15]], build: ARMADO, onTabMessage: async (id, m) => {
+        if (m.action !== 'autoSave') return { ok: true };
+        const r = await pedido(t, BUILD, sender || { tab: { id }, frameId: 0 });     // como lo pide el capítulo abierto
+        return { ok: false, error: r.error };
+      } });
+      const antes = Date.now();
+      let error = 'no falló';
+      try { await t.ctx.batchChapter(CHAP, SENDER); } catch (e) { error = e.message; }
+      const hasta = (t.datos.esperaSitio || {})['s.com'];
+      return `${error} · frena ${hasta ? Math.round((hasta - antes) / 1000) + ' s' : 'nada'}`;
+    };
+    eq('las imágenes de un capítulo de un lote responden 503 con Retry-After: 7: el sitio queda frenado 7 s', await imagenes(), 'HTTP 503: el sitio pidió esperar · frena 7 s');
+    eq('  pero si el pedido no viene de un capítulo de un lote (guardar de a uno), no se frena nada', await imagenes({ tab: { id: 99 }, frameId: 0 }), 'HTTP 503: el sitio pidió esperar · frena nada');
   }
 
   // ── La cola de un lote, guardada en chrome.storage (2.11) ──
