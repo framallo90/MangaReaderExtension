@@ -4,8 +4,8 @@ Dos herramientas para guardar capítulos de manga y cómics como **PDF**, **CBZ*
 
 | | Qué es | Versión | Dónde está |
 |---|---|---|---|
-| 🧩 **La extensión** | Se usa desde Chrome, sobre la página que tenés abierta | 2.11.2 | `manga-reader-ext(ver 24-11-2026)/manga-reader-ext` |
-| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.10.2 | `programa/` |
+| 🧩 **La extensión** | Se usa desde Chrome, sobre la página que tenés abierta | 2.11.3 | `manga-reader-ext(ver 24-11-2026-2)/manga-reader-ext` |
+| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.10.3 | `programa/` |
 
 Funcionan por separado y comparten el mismo código para detectar páginas, armar nombres y generar los archivos. Son de uso personal, están en español y todo corre en tu máquina, sin servidor.
 
@@ -28,8 +28,9 @@ JavaScript plano (Manifest V3), sin dependencias ni compilación.
 | 🔀 **Orden de las páginas** | Las miniaturas se arrastran o se mueven con ▲▼, se invierten o se ordenan por número: ese orden es el del PDF y el del CBZ |
 | 🧭 **Adaptadores por sitio** | Donde el filtro no acierta, le decís con selectores CSS dónde están las páginas, y lo probás antes de guardarlo |
 | 🪟 **Lectores en un iframe** | Encuentra las páginas aunque estén en un marco aparte, incluso de otro sitio |
+| 🎨 **Páginas dibujadas de fondo** | Lectores que no usan `<img>` y pintan cada página como fondo (CSS, `image-set()`, SVG): toma las de una misma serie, en orden, y lo dice ("páginas dibujadas de fondo"). Las tapas de otras cosas alrededor no se ofrecen como si fueran el capítulo |
 | ⏯ **Cola del lote** | Queda guardada: si se corta o algo falla, se reanuda o se reintenta. El ícono muestra el avance y al terminar llega una notificación |
-| 🐢 **Ritmo** | Pausa entre capítulos, descansos y espera automática cuando el sitio responde "esperá" (429 o 503), con la página de un capítulo o con sus imágenes: lo que el sitio pida (con tope de un minuto), o un minuto si no dice cuánto |
+| 🐢 **Ritmo** | Pausa entre capítulos, descansos y espera automática cuando el sitio responde "esperá" (429 o 503), con la página de un capítulo o con sus imágenes: lo que el sitio pida (con tope de un minuto), o un minuto si no dice cuánto. Es la misma regla que usa el programa |
 | ⌨️ **Teclado** | Los diálogos se usan sin mouse: Tab, flechas entre las miniaturas, espacio para incluir o quitar |
 | 🗂 **Nombre y carpetas automáticos** | `Serie/Saga/Serie 0012`, con ceros adelante para que ordenen bien. Se cambia con una plantilla (`{serie}/{volumen}/{serie} {numero}`) |
 | ✔ **Registro de guardados** | Avisa lo que ya guardaste, lo saltea en los lotes y muestra los capítulos que te faltan |
@@ -175,7 +176,7 @@ El atajo `Alt+S` se cambia en `chrome://extensions/shortcuts`.
 
 - **No guarda páginas protegidas.** Si un sitio entrega las páginas cifradas y su lector las arma en el momento, la extensión no las guarda: dice que no encontró páginas.
 - **No adivina direcciones.** Si la dirección de un capítulo no lleva su número y la página no tiene links a los capítulos, el diálogo lo explica en vez de inventar una. Para eso está pegar los links.
-- **No lee dentro de iframes** ni imágenes puestas como fondo.
+- **Un lector de fondo tiene que parecerlo:** las páginas dibujadas de fondo entran si son una serie (dos o más con números, como `01.png`, `02.png`) y si no queda ninguna `<img>` que pueda ser una página. Un lector que dibuja una sola página por vez solo se reconoce dentro de un iframe; si no, hace falta un adaptador con "Las páginas están dibujadas de fondo".
 - **No mira el disco:** si borrás un archivo a mano, el registro sigue diciendo que lo guardaste hasta que lo quites en opciones.
 
 Usala con contenido que tengas derecho a guardar.
@@ -202,7 +203,7 @@ Aplicación de escritorio para Windows, hecha con Electron y JavaScript plano. H
 | 🗂 **Registro e historial** | Anota todo lo que baja. Lo que ya bajaste queda marcado aunque muevas o borres los archivos, y en un catálogo se ve qué títulos ya tenés empezados |
 | 💽 **Tu colección** | Otras carpetas donde mirar lo que ya tenés, como la de Google Drive de tu máquina. Avisa si alguna no está a la vista, y deja atar a una serie una carpeta que se llama distinto |
 | 📌 **Siguiendo** | Las series que seguís: "Buscar lo nuevo" dice qué capítulos hay que no tenés y los baja de un toque |
-| 📦 **Cola de descargas** | Baja de a un capítulo y muestra en qué anda cada uno. Se cancela, y se reintenta todo lo que falló. Avisa al terminar y muestra el avance en la barra de tareas |
+| 📦 **Cola de descargas** | Baja de a un capítulo y muestra en qué anda cada uno. Se cancela, y se reintenta todo lo que falló. Si el sitio pide esperar, frena igual que la extensión. Avisa al terminar con los botones de la ventana (Reintentar, Limpiar, Abrir carpeta) y muestra el avance en la barra de tareas |
 | 📁 **Carpeta a elección** | Guarda donde quieras, y saltea lo que ya está mirando el disco |
 | 🗂 **Nombres y sagas** | `Serie/Saga/Serie 0012` por defecto. Se cambia con una plantilla (`{serie}/{volumen}/{serie} {numero} - {titulo}`) y se cargan sagas propias |
 | 🔗 **Pegar links** | Igual que en la extensión: una lista de links con el número de cada uno |
@@ -254,6 +255,33 @@ Lo que todavía le falta y cómo está armado: [programa/README.md](programa/REA
 # Actualizaciones
 
 Lo más nuevo arriba. El historial completo de la extensión está en la sección 15 de [DOCUMENTACION.md](DOCUMENTACION.md).
+
+### 24-11-2026 · Programa 0.10.3
+
+El mismo freno que la extensión, un proxy para provocar un 429 o un 503 de verdad, y botones en el aviso de fin de cola.
+
+- **El freno es uno solo.** Ante un 429 o un 503 sin `Retry-After`, el programa seguía con la pausa de siempre (1,5 s) y la extensión frenaba un minuto; el que baja de a muchos es el programa. Ahora los dos usan la misma regla (`esperaDelSitio` de la extensión, sobre `esperaPedida`): lo pedido con tope de un minuto; un minuto sin cabecera, con basura o con una fecha vencida; nada con `Retry-After: 0`. Está escrita una sola vez, en la sección 4.19 de [DOCUMENTACION.md](DOCUMENTACION.md).
+- **Nada a medias.** Si una imagen queda afuera porque el sitio pidió esperar, el capítulo queda "incompleto · no guardé nada, para no dejarlo a medias", sin ningún archivo. Lo mismo si el sitio contesta 429 o 503 a las páginas que carga la página misma: una corrida real lo encontró guardando 3 páginas de 17 como "listo", y ya no pasa (decide la carpeta de las páginas, así que un aviso o la tapa de un "relacionado" que fallan no cortan el capítulo). Un 429 sin cuerpo también frena.
+- **Proxy de prueba** (`programa/tests/proxy.js`, sin dependencias): reenvía a un sitio de verdad e inyecta 429 o 503, con o sin `Retry-After`, con contador y corte desde el pedido N. El programa lo usa con `MR_PROXY=…` o `--proxy=…`; sin eso, todo va directo.
+- **Corrida real** contra one-piece-fans2.com a través del proxy (24-11-2026, 08:59 a 09:02, y antes 07:58 a 08:01 con el mismo resultado): con un 503 y `Retry-After: 5`, el pedido siguiente salió a los 5,1 s; con un 429 sin cabecera, a los 60,1 s; con un 503 en tres imágenes de la página, quedó incompleto sin archivo y al reintentar esperó el minuto y bajó las 14 páginas.
+- **Botones en el aviso de fin de cola:** "Reintentar N que falló", "Limpiar terminados" y "Abrir carpeta", los mismos de la ventana y por el mismo camino. Apretados de verdad con UI Automation (`npm run avisos`, dos corridas seguidas a las 08:56 y 08:57): el reintento respetó el freno (clic a los 3,9 s de un 503 sin cabecera, pedido nuevo a los 60,1 s), y los otros dos hicieron lo suyo. En el camino apareció un error: el programa guardaba solo el último aviso y Electron perdía los botones de uno anterior; ahora guarda los últimos 10.
+- **El reintento no se gasta:** un capítulo que falló dos veces se vuelve a reintentar, respetando el freno. Y si se cancela y se reintenta en medio de una bajada, el reintento ya no se pierde (arreglado por una revisión; sin prueba automática).
+- **El explorador usa la detección nueva de la extensión:** la página de prueba de fondos sale como capítulo, con sus 8 páginas y ninguna tapa.
+- **Pruebas:** 224 comprobaciones (eran 191), en 6 min 28 s (la 0.10.2 tardaba 5 min 3 s; la espera real que suma el proxy son unos 15 s: el minuto sin cabecera se lee y se cancela, no se espera).
+- **Falta:** el programa instalado (con su propio acceso directo) no se probó con los botones; el corte en las imágenes que pide el armador no se puede provocar en un sitio real a través del proxy (las toma de la caché de la página); y el primer aviso después de que Electron crea su acceso directo en el menú Inicio no sale en pantalla.
+
+### 24-11-2026 · Extensión 2.11.3
+
+Páginas dibujadas de fondo, sin ofrecer las tapas de alrededor. La carpeta es `manga-reader-ext(ver 24-11-2026-2)`.
+
+- **Lo que pasaba:** un lector que pinta cada página de fondo (CSS o SVG, como Issuu) no tenía `<img>` que la extensión viera, y se quedaba con cualquier imagen suelta de la página. En Issuu guardó 18 tapas de otras publicaciones: peor que fallar, porque parecía que anduvo.
+- **Ahora** junta las imágenes de fondo del estilo calculado, de los atributos de carga diferida (`data-bg`), de las reglas (con `image-set()`) y de los `<image>` de SVG, y toma la serie que parece un lector (`01.png`, `02.png`… juntas en un bloque), en orden. Sin el mínimo de 250 px. Con imágenes de las dos clases, ganan las `<img>`; los fondos entran si no hay ninguna, o si un adaptador lo pide (casilla nueva "Las páginas están dibujadas de fondo"). El diálogo lo dice: "páginas dibujadas de fondo".
+- **Lo que no son páginas:** tarjetas de un listado (aunque el link esté al lado y no envolviendo la imagen), recomendados de otro sitio, tiras de miniaturas, adornos desparramados por la página (también los de un sitio empaquetado), íconos incrustados, solo degradés. Si el lector de fondo no se puede leer, dice que no encontró páginas y no ofrece las imágenes sueltas.
+- **Issuu, de verdad (24-11-2026):** con el lector cargado, el diálogo se abre en su iframe con "1 de 1 páginas · páginas dibujadas de fondo" y guarda la página que el lector tiene dibujada; si se abre antes de que cargue, dice "Lo que hay son tapas que llevan a otras páginas del sitio" y no guarda nada. **Las 18 tapas no volvieron a aparecer.** Comic Rocket (lector `<img>` en un iframe de otro sitio) quedó igual que con la 2.11.2.
+- **Revisión:** tres pasadas adversariales encontraron casos donde la primera versión ofrecía adornos como páginas o hacía aparecer la burbuja en páginas comunes (diarios, foros, catálogos); quedaron arreglados y cada uno con su prueba.
+- **Páginas SVG:** se usa el escaneo de adentro sin recodificar (embebido o por dirección), y si hay algo más dibujado, se dibuja entero.
+- **Pruebas:** 566 comprobaciones en Node (`test_fondos.js`, 50, nueva) y un área nueva en el navegador (`fondos`, 14: contra la 2.11.2 fallan 11, que guardaba las 18 tapas de la página de prueba); las 14 secciones de siempre (174) y las otras áreas de la 2.11 (98) siguen en verde.
+- **Falta:** un lector que muestra de a una página en la página de arriba (no en un iframe), uno cuyas páginas llevan cada una a otra página, y una página SVG con texto encima (se dibuja, sin prueba en el navegador). En la extensión, un 503 en las imágenes que carga la página no se ve (en el programa sí).
 
 ### 24-11-2026 · Extensión 2.11.2
 
@@ -477,12 +505,13 @@ node tests/e2e_211.js       # solo lo que sumó la 2.11 (SOLO=cola,ritmo… para
 node tests/lote_largo.js    # un lote de decenas de capítulos seguidos
 ```
 
-- El programa tiene las suyas: `cd programa` y `npm run prueba`.
+- El programa tiene las suyas: `cd programa` y `npm run prueba` (224 comprobaciones, unos 6 minutos y medio). `npm run avisos` aprieta de verdad los botones del aviso de fin de cola (muestra avisos en la pantalla). `node programa/tests/proxy.js --sitio <dirección> --codigo 503` es el proxy que provoca un 429 o un 503 de verdad delante de un sitio real; el programa lo usa con `MR_PROXY=<dirección del proxy> npm start` (detalle en la sección 11 de [DOCUMENTACION.md](DOCUMENTACION.md)).
+- `bash tests/correr.sh` son 566 comprobaciones en Node; en el navegador, `SOLO=shadow node tests/e2e.js` (174) y `node tests/e2e_211.js` por tandas (`SOLO=iframes,cola,insignia`, `SOLO=ritmo,espera`, `SOLO=orden,adaptadores,carpeta,pegar,teclado,menores` y `SOLO=fondos`): cada comando tiene que entrar en 10 minutos.
 - Las pruebas en navegador necesitan el Chromium de Playwright (`%LOCALAPPDATA%\ms-playwright\chromium-*`) o el de la variable `CHROMIUM`. El Chrome común ya no acepta cargar extensiones por línea de comandos.
 - `node tests/probar_sitio.js "<dirección>"` informa qué detecta la extensión en una página, sin dejar archivos: también si el lector está en un iframe y en qué marco se abre el diálogo. Con un rango (`1100 1119`) baja esos capítulos, y con `guardar` el capítulo abierto, a una carpeta temporal que se borra. `PAUSA=0 CONCURRENCIA=8` ponen el ritmo del lote y `ADAPTADOR='{"sitio":"…","contenedor":"…"}'` un adaptador.
 - `node tests/probar_version.js` hace de verdad el pedido a GitHub del aviso de versión nueva y dice qué contestó (con `--navegador`, además desde el popup). No es parte de ninguna suite: depende de la red.
 - Las dos pruebas en navegador aceptan la carpeta de otra versión como argumento: `node tests/e2e_211.js "manga-reader-ext(ver 22-11-2026-7)"` muestra qué de lo nuevo fallaba antes.
-- Las páginas de prueba de la 2.11 están en `tests/fixtures/`.
+- Las páginas de prueba de la 2.11 (y las de fondos de la 2.11.3: `fondo*.html`) están en `tests/fixtures/`.
 - Todas las descargas de las pruebas van a una carpeta temporal que se borra al terminar.
 
 ## Cómo se cambia algo

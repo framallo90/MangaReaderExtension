@@ -1,4 +1,4 @@
-# 📖 Manga Reader v2.11 — Guardar capítulos, de a uno o varios seguidos
+# 📖 Manga Reader v2.11.3 — Guardar capítulos, de a uno o varios seguidos
 
 Guarda capítulos de manga como PDF, CBZ y/o imágenes sueltas, sin las páginas de publicidad, con nombre y carpetas automáticos.
 
@@ -19,6 +19,7 @@ Guarda capítulos de manga como PDF, CBZ y/o imágenes sueltas, sin las páginas
 - **Guardar y siguiente ▶** (`Ctrl+Enter`): guarda y abre el capítulo que sigue, con el diálogo ya listo. Para bajar varios mirando cada uno.
 - `Esc` cierra.
 - El diálogo y la burbuja no dependen del estilo del sitio: aunque la página esconda los botones o desarme todo lo que no es suyo, se ven y andan igual. Si el sitio los saca de la página, vuelven a aparecer como estaban.
+- **Páginas dibujadas de fondo (2.11.3):** hay lectores que no usan imágenes y pintan cada página de fondo (como Issuu). Si no hay imágenes que puedan ser las páginas y las de fondo parecen un lector (una serie `01.png`, `02.png`… en un mismo bloque), se toman esas, en orden, y el diálogo dice "páginas dibujadas de fondo": revisalas, porque es una deducción. Si son otra cosa, un adaptador con "Las páginas están dibujadas de fondo" dice dónde están. Las tapas de otras obras que rodean a un lector no se ofrecen como si fueran el capítulo: el diálogo dice "Lo que hay son tapas que llevan a otras páginas del sitio".
 
 ### El orden de las páginas
 
@@ -147,6 +148,7 @@ Para los sitios donde el filtro no acierta (toma tapas de otras series, o deja p
 | Imágenes | Cuáles son las páginas (`img.pagina`). Con el contenedor solo, son todas las imágenes de adentro |
 | Ignorar | Lo que hay que dejar afuera aunque coincida, separado por comas (`.aviso, .recomendados img`) |
 | Dirección de los capítulos | Con `{n}` donde va el número: queda puesta al abrir **Descargar varios capítulos** en ese sitio |
+| Las páginas están dibujadas de fondo | Tildalo si el lector no usa imágenes y pinta cada página de fondo: se toman esas aunque haya imágenes (desde la 2.11.3) |
 
 - Con un adaptador, en ese sitio las páginas se buscan ahí y solo ahí: no se filtra nada más. Desde la 2.11.1 tampoco se mira el tamaño ni la cantidad: entran las tiras angostas de un webtoon, las páginas repartidas en carpetas distintas y los capítulos de una o dos páginas. Si adentro del bloque hay algo que no es una página, sacalo con **Ignorar**.
 - **Probar en esta página** cuenta lo que encuentra en la pestaña de ese sitio que tengas abierta y muestra las primeras 3 direcciones, sin guardar nada.
