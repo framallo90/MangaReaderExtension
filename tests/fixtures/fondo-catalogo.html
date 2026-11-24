@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Sitio de prueba – Novedades</title>
+<style>
+  body { margin: 0; font-family: sans-serif; }
+  header .logo { width: 120px; height: 40px; background-image: url(/fx/img/logo/logo.jpg); background-size: cover; }
+  .heroe { height: 300px; background-image: url(/fx/img/heroe/portada.jpg); background-size: cover; }
+  .grilla { display: grid; grid-template-columns: repeat(6, 120px); gap: 8px; }
+  .grilla .tapa { width: 120px; height: 180px; background-size: cover; }
+</style>
+</head>
+<body>
+<!-- La portada de un sitio: las tapas son tarjetas con la imagen de fondo y un link a cada obra,
+     más un logo y un héroe de fondo, y ninguna <img>. No es un capítulo: ni burbuja ni páginas. -->
+<header><div class="logo"></div></header>
+<div class="heroe"></div>
+<div class="grilla" id="grilla"></div>
+<script>
+  document.getElementById('grilla').innerHTML = Array.from({ length: 12 }, (_, i) =>
+    '<a href="/obra/' + (i + 1) + '"><div class="tapa" style="background-image: url(/fx/img/tapa-' + (i + 1) + '/portada.jpg)"></div></a>').join('');
+</script>
+</body>
+</html>

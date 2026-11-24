@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Serie Fondo Capítulo 3 | Sitio de prueba</title>
+<style>
+  body { margin: 0; font-family: sans-serif; }
+  header .logo { width: 120px; height: 40px; background-image: url(/fx/img/logo/logo.jpg); background-size: cover; }
+  header .franja { height: 12px; background-image: linear-gradient(90deg, #222, #888); }
+  .tapas { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tapas img, .tapas .tapa { width: 110px; height: 160px; background-size: cover; }
+  #lector .pagina { width: 420px; height: 600px; background-size: contain; background-repeat: no-repeat; margin: 4px auto; }
+  footer { height: 30px; background-image: linear-gradient(red, blue); }
+</style>
+</head>
+<body>
+<!-- Un lector que dibuja cada página de fondo (como Issuu, pero en la misma página): 8 páginas
+     numeradas en #lector, cada una de un ancho distinto (para leer el orden en el PDF), y 18
+     tapas de otras obras alrededor, cada una en su carpeta. La detección por <img> se quedaba
+     con las tapas; las páginas tienen que salir del fondo, en orden, y sin ninguna tapa.
+     Con ?tapasDeFondo=1 las tapas son tarjetas con la imagen de fondo (como en muchos sitios): hay
+     más tapas juntas (9 arriba) que páginas, y aun así el bloque de las páginas es el lector. -->
+<header><div class="logo"></div><div class="franja"></div></header>
+<div class="tapas" id="arriba"></div>
+<div id="lector"></div>
+<div class="tapas" id="abajo"></div>
+<footer></footer>
+<script>
+  const deFondo = /tapasDeFondo/.test(location.search);
+  const tapa = (k) => '<a href="/obra/' + k + '">' + (deFondo ? '<div class="tapa" style="background-image: url(/fx/img/tapa-' + k + '/portada.jpg)"></div>' : '<img src="/fx/img/tapa-' + k + '/portada.jpg">') + '</a>';
+  document.getElementById('arriba').innerHTML = Array.from({ length: 9 }, (_, i) => tapa(i + 1)).join('');
+  document.getElementById('abajo').innerHTML = Array.from({ length: 9 }, (_, i) => tapa(i + 10)).join('');
+  document.getElementById('lector').innerHTML = Array.from({ length: 8 }, (_, i) =>
+    '<div class="pagina" style="background-image: url(/fx/img/numerada/' + (i + 1) + '.png), linear-gradient(#fff, #eee)"></div>').join('');
+</script>
+</body>
+</html>

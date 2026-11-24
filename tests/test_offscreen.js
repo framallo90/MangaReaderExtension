@@ -128,5 +128,54 @@ function jpegHeader({ sof = 0xC0, w = 800, h = 1200, comps = 3, precision = 8 } 
   eq('tipo real: JPG', off.sniffExt(jpegHeader()), 'jpg');
   eq('tipo real: WebP', off.sniffExt(new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50])), 'webp');
   eq('tipo real: GIF', off.sniffExt(new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61])), 'gif');
+
+  // ── Páginas SVG (las de un lector que las dibuja de fondo, como Issuu; desde la 2.11.3) ──
+  if (typeof off.desdeSvg === 'function') {
+    const jpg = require('fs').readFileSync(require('path').join(__dirname, 'fixtures', 'pagina.jpg'));
+    const enc = (s) => new TextEncoder().encode(s);
+    const envuelta = enc(`<?xml version="1.0"?>\n<svg height="100%" viewBox="0 0 420 640" width="100%" xmlns="http://www.w3.org/2000/svg"><style>a{cursor:pointer}</style>` +
+      `<image aria-hidden="true" width="420" height="640" href="data:image/jpeg;charset=utf-8;base64,${jpg.toString('base64')}"/><a href="https://s.com"><rect fill="transparent" width="10" height="10"/></a></svg>`);
+    eq('tipo real: SVG (con o sin <?xml adelante)', `${off.sniffExt(envuelta)} · ${off.sniffExt(enc('<svg xmlns="http://www.w3.org/2000/svg"></svg>'))}`, 'svg · svg');
+    const r = await off.desdeSvg(envuelta);
+    eq('una página SVG que envuelve un escaneo JPG: se usa ese JPG, idéntico, sin recodificar', `${r.ext} · ${Buffer.from(r.data).equals(jpg)}`, 'jpg · true');
+    const dos = enc(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><image href="data:image/png;base64,AAAA"/><image href="data:image/png;base64,BBBB"/></svg>`);
+    let e = 'no falló';
+    try { await off.desdeSvg(dos); } catch (x) { e = x.message; }
+    eq('  si no es un solo escaneo hay que dibujarla, y sin un documento (acá, en Node) no se puede: lo dice', e, 'página SVG que no se puede convertir');
+    // El base64 cortado en renglones escritos como entidades (&#10;) también se lee
+    const b64 = jpg.toString('base64').replace(/(.{76})/g, '$1&#10;');
+    const r2 = await off.desdeSvg(enc(`<svg xmlns="http://www.w3.org/2000/svg"><image href="data:image/jpeg;base64,${b64}"/></svg>`));
+    eq('  con el base64 cortado con entidades (&#10;): el mismo JPG', `${r2.ext} · ${Buffer.from(r2.data).equals(jpg)}`, 'jpg · true');
+
+    // Por loadAll, como en un capítulo de verdad: la página es un SVG y en el PDF entra el escaneo.
+    // Una con el escaneo por dirección (relativa al SVG) lo baja; una con dos imágenes de afuera
+    // no se puede dibujar (saldría en blanco): queda entre las que faltaron, con el motivo.
+    if (typeof off.loadAll === 'function') {
+      const real = { fetch: globalThis.fetch, setTimeout: globalThis.setTimeout };
+      const avisar = console.warn;
+      const pedidos = [];
+      console.warn = () => {};
+      globalThis.chrome = { runtime: { sendMessage: async () => {} } };
+      globalThis.setTimeout = (f, ms) => real.setTimeout(f, ms >= 30000 ? ms : 0);
+      const sitio = {
+        'https://s.com/p/1.svg': envuelta,
+        'https://s.com/p/2.svg': enc(`<svg xmlns="http://www.w3.org/2000/svg" width="420" height="640"><image width="420" height="640" xlink:href="../esc/2.jpg"/></svg>`),
+        'https://s.com/esc/2.jpg': new Uint8Array(jpg),
+        'https://s.com/p/3.svg': enc(`<svg xmlns="http://www.w3.org/2000/svg"><image href="https://s.com/a.jpg"/><image href="https://s.com/b.jpg"/></svg>`),
+      };
+      globalThis.fetch = async (u) => { pedidos.push(u.replace('https://s.com', '')); const d = sitio[u];
+        return d ? { ok: true, status: 200, headers: { get: () => null }, arrayBuffer: async () => d.slice().buffer } : { ok: false, status: 404, headers: { get: () => null } }; };
+      let fin;
+      try {
+        const r = await off.loadAll(['https://s.com/p/1.svg', 'https://s.com/p/2.svg', 'https://s.com/p/3.svg'], 'j', true);
+        fin = `${Array.from(r.pages).map(p => (p ? `${p.ext}${Buffer.from(p.data).equals(jpg) ? ' (el escaneo)' : ''}${p.pdf ? ' + PDF' : ''}` : 'falta')).join(' | ')} · faltó: ${r.failed.join(',')}`;
+      } catch (x) { fin = 'error: ' + x.message; }
+      Object.assign(globalThis, real);
+      delete globalThis.chrome;
+      console.warn = avisar;
+      eq('  por loadAll: un SVG con el escaneo adentro y otro con el escaneo por dirección entran como JPG (y al PDF); uno con dos imágenes de afuera queda entre las que faltaron',
+        `${fin} · pidió ${pedidos.sort().join(' ')}`, 'jpg (el escaneo) + PDF | jpg (el escaneo) + PDF | falta · faltó: 3 · pidió /esc/2.jpg /p/1.svg /p/2.svg /p/3.svg');
+    }
+  }
   fin();
 })();

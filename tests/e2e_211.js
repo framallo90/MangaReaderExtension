@@ -31,6 +31,13 @@ function pngGris(w, h, tono) {
 const DE_ORDEN = { 1: JPG, 2: pngGris(400, 600, 230), 3: pngGris(380, 560, 200) };
 // Una tira de webtoon: más baja que el lado mínimo (250) de la detección automática
 const TIRA = pngGris(420, 200, 215);
+// Las páginas numeradas de las páginas de fondo (2.11.3): la n mide 400 + 4·n de ancho, así el
+// orden se lee en el PDF
+const NUMERADAS = Array.from({ length: 9 }, (_, n) => pngGris(400 + 4 * n, 600, 180 + n * 8));
+const ordenNumerado = (archivo) => {
+  const t = fs.readFileSync(archivo).toString('latin1');
+  return (t.match(/\/MediaBox \[0 0 [\d.]+ [\d.]+\]/g) || []).map(s => (Math.round(+s.slice(15, -1).split(' ')[0]) - 400) / 4).join(',');
+};
 const TAMANOS = { '420x640': 1, '400x600': 2, '380x560': 3 };
 
 // En qué orden quedaron las páginas de la serie "orden" en un PDF ("3,2,1"): cada página del PDF
@@ -67,7 +74,8 @@ async function sitio(pedidos = {}, estado = { rotos: new Set(), imagen: null, ho
     pedidos[u] = (pedidos[u] || 0) + 1;
     (estado.horas[u] = estado.horas[u] || []).push(Date.now());
     const send = (type, body, status = 200, headers = {}) => { res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store', ...headers }); res.end(body); };
-    const pagina = (archivo) => send('text/html; charset=utf-8', fs.readFileSync(path.join(FIXTURES, archivo), 'utf8').split('%OTRO%').join(otro));
+    // (%JPG64%: la página de prueba en base64, para un escaneo metido en un SVG como data:)
+    const pagina = (archivo) => send('text/html; charset=utf-8', fs.readFileSync(path.join(FIXTURES, archivo), 'utf8').split('%OTRO%').join(otro).split('%JPG64%').join(JPG.toString('base64')));
     let m = u.match(/^\/fx\/([\w-]+\.html)$/);
     if (m && fs.existsSync(path.join(FIXTURES, m[1]))) return pagina(m[1]);
     if (/^\/fx\/[a-z]+\/$/.test(u)) return pagina('serie.html');
@@ -81,6 +89,8 @@ async function sitio(pedidos = {}, estado = { rotos: new Set(), imagen: null, ho
     m = u.match(/^\/fx\/img\/orden\/\d+\/([123])\.jpg$/);       // dicen .jpg, pero dos son PNG: la extensión mira el contenido
     if (m) return send(m[1] === '1' ? 'image/jpeg' : 'image/png', DE_ORDEN[m[1]]);
     if (/^\/fx\/img\/tiras\/[\w-]+\/\d+\.png$/.test(u)) return send('image/png', TIRA);
+    m = u.match(/^\/fx\/img\/numerada\/([1-8])\.png$/);
+    if (m) return send('image/png', NUMERADAS[+m[1]]);
     if (/^\/fx\/img\/[\w/-]+\.jpg$/.test(u)) {
       const mal = estado.imagen ? estado.imagen(u, req) : null;
       return mal ? send('text/plain', 'no', mal.status, mal.headers || {}) : send('image/jpeg', JPG);
@@ -675,6 +685,147 @@ const AREAS = {
     eq('  al guardar queda por sitio, y aparece en la lista', `contenedor ${g.contenedor} · imágenes "${g.imagenes}" · ignorar ${JSON.stringify(g.ignorar)} · patrón "${g.patron}" · ${await b.ext.eval(`document.querySelector('#adLista .s-nombre')?.textContent + ' → ' + document.querySelector('#adLista .s-datos')?.textContent`)}`,
       'contenedor #visor-raro · imágenes "" · ignorar [] · patrón "" · 127.0.0.1 → contenedor: #visor-raro');
     await pg.close();
+    await b.ext.eval(`chrome.storage.local.remove('adaptadores')`);
+  },
+
+  // ═══ 7b. Páginas dibujadas de fondo (2.11.3) ═══
+  async fondos({ b, S, eq }) {
+    console.log('\n── 2.11.3 · Páginas dibujadas de fondo: background-image, image-set(), SVG y un lector de fondo en un iframe');
+    await b.ext.eval(`chrome.storage.local.remove('adaptadores')`);
+    // Las miniaturas del diálogo (sin tildar: con un "-" adelante) y lo que dice
+    const MINIS = `[...document.querySelectorAll('#mr-save .mr-thumb')].map(t => (t.classList.contains('on') ? '' : '-') + t.querySelector('img').src.replace(location.origin, '').replace('/fx/img/numerada/', '')).join(' ')`;
+    const CUENTA = `document.querySelector('#mr-save-count').textContent`;
+    const AVISO = `document.querySelector('#mr-save-warn-text').textContent`;
+    const LISTO = `!!document.querySelector('#mr-save-count') && !/Recorriendo|Buscando/.test(document.querySelector('#mr-save-count').textContent)`;
+    const abrir = async (url, extra = 'true') => {
+      const pg = await b.cdp.open(url);
+      await pg.waitFor(`document.readyState === 'complete' && [...document.images].every(i => i.complete) && (${extra})`, 'la página', 30000);
+      await sleep(600);
+      return pg;
+    };
+
+    // 1) 8 páginas de fondo entre 18 tapas sueltas
+    const u1 = S + '/fx/fondo.html';
+    let pg = await abrir(u1);
+    const burbuja = await pg.waitFor(`!!document.querySelector('#mr-fab')`, 'la burbuja', 12000).then(() => 'aparece', () => 'no aparece');
+    await pedir(b, u1, 'save');
+    await pg.waitFor(LISTO, 'el diálogo', 40000);
+    eq('8 páginas numeradas de fondo y 18 tapas alrededor: aparece la burbuja, y en el diálogo entran las 8, en orden, sin ninguna tapa',
+      `burbuja: ${burbuja} · ${await pg.eval(MINIS)}`, 'burbuja: aparece · 1.png 2.png 3.png 4.png 5.png 6.png 7.png 8.png');
+    eq('  el diálogo dice que son páginas dibujadas de fondo, con la salida al adaptador',
+      `${(await pg.eval(CUENTA)).split(' · ').slice(0, 2).join(' · ')} · ${/páginas dibujadas de fondo: si no son las del capítulo, decí dónde están con un adaptador/.test(await pg.eval(AVISO))}`,
+      '8 de 8 páginas · páginas dibujadas de fondo · true');
+    await pg.eval(`document.querySelector('#mr-save-go').click()`);
+    const pdf1 = path.join(b.dl, 'MangaReader', 'Serie Fondo', 'Serie Fondo 0003.pdf');
+    const hay1 = await pdfDe(pdf1, 30000);
+    eq('  y el PDF tiene las 8, en ese orden (el ancho de cada página dice cuál es)', `${hay1.split(' × ')[0]} · ${fs.existsSync(pdf1) ? ordenNumerado(pdf1) : hay1}`, '8 · 1,2,3,4,5,6,7,8');
+    await pg.close();
+    // Las mismas 8, con las 18 tapas como tarjetas de fondo (9 juntas arriba: más que las páginas)
+    const u1b = u1 + '?tapasDeFondo=1';
+    pg = await abrir(u1b);
+    await pedir(b, u1b, 'save');
+    await pg.waitFor(LISTO, 'el diálogo', 40000);
+    eq('  y si las tapas también son de fondo (tarjetas con link a otras obras), lo mismo: las 8, en orden, sin ninguna tapa', await pg.eval(MINIS), '1.png 2.png 3.png 4.png 5.png 6.png 7.png 8.png');
+    await pg.close();
+
+    // 2) image-set(), un SVG con <image>, una regla con ::before y un relleno data:
+    const u2 = S + '/fx/fondo-set.html';
+    pg = await abrir(u2);
+    await pedir(b, u2, 'save');
+    await pg.waitFor(LISTO, 'el diálogo', 40000);
+    eq('image-set() (la de 2x), un SVG con dos <image> y una regla con ::before: las 5, en orden, y sin el relleno data: de un píxel',
+      await pg.eval(MINIS), '1.png?d=2x 2.png?d=2x 3.png 4.png 5.png');
+    await pg.eval(`document.querySelector('#mr-save-go').click()`);
+    const pdf2 = path.join(b.dl, 'MangaReader', 'Serie Conjunto', 'Serie Conjunto 0002.pdf');
+    const hay2 = await pdfDe(pdf2, 30000);
+    eq('  y se guardan las 5', `${hay2.split(' × ')[0]} · ${fs.existsSync(pdf2) ? ordenNumerado(pdf2) : hay2}`, '5 · 1,2,3,4,5');
+    await pg.close();
+
+    // 3) Solo degradés
+    const u3 = S + '/fx/fondo-degrade.html';
+    pg = await abrir(u3);
+    await sleep(2500);
+    const sinBurbuja = !(await pg.eval(`!!document.querySelector('#mr-fab')`));
+    await pedir(b, u3, 'save');
+    await pg.waitFor(LISTO, 'el diálogo', 40000);
+    eq('una página con solo degradés: ni burbuja ni páginas, y no deja guardar',
+      `burbuja: ${sinBurbuja ? 'no' : 'sí'} · ${await pg.eval(CUENTA)} · miniaturas: ${await pg.eval(`document.querySelectorAll('#mr-save .mr-thumb').length`)} · Guardar ${await pg.eval(`document.querySelector('#mr-save-go').disabled ? 'apagado' : 'prendido'`)}`,
+      'burbuja: no · No encontré páginas · bajá hasta el final del capítulo · miniaturas: 0 · Guardar apagado');
+    await pg.close();
+    // La portada de un sitio hecha con tarjetas de fondo (12 tapas con link, un logo y un héroe, sin <img>)
+    const u3b = S + '/fx/fondo-catalogo.html';
+    pg = await abrir(u3b);
+    await sleep(2500);
+    const sinBurbuja2 = !(await pg.eval(`!!document.querySelector('#mr-fab')`));
+    await pedir(b, u3b, 'save');
+    await pg.waitFor(LISTO, 'el diálogo', 40000);
+    eq('la portada de un sitio con las tapas de fondo, un logo y un héroe: ni burbuja ni páginas (las tapas no son un lector)',
+      `burbuja: ${sinBurbuja2 ? 'no' : 'sí'} · ${await pg.eval(CUENTA)} · miniaturas: ${await pg.eval(`document.querySelectorAll('#mr-save .mr-thumb').length`)} · Guardar ${await pg.eval(`document.querySelector('#mr-save-go').disabled ? 'apagado' : 'prendido'`)}`,
+      'burbuja: no · No encontré páginas · bajá hasta el final del capítulo · miniaturas: 0 · Guardar apagado');
+    await pg.close();
+
+    // 4) Como Issuu: 18 tapas en la página y el lector de fondo en un iframe del mismo sitio
+    const DIALOGO = `() => { const ui = ${UI}; const d = ui.querySelector('#mr-save'); return { dialogo: !!d,
+      minis: d ? [...ui.querySelectorAll('#mr-save .mr-thumb')].map(t => (t.classList.contains('on') ? '' : '-') + t.querySelector('img').src.replace(location.origin, '').replace('/fx/img/numerada/', '').replace(/^blob:.*/, 'blob')).join(' ') : '',
+      cuenta: ui.querySelector('#mr-save-count')?.textContent || '', listo: !!d && !/Recorriendo|Buscando/.test(ui.querySelector('#mr-save-count')?.textContent || '') }; }`;
+    const marco = async (consulta) => {
+      const url = S + '/fx/fondo-marco.html' + consulta;
+      const p = await abrir(url);
+      // que el iframe ya haya pintado sus dos páginas (si hay iframe)
+      if (!/sinlector/.test(consulta)) await esperarMarcos(b, url, `() => [...document.querySelectorAll('section.page')].filter(s => /url\\(/.test(getComputedStyle(s).backgroundImage)).length`, r => r[1] === 2, 15000);
+      await sleep(800);
+      await pedir(b, url, 'save');
+      const r = await esperarMarcos(b, url, DIALOGO, rr => rr.some(m => m?.listo), 40000);
+      const d = r.find(m => m?.dialogo) || {};
+      await p.close();
+      return `${donde(r, 'dialogo')} · ${d.minis || 'sin miniaturas'} · ${d.cuenta || ''}`;
+    };
+    const issuu = await marco('');
+    eq('como Issuu (18 tapas arriba, el lector de fondo en un iframe del mismo sitio): el diálogo se abre en el iframe con sus 2 páginas, sin ninguna tapa',
+      issuu.split(' · ').slice(0, 3).join(' · '), 'página: no · iframe: sí · 1.png 2.png');
+    const bloqueado = await marco('?blob=1');
+    eq('  si el lector pinta las páginas con blob: (no se pueden bajar): no ofrece las tapas y dice que no encontró páginas',
+      bloqueado, 'página: sí · iframe: no · sin miniaturas · No encontré páginas del capítulo en esta página. El lector las dibuja de fondo y no se pudieron leer.');
+    const temprano = await marco('?sinlector=1');
+    eq('  y si se abre antes de que cargue el lector (solo están las tapas, cada una lleva a otra página): tampoco las ofrece',
+      temprano.replace(/(-\/fx\/img\/doc\d+\/jpg\/page_1_thumb_large\.jpg ?)+/, (m) => `${m.trim().split(' ').length} tapas sin tildar `), 'página: sí · 18 tapas sin tildar · No encontré páginas del capítulo en esta página. Lo que hay son tapas que llevan a otras páginas del sitio.');
+
+    // 5) El adaptador puede pedir los fondos aunque haya <img> que armen un capítulo
+    const u5 = S + '/fx/fondo-adaptador.html';
+    const conAdaptador = async (adaptador) => {
+      await b.setStorage({ adaptadores: adaptador ? { '127.0.0.1': adaptador } : {} });
+      const p = await abrir(u5);
+      await pedir(b, u5, 'save');
+      await p.waitFor(LISTO, 'el diálogo', 40000);
+      const m = (await p.eval(MINIS)).replace(/\/fx\/img\/grilla\//g, 'g');
+      await p.close();
+      return m;
+    };
+    eq('seis <img> en una carpeta y cuatro páginas de fondo: sin adaptador mandan las <img>; con uno que pide los fondos (#lector), las de fondo',
+      `${await conAdaptador(null)} → ${await conAdaptador({ contenedor: '#lector', imagenes: '', ignorar: [], patron: '', fondos: true })}`,
+      'g1.jpg g2.jpg g3.jpg g4.jpg g5.jpg g6.jpg → 1.png 2.png 3.png 4.png');
+    await b.ext.eval(`chrome.storage.local.remove('adaptadores')`);
+
+    // 6) Un lote en un sitio que arma la página con JavaScript: tres banners de fondo numerados desde
+    //    el principio y las 6 páginas <img> recién a los 3 s. Las páginas son las <img>: el lote no
+    //    da el capítulo por armado con los banners, ni los guarda.
+    const pl = await abrirLote(b, S + '/fx/tarde/?caps=2', 2);
+    await pl.eval(`document.querySelector('#mr-chapter-all').click(); document.querySelector('#mr-chapter-go').click()`);
+    const finTarde = String(await lote.fin(pl, 120000).catch(e => e.message)).split('\n')[0];
+    await pl.close();
+    const pdfTarde = (k) => path.join(b.dl, 'MangaReader', 'Serie Tarde', `Serie Tarde ${String(k).padStart(4, '0')}.pdf`);
+    eq('un lote donde las 6 páginas <img> aparecen a los 3 s y hay tres banners de fondo numerados desde el principio: se guardan las páginas, no los banners',
+      `${finTarde} · ${await pdfDe(pdfTarde(1), 20000)} · ${await pdfDe(pdfTarde(2), 20000)}`, '✅ Listo: 2 capítulos guardados · 6 × 420x640 · 6 × 420x640');
+
+    // 7) La casilla de opciones
+    await b.ext.eval(`location.reload()`);
+    await b.ext.waitFor(`document.readyState === 'complete' && !!document.querySelector('#adFondos')`, 'la casilla de fondos en opciones');
+    await b.ext.eval(`(() => { document.getElementById('adHost').value = 'revista.com'; document.getElementById('adContenedor').value = '#reader'; document.getElementById('adFondos').checked = true; document.getElementById('adGuardar').click(); })()`);
+    await b.ext.waitFor(`/Guardado/.test(document.querySelector('#adMsg').textContent)`, 'el guardado del adaptador', 15000).catch(() => {});
+    const guardado = ((await b.storage('adaptadores')) || {})['revista.com'] || {};
+    eq('opciones: "Las páginas están dibujadas de fondo" se guarda con el adaptador y aparece en la lista',
+      `fondos: ${guardado.fondos} · ${await b.ext.eval(`[...document.querySelectorAll('#adLista .s-datos')].map(s => s.textContent).join(' | ')`)}`,
+      'fondos: true · contenedor: #reader · páginas dibujadas de fondo');
     await b.ext.eval(`chrome.storage.local.remove('adaptadores')`);
   },
 

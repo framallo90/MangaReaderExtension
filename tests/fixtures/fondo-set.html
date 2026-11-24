@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Serie Conjunto Capítulo 2 | Sitio de prueba</title>
+<style>
+  #visor > * { display: block; width: 420px; height: 600px; margin: 4px auto; background-size: contain; background-repeat: no-repeat; }
+  /* la página 5 se dibuja en el ::before de su bloque, con una regla (la dirección es relativa a esta página) */
+  #visor .p5 { position: relative; }
+  #visor .p5::before { content: ''; position: absolute; inset: 0; background-image: url(img/numerada/5.png); background-size: contain; background-repeat: no-repeat; }
+</style>
+</head>
+<body style="margin:0">
+<!-- Páginas de fondo de otras formas: image-set() (vale la de 2x), un SVG con dos <image>, una
+     regla con ::before, y un relleno data: de un píxel que no es una página. -->
+<div id="visor">
+  <div style="background-image: image-set(url(/fx/img/numerada/1.png?d=1x) 1x, url(/fx/img/numerada/1.png?d=2x) 2x)"></div>
+  <div style="background-image: -webkit-image-set(url(/fx/img/numerada/2.png?d=1x) 1x, url(/fx/img/numerada/2.png?d=2x) 2x)"></div>
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 1200" style="height:1200px">
+    <image href="/fx/img/numerada/3.png" x="0" y="0" width="420" height="600"></image>
+    <image href="/fx/img/numerada/4.png" x="0" y="600" width="420" height="600"></image>
+  </svg>
+  <div class="p5"></div>
+  <div style="background-image: url(data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7)"></div>
+</div>
+</body>
+</html>

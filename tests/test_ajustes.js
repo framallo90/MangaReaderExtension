@@ -52,6 +52,10 @@ const { eq, fin } = probador();
     eq('  una dirección de capítulos sin {n}, o que no es una dirección, no se guarda', [A.normalizarAdaptador({ patron: 'https://s.com/leer/5' }).patron, A.normalizarAdaptador({ patron: 'leer/{n}' }).patron].join('|'), '|');
     eq('  lo que no es un adaptador da uno vacío, y uno vacío se reconoce', `${JSON.stringify(A.normalizarAdaptador(null))} · ${A.adaptadorVacio({ contenedor: ' ' })} · ${A.adaptadorVacio({ ignorar: ['.x'] })}`,
       '{"contenedor":"","imagenes":"","ignorar":[],"patron":""} · true · false');
+    // (2.11.3) "Las páginas están dibujadas de fondo": se anota solo si está tildado, y alcanza para guardar el adaptador
+    eq('adaptador con páginas de fondo: se anota solo si está (un adaptador de antes queda igual), y solo eso alcanza para guardarlo',
+      `${JSON.stringify(A.normalizarAdaptador({ contenedor: '#lector', fondos: true }))} · ${'fondos' in A.normalizarAdaptador({ contenedor: '#lector', fondos: 'si' })} · ${A.adaptadorVacio({ fondos: true })}`,
+      '{"contenedor":"#lector","imagenes":"","ignorar":[],"patron":"","fondos":true} · false · false');
     eq('el sitio se puede escribir como venga: una dirección, con mayúsculas o suelto', ['https://Sitio.com/manga/x?y=1', 'sitio.com', ' WWW.Sitio.com/leer ', '', 'no es un sitio !'].map(A.hostDe).join(' | '), 'sitio.com | sitio.com | www.sitio.com |  | ');
     // (quién sabe si un selector es válido es el navegador: acá se lo simula con una regla simple)
     const probar = (s) => { if (/>>|\[$|^\)/.test(s)) throw new Error('inválido'); };

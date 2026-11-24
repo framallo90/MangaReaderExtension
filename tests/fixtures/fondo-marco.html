@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Serie Revista Capítulo 4 | Sitio de prueba</title>
+<style>
+  .tapas { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tapas img { width: 110px; height: 160px; }
+  iframe { width: 900px; height: 700px; border: 0; display: block; }
+</style>
+</head>
+<body style="margin:0">
+<!-- Como Issuu: 18 tapas de otras publicaciones en la página, y el lector, que dibuja las
+     páginas de fondo, en un iframe del mismo sitio. ?blob=1: el lector pinta las páginas con
+     direcciones blob:, que no se pueden bajar. ?sinlector=1: el lector todavía no cargó. -->
+<div class="tapas" id="tapas"></div>
+<iframe id="lector"></iframe>
+<script>
+  document.getElementById('tapas').innerHTML = Array.from({ length: 18 }, (_, i) =>
+    '<a href="/otro/docs/d' + i + '"><img src="/fx/img/doc' + i + '/jpg/page_1_thumb_large.jpg"></a>').join('');
+  // ?sinlector=1: como Issuu antes de que cargue el lector, solo están las tapas
+  if (/sinlector=1/.test(location.search)) document.getElementById('lector').remove();
+  else document.getElementById('lector').src = '/fx/fondo-lector.html' + location.search;
+</script>
+</body>
+</html>

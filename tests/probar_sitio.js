@@ -11,6 +11,7 @@
 //   CON_VENTANA=1    ventana minimizada en vez de sin interfaz (pestañas en segundo plano como en
 //                    el Chrome de todos los días)
 //   PAUSA=0 CONCURRENCIA=8   ritmo del lote (segundos entre capítulos, imágenes medidas a la vez)
+//   ESPERA=20        segundos que espera a que el sitio arme la página antes de mirar (6 si no se dice)
 //   ADAPTADOR='{"sitio":"sitio.com","contenedor":"#comic"}'   un adaptador para ese sitio, como
 //                    si se hubiera guardado en opciones (contenedor, imagenes, ignorar, patron)
 // El lector puede estar en un iframe: se dice qué marcos hay, cuántas páginas cuenta la extensión
@@ -75,7 +76,7 @@ function archivos(b) {
     }
     const pg = await b.cdp.open(url);
     await pg.waitFor(`document.readyState === 'complete'`, 'la página', 45000);
-    await sleep(6000);                                    // tiempo para que el sitio arme la página
+    await sleep((+process.env.ESPERA || 6) * 1000);       // tiempo para que el sitio arme la página (ESPERA=20: 20 s)
     const here = await pg.eval('location.href');
     console.log('Página:   ' + here);
     console.log('Título:   ' + await pg.eval('document.title'));
@@ -100,15 +101,21 @@ function archivos(b) {
 
     if (GUARDAR) {
       const t0 = Date.now();
-      await enMarcos(b, here, `() => { const g = ${UI}.querySelector('#mr-save-go'); if (g && !g.disabled) { g.click(); return { clic: true }; } return { clic: false }; }`);
-      let fin = null;
-      for (const tope = Date.now() + 600000; Date.now() < tope && !fin; await sleep(500)) {
-        fin = (await enMarcos(b, here, MARCO)).find(m => m.dialogo && /success|error/.test(m.clase)) || null;
+      const clics = await enMarcos(b, here, `() => { const g = ${UI}.querySelector('#mr-save-go'); if (g && !g.disabled) { g.click(); return { clic: true }; } return { clic: false, apagado: !!g }; }`);
+      if (!clics.some(c => c.clic)) {
+        // Sin nada tildado el botón está apagado: no hay qué guardar (y eso también es un resultado)
+        console.log(`\nGuardar: ${clics.some(c => c.apagado) ? 'el botón está apagado (no hay páginas tildadas): no se guarda nada' : 'no encontré el botón'}`);
+        archivos(b);
+      } else {
+        let fin = null;
+        for (const tope = Date.now() + 600000; Date.now() < tope && !fin; await sleep(500)) {
+          fin = (await enMarcos(b, here, MARCO)).find(m => m.dialogo && /success|error/.test(m.clase)) || null;
+        }
+        console.log(`\nGuardar (${Math.round((Date.now() - t0) / 1000)} s):`);
+        console.log(fin ? fin.estado.split('\n').map(l => '  ' + l).join('\n') : '  (no terminó en 10 minutos)');
+        await sleep(1500);
+        if (!archivos(b) || !fin || !/success/.test(fin.clase)) code = 1;
       }
-      console.log(`\nGuardar (${Math.round((Date.now() - t0) / 1000)} s):`);
-      console.log(fin ? fin.estado.split('\n').map(l => '  ' + l).join('\n') : '  (no terminó en 10 minutos)');
-      await sleep(1500);
-      if (!archivos(b) || !fin || !/success/.test(fin.clase)) code = 1;
     }
 
     await b.command(here, 'batch');

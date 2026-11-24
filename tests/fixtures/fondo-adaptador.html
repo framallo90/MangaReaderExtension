@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Serie Grilla Capítulo 6 | Sitio de prueba</title>
+<style>
+  .grilla img { width: 140px; height: 200px; }
+  #lector div { width: 420px; height: 600px; margin: 4px auto; background-size: contain; background-repeat: no-repeat; }
+</style>
+</head>
+<body style="margin:0">
+<!-- Seis imágenes en una misma carpeta (para la detección automática, un capítulo) y el lector de
+     verdad, que dibuja sus 4 páginas de fondo. Sin adaptador mandan las <img>; con un adaptador
+     que pide los fondos, las de fondo. -->
+<div class="grilla"></div>
+<div id="lector"></div>
+<script>
+  document.querySelector('.grilla').innerHTML = [1, 2, 3, 4, 5, 6].map(k => '<img src="/fx/img/grilla/' + k + '.jpg">').join('');
+  document.getElementById('lector').innerHTML = [1, 2, 3, 4].map(k => '<div style="background-image: url(/fx/img/numerada/' + k + '.png)"></div>').join('');
+</script>
+</body>
+</html>

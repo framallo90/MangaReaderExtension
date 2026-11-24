@@ -12,8 +12,21 @@
   const [, serie, n] = location.pathname.match(/^\/fx\/([\w-]+)\/leer\/(\d+)$/) || [];
   const pags = +new URLSearchParams(location.search).get('pags') || 6;
   document.title = 'Serie ' + serie[0].toUpperCase() + serie.slice(1) + ' Capítulo ' + n + ' | Sitio de prueba';
-  for (let i = 1; i <= pags; i++) {
-    document.write('<img style="display:block" width="420" height="640" src="/fx/img/' + serie + '/' + n + '/' + i + '.jpg">');
+  if (serie === 'tarde') {
+    // La serie "tarde" (2.11.3): tres banners de fondo numerados desde el principio, y las páginas
+    // <img> recién a los 3 s, como un sitio que arma la página con JavaScript. Las páginas son las <img>.
+    document.write([1, 2, 3].map(k => '<div style="width:600px;height:150px;background-image:url(/fx/img/banners/banner-' + k + '.jpg)"></div>').join(''));
+    setTimeout(() => {
+      for (let i = 1; i <= pags; i++) {
+        const im = document.createElement('img');
+        im.style.display = 'block'; im.width = 420; im.height = 640; im.src = '/fx/img/' + serie + '/' + n + '/' + i + '.jpg';
+        document.body.appendChild(im);
+      }
+    }, 3000);
+  } else {
+    for (let i = 1; i <= pags; i++) {
+      document.write('<img style="display:block" width="420" height="640" src="/fx/img/' + serie + '/' + n + '/' + i + '.jpg">');
+    }
   }
 </script>
 </body>

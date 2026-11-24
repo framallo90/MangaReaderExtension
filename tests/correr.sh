@@ -14,6 +14,9 @@ done && echo "Sintaxis OK"
 echo "== Nombres y dirección";              node tests/test_nombres.js   "$DIR"
 echo "== Capítulos (descarga de varios)";   node tests/test_capitulos.js "$DIR"
 echo "== Filtro de publicidad";             node tests/test_filtro.js    "$DIR"
+if grep -q "function fondosDe(" "$DIR/content.js"; then    # desde la 2.11.3
+echo "== Páginas dibujadas de fondo";       node tests/test_fondos.js    "$DIR"
+fi
 echo "== Descargas y pestañas";             node tests/test_descargas.js "$DIR"
 echo "== PDF, CBZ e imágenes";              node tests/test_offscreen.js "$DIR"
 echo "== Guardados y sagas";                node tests/test_opciones.js  "$DIR"
