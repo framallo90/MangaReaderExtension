@@ -405,6 +405,9 @@
   // imágenes grandes en una misma carpeta). Así un capítulo con tapas de "otras series" al
   // final sigue siendo un capítulo.
   function pareceListado() {
+    // Un lector que dibuja las páginas de fondo (tres o más) es un capítulo, aunque tenga tapas de
+    // otras obras alrededor (las tapas dibujadas de fondo no cuentan como páginas)
+    if (typeof cuentaDeFondo === 'function' && cuentaDeFondo(0, false) >= 3) return false;
     const grandes = [...document.querySelectorAll('img')].filter(img =>
       imgUrl(img) && !(img.complete && img.naturalWidth && (img.naturalWidth < MIN_SIDE || img.naturalHeight < MIN_SIDE)));
     if (grandes.length < 3) return false;

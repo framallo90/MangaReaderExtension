@@ -4,7 +4,13 @@
 // guardan ahí una captura de la interfaz.
 const fs = require('fs'), os = require('os'), path = require('path');
 const { iniciar } = require('./sitio');
+const { iniciarProxy } = require('./proxy');
+const { probarFreno } = require('./freno');
 const { pdfPages, zipNames } = require('../../tests/navegador');
+const dormir = (ms) => new Promise(r => setTimeout(r, ms));
+// Un freno de un minuto, leído en ms o en segundos ("sigo en 58 s")
+const minuto = (ms) => (ms >= 55000 && ms <= 60000 ? 'entre 55 y 60 s' : `${Math.round(ms / 1000)} s`);
+const minutoN = (n) => (n >= 55 && n <= 60 ? 'entre 55 y 60 s' : `${n} s`);
 
 module.exports = async function probar(api) {
   let fallas = 0;
@@ -25,6 +31,9 @@ module.exports = async function probar(api) {
   console.log(`== Programa · núcleo de ${api.nucleo.version}`);
 
   try {
+    console.log('\n── El freno (la regla de la extensión, en Node)');
+    probarFreno(eq);
+
     console.log('\n── Explorar: catálogo → serie → capítulo');
     const cat = await api.analizar(S + '/');
     eq('catálogo: no es un capítulo y no hay lista de capítulos', `${cat.capitulo} ${!!lista(cat, 'capitulos')}`, 'null false');
@@ -150,9 +159,10 @@ module.exports = async function probar(api) {
     api.limpiar();
 
     console.log('\n── Reintentar lo que falló');
-    api.encolar([{ url: S + '/leer/inestable-1/', texto: 'Capítulo 1', numero: 1 }, { url: S + '/leer/alfa-9/', texto: 'No existe', numero: 9 }], { carpeta: tmp, serie: 'Inestable', formatos: soloPdf });
-    eq('un capítulo al que no le baja una página (responde 503) y otro que no existe', estados(await api.colaVacia()),
-      'Inestable/Inestable 0001: incompleto (5 páginas · no bajó la página 3 · el sitio pidió esperar (HTTP 503)) ; No existe: falló (La página respondió HTTP 404)');
+    // (primero el que no existe: después del 503 el sitio queda frenado un minuto y el otro esperaría)
+    api.encolar([{ url: S + '/leer/alfa-9/', texto: 'No existe', numero: 9 }, { url: S + '/leer/inestable-1/', texto: 'Capítulo 1', numero: 1 }], { carpeta: tmp, serie: 'Inestable', formatos: soloPdf });
+    eq('un capítulo que no existe y otro al que no le baja una página (responde 503): el armador corta y no guarda nada a medias', estados(await api.colaVacia()) + ' · ' + ls('Inestable'),
+      'No existe: falló (La página respondió HTTP 404) ; Inestable/Inestable 0001: incompleto (no guardé nada, para no dejarlo a medias · el sitio pidió esperar (HTTP 503)) · (no existe)');
     // Que el capítulo quede incompleto no alcanza: hay que ver que el armador esperó de verdad.
     // Son 6 pedidos de esa imagen (el primero, 3 después de esperar 2, 4 y 8 s, y 2 reintentos
     // comunes a los 0,7 y 1,4 s): entre el primero y el último pasan más de 16 segundos.
@@ -162,10 +172,12 @@ module.exports = async function probar(api) {
     eq('  el armador la pidió 6 veces, con sus esperas en el medio (2 + 4 + 8 + 0,7 + 1,4 s)',
       `${inestable.length} pedidos · ${tramo(inestable, 0, 5) >= 16100 ? 'más de 16 s' : tramo(inestable, 0, 5) + ' ms'} entre el primero y el último · la primera espera, ${tramo(inestable, 0, 1) >= 2000 ? 'de 2 s o más' : tramo(inestable, 0, 1) + ' ms'}`,
       '6 pedidos · más de 16 s entre el primero y el último · la primera espera, de 2 s o más');
+    eq('  y el sitio queda frenado un minuto (503 sin Retry-After, como en la extensión)', minuto(api.esperaDe(S)), 'entre 55 y 60 s');
     eq('  el aviso de fin de cola lo cuenta', api.ultimoAviso(), '2 con problemas');
+    api.olvidarEsperas();            // (el minuto entero se comprueba en la interfaz, más abajo, sin esperarlo)
     eq('reintentar: vuelve a la cola todo lo que no terminó bien', api.reintentar(), 2);
     eq('  el incompleto sale entero y no queda un archivo repetido al lado', estados(await api.colaVacia()) + ' · ' + ls('Inestable') + ' · ' + pdfPages(path.join(tmp, 'Inestable', 'Inestable 0001.pdf')),
-      'Inestable/Inestable 0001: listo (6 páginas) ; No existe: falló (La página respondió HTTP 404) · Inestable 0001.pdf · 6 × 420x640');
+      'No existe: falló (La página respondió HTTP 404) ; Inestable/Inestable 0001: listo (6 páginas) · Inestable 0001.pdf · 6 × 420x640');
     eq('  al séptimo pedido el sitio la entrega', horas('/img/inestable/1/3.jpg').length, 7);
     eq('  y el aviso de fin de cola', api.ultimoAviso(), '1 guardado · 1 con problemas');
     api.limpiar();
@@ -174,17 +186,27 @@ module.exports = async function probar(api) {
     const ocupado = (n) => ({ url: `${S}/leer/ocupado-${n}/`, texto: `Capítulo ${n}`, numero: n });
     const enOcupado = { carpeta: tmp, serie: 'Ocupado', formatos: soloPdf };
     const pedidosDe = (n) => horas(`/leer/ocupado-${n}/`);
-    // La página de un capítulo responde 503 sin decir cuánto esperar: el siguiente sale con la pausa de siempre
-    api.encolar([ocupado(1), ocupado(3)], enOcupado);
-    eq('la página de un capítulo responde 503 sin Retry-After: falla con ese motivo y la cola sigue', estados(await api.colaVacia()),
-      'Capítulo 1: falló (La página respondió HTTP 503: el sitio pidió esperar) ; Ocupado/Ocupado 0003: listo (6 páginas)');
-    const pausa = pedidosDe(3)[0] - pedidosDe(1)[0];
-    eq('  el capítulo siguiente se pidió con la pausa de siempre, sin esperar de más', pausa >= 0 && pausa < 2500 ? 'menos de 2,5 s' : `${pausa} ms`, 'menos de 2,5 s');
-    let cuando = Date.now();
-    api.reintentar();
-    eq('  y su reintento sale enseguida', estados(await api.colaVacia()).split(' ; ')[0] + ' · ' + (pedidosDe(1)[1] - cuando < 2500 ? 'menos de 2,5 s' : `${pedidosDe(1)[1] - cuando} ms`),
-      'Ocupado/Ocupado 0001: listo (6 páginas) · menos de 2,5 s');
+    // La página de un capítulo responde 503 sin decir cuánto esperar: un minuto, como la extensión
+    // (hasta la 0.10.2, el capítulo siguiente salía con la pausa de siempre, 1,5 s)
+    api.encolar([ocupado(1)], enOcupado);
+    eq('la página de un capítulo responde 503 sin Retry-After: falla con ese motivo', estados(await api.colaVacia()), 'Capítulo 1: falló (La página respondió HTTP 503: el sitio pidió esperar)');
+    eq('  y el sitio queda frenado un minuto', minuto(api.esperaDe(S)), 'entre 55 y 60 s');
+    // El capítulo siguiente de ese sitio no sale: queda en la cola y dice cuánto falta
+    api.encolar([ocupado(3)], enOcupado);
+    await dormir(2500);
+    const enEspera = api.verCola().find(t => t.numero === 3) || {};
+    const faltan = +((String(enEspera.detalle).match(/sigo en (\d+) s/) || [])[1] || 0);
+    eq('  el capítulo que sigue, del mismo sitio, no sale: queda en la cola y dice cuánto falta',
+      `${enEspera.estado} · ${String(enEspera.detalle).replace(/\d+ s$/, 'N s')} · ${minutoN(faltan)} · pedidos: ${pedidosDe(3).length}`, 'en cola · el sitio pidió esperar: sigo en N s · entre 55 y 60 s · pedidos: 0');
+    api.cancelar();
+    await api.colaVacia();
+    await dormir(1200);
+    eq('  al cancelarlo, no sale', `${api.verCola().find(t => t.numero === 3)?.estado} · pedidos: ${pedidosDe(3).length}`, 'cancelado · pedidos: 0');
+    api.olvidarEsperas();
+    eq('  con el sitio libre, Reintentar baja los dos (el que falló y el cancelado)', api.reintentar() + ' · ' + estados(await api.colaVacia()),
+      '2 · Ocupado/Ocupado 0001: listo (6 páginas) ; Ocupado/Ocupado 0003: listo (6 páginas)');
     api.limpiar();
+    let cuando;
     // Con Retry-After: 3 → el reintento del capítulo no sale antes de esos 3 segundos
     api.encolar([ocupado(2)], enOcupado);
     eq('la página responde 503 con Retry-After: 3', estados(await api.colaVacia()), 'Capítulo 2: falló (La página respondió HTTP 503: el sitio pidió esperar)');
@@ -206,9 +228,22 @@ module.exports = async function probar(api) {
     api.reintentar();
     eq('  con el sitio ya libre, Reintentar baja el que había fallado', estados(await api.colaVacia()).split(' ; ')[0], 'Ocupado/Ocupado 0005: listo (6 páginas)');
     api.limpiar();
-    // Esta serie no queda para las pruebas que siguen, que cuentan lo que hay en el registro y en la carpeta
-    api.quitarDelRegistro('ocupado');
-    fs.rmSync(path.join(tmp, 'Ocupado'), { recursive: true, force: true });
+    // (0.10.3) Un 429 sin cuerpo: Chromium muestra su propia página de error, pero el programa ve la respuesta y frena igual
+    api.encolar([{ url: `${S}/leer/vacio-1/`, texto: 'Capítulo 1', numero: 1 }], { carpeta: tmp, serie: 'Vacio', formatos: soloPdf });
+    eq('la página responde 429 sin cuerpo (Chromium muestra su página de error): falla con el motivo y el sitio queda frenado un minuto',
+      `${estados(await api.colaVacia())} · ${minuto(api.esperaDe(S))}`, 'Capítulo 1: falló (La página respondió HTTP 429: el sitio pidió esperar) · entre 55 y 60 s');
+    api.olvidarEsperas();
+    eq('  y al reintentar, sale', api.reintentar() + ' · ' + estados(await api.colaVacia()), '1 · Vacio/Vacio 0001: listo (6 páginas)');
+    api.limpiar();
+    // (0.10.3) La tapa de un "relacionado" (otra carpeta, del mismo sitio) responde 503: no es una página del capítulo y no lo corta
+    api.encolar([{ url: `${S}/leer/relacionado-1/`, texto: 'Capítulo 1', numero: 1 }], { carpeta: tmp, serie: 'Relacionado', formatos: soloPdf });
+    eq('la tapa de un "relacionado" (otra carpeta) responde 503: el capítulo sale entero y el sitio no queda frenado',
+      `${estados(await api.colaVacia())} · la tapa se pidió: ${(sitio.pedidos.horas['/img/relacionados/beta.jpg'] || []).length > 0} · freno ${api.esperaDe(S)}`,
+      'Relacionado/Relacionado 0001: listo (6 páginas) · la tapa se pidió: true · freno 0');
+    api.limpiar();
+    // Estas series no quedan para las pruebas que siguen, que cuentan lo que hay en el registro y en la carpeta
+    for (const s of ['ocupado', 'vacio', 'relacionado']) api.quitarDelRegistro(s);
+    for (const d of ['Ocupado', 'Vacio', 'Relacionado']) fs.rmSync(path.join(tmp, d), { recursive: true, force: true });
 
     console.log('\n── Revisar las páginas de un capítulo');
     const rev = await api.paginasDe(S + '/leer/avisos-1/');
@@ -224,6 +259,21 @@ module.exports = async function probar(api) {
     api.encolar([{ url: S + '/leer/avisos-1/', texto: 'x' }], { carpeta: tmp, saltear: false, formatos: soloPdf });
     eq('sin revisar, el filtro saca el aviso y la cola dice cuántas descartó', estados(await api.colaVacia()).split(' ; ').pop(), 'Avisos/Avisos 0001: listo (6 páginas (1 descartada como publicidad))');
     api.limpiar();
+
+    console.log('\n── Páginas dibujadas de fondo (la detección de la extensión 2.11.3)');
+    // La misma página de prueba que la extensión: 8 páginas numeradas de fondo y 18 tapas de otras obras alrededor
+    const numeradas = (r) => r.paginas.map(p => p.url.replace(S, '').replace('/fx/img/numerada/', '') + (p.motivo ? ` [${p.motivo}]` : '')).join(' ');
+    const deFondo = await api.analizar(S + '/fx/fondo.html');
+    eq('explorar la página de fondos: es un capítulo (las tapas de alrededor no la hacen un listado), con sus 8 páginas',
+      `${deFondo.capitulo?.serie} ${deFondo.capitulo?.numero} · ${deFondo.capitulo?.imagenes} páginas`, 'Serie Fondo 3 · 8 páginas');
+    eq('  sus páginas: las 8, en orden, y ninguna tapa', numeradas(await api.paginasDe(S + '/fx/fondo.html')), '1.png 2.png 3.png 4.png 5.png 6.png 7.png 8.png');
+    eq('  y con las tapas también dibujadas de fondo, lo mismo', numeradas(await api.paginasDe(S + '/fx/fondo.html?tapasDeFondo=1')), '1.png 2.png 3.png 4.png 5.png 6.png 7.png 8.png');
+    api.encolar([{ url: S + '/fx/fondo.html', texto: 'Capítulo 3' }], { carpeta: tmp, formatos: soloPdf });
+    eq('  bajarla: un PDF con las 8', estados(await api.colaVacia()) + ' · ' + pdfPages(path.join(tmp, 'Serie Fondo', 'Serie Fondo 0003.pdf')), 'Serie Fondo/Serie Fondo 0003: listo (8 páginas) · 8 × 420x640');
+    api.limpiar();
+    // (no queda para las pruebas que siguen, que cuentan lo que hay en el registro)
+    api.quitarDelRegistro('seriefondo');
+    fs.rmSync(path.join(tmp, 'Serie Fondo'), { recursive: true, force: true });
 
     console.log('\n── El registro de descargas y tu colección');
     eq('el registro anota lo que salió bien, por serie', api.verRegistro().map(s => `${s.serie} ${s.desde}-${s.hasta} (${s.cuantos})`).join(' | '),
@@ -625,6 +675,166 @@ module.exports = async function probar(api) {
     await hasta(`document.querySelector('#reintentar').textContent === 'Reintentar 1 que falló' && !document.querySelector('#reintentar').disabled && document.querySelector('#cancelar').disabled`, 'el reintento terminado');
     await api.colaVacia();
     eq('  con algo que falló se prende, y al tocarlo lo intenta de nuevo', `${(sitio.pedidos.capitulos['/leer/alfa-9/']) - intentos >= 1}`, 'true');
+
+    // ── El sitio pide esperar, a través del proxy de prueba (tests/proxy.js) ──
+    // El proxy contesta 429 o 503 de verdad, con Retry-After o sin él, delante del sitio de prueba.
+    // El programa lo usa como con MR_PROXY: le pregunta a qué sitio reenvía y le manda todo lo de ese sitio.
+    console.log('\n── El sitio pide esperar, a través del proxy de prueba');
+    api.limpiar();
+    const proxy = await iniciarProxy({ sitio: S });
+    try {
+      const pr = await api.usarProxy(proxy.url);
+      const enProxy = { carpeta: tmp, serie: 'Proxy', formatos: soloPdf, saltear: false };
+      const cap = (n) => ({ url: `${S}/leer/alfa-${n}/`, texto: `Capítulo ${n}`, numero: n });
+      const pagDe = (n) => proxy.pedidos.filter(p => p.ruta === `/leer/alfa-${n}/`).map(p => p.hora);
+      const filaCola = `[...document.querySelectorAll('#cola .tarea .t-estado')].map(t => t.textContent).join(' | ')`;
+      const hastaQue = async (fn, que, ms = 30000) => { for (const fin = Date.now() + ms; Date.now() < fin; await dormir(100)) if (fn()) return; throw new Error('No llegó: ' + que); };
+      api.encolar([cap(1)], enProxy);
+      eq('el programa con el proxy de prueba: le pregunta a qué sitio reenvía, y la página y sus imágenes pasan por él',
+        `${pr.sitio === S} · ${estados(await api.colaVacia())} · página: ${pagDe(1).length} · imágenes: ${proxy.pedidos.filter(p => /^\/img\/alfa\/1\//.test(p.ruta)).length >= 6}`,
+        'true · Proxy/Proxy 0001: listo (6 páginas) · página: 1 · imágenes: true');
+      api.limpiar();
+
+      // Sin Retry-After (503 o 429): al tocar Reintentar, la cuenta arranca cerca de 60 y el reintento
+      // no sale antes. No se espera el minuto: en el mismo instante del clic en Cancelar se lee el número
+      // de la cuenta y el estado de los botones, y se cancela.
+      const unMinuto = async (codigo, n) => {
+        proxy.fijarReglas([{ codigo, retryAfter: null, ruta: `/leer/alfa-${n}/`, solo: 'paginas', veces: 1 }]);
+        const antes = pagDe(n).length;
+        api.encolar([cap(n)], enProxy);
+        await api.colaVacia();
+        await hasta(`!document.querySelector('#reintentar').disabled`, 'el botón de reintentar');
+        const fallo = await en(filaCola);
+        await en(`document.querySelector('#reintentar').click()`);
+        await hasta(`/sigo en \\d+ s/.test(document.querySelector('#cola').textContent)`, 'la cuenta regresiva', 10000);
+        const r = await en(`(() => { const s = document.querySelector('#cola .t-estado').textContent, c = document.querySelector('#cancelar'), re = document.querySelector('#reintentar');
+          const antes = { n: +((s.match(/sigo en (\\d+) s/) || [])[1] || 0), detalle: s.replace(/\\d+ s$/, 'N s'), cancelar: c.disabled ? 'apagado' : 'prendido', reintentar: re.disabled ? 'apagado' : 'prendido' };
+          c.click(); return antes; })()`);
+        const alCancelar = pagDe(n).length - antes;
+        await api.colaVacia();
+        await dormir(1500);                                 // si saliera el reintento, este es el momento
+        await hasta(`/cancelado/.test(document.querySelector('#cola').textContent)`, 'la cola cancelada');
+        const out = { ...r, fallo, pedidos: `${alCancelar} y ${pagDe(n).length - antes}`, final: await en(filaCola) };
+        api.olvidarEsperas();
+        api.limpiar();
+        return out;
+      };
+      const s1 = await unMinuto(503, 2);
+      eq('503 sin Retry-After: falla con ese motivo; al tocar Reintentar, el detalle dice "el sitio pidió esperar: sigo en N s"',
+        `${s1.fallo} → ${s1.detalle}`, '⚠️ falló: La página respondió HTTP 503: el sitio pidió esperar → ⏸ en cola: el sitio pidió esperar: sigo en N s');
+      eq(`  la cuenta arranca cerca de 60 (decía "sigo en ${s1.n} s")`, minutoN(s1.n), 'entre 55 y 60 s');
+      eq('  en ese instante el reintento sigue esperando (Cancelar prendido, Reintentar apagado) y la página se pidió una sola vez; al cancelar, el reintento no sale',
+        `Cancelar ${s1.cancelar} · Reintentar ${s1.reintentar} · pedidos de la página: ${s1.pedidos} · ${s1.final}`, 'Cancelar prendido · Reintentar apagado · pedidos de la página: 1 y 1 · ✖ cancelado');
+      const s2 = await unMinuto(429, 2);
+      eq(`429 sin Retry-After: lo mismo, la cuenta arranca cerca de 60 (decía "sigo en ${s2.n} s") y el reintento no sale antes`,
+        `${s2.fallo} · ${minutoN(s2.n)} · pedidos de la página: ${s2.pedidos} · ${s2.final}`, '⚠️ falló: La página respondió HTTP 429: el sitio pidió esperar · entre 55 y 60 s · pedidos de la página: 1 y 1 · ✖ cancelado');
+
+      // 503 con Retry-After: 5 → el reintento espera 5 s, lo dice, sale y completa
+      proxy.fijarReglas([{ codigo: 503, retryAfter: '5', ruta: '/leer/alfa-3/', solo: 'paginas', veces: 1 }]);
+      api.encolar([cap(3)], enProxy);
+      await api.colaVacia();
+      await hasta(`!document.querySelector('#reintentar').disabled`, 'el botón de reintentar');
+      const fallo5 = await en(filaCola);
+      await en(`document.querySelector('#reintentar').click()`);
+      const cuenta5 = [];                                    // los números de la cuenta regresiva, mirando cada 150 ms
+      for (const fin = Date.now() + 20000; Date.now() < fin; await dormir(150)) {
+        const s = await en(filaCola), m = s.match(/sigo en (\d+) s/);
+        if (m && cuenta5[cuenta5.length - 1] !== +m[1]) cuenta5.push(+m[1]);
+        if (/✅/.test(s)) break;
+      }
+      const fin5 = estados(await api.colaVacia()), h5 = pagDe(3);
+      eq('503 con Retry-After: 5: dice el motivo; al reintentar cuenta hasta 1 y sale a los 5 s o más del 503 (y bastante antes de un minuto); completa',
+        `${fallo5} · cuenta ${cuenta5[0] <= 5 && cuenta5[0] >= 3 ? 'desde 5 o menos' : cuenta5.join(',')} hasta ${cuenta5[cuenta5.length - 1]} · ${h5.length === 2 && h5[1] - h5[0] >= 5000 && h5[1] - h5[0] < 15000 ? 'entre 5 y 15 s' : (h5[1] - h5[0]) + ' ms'} · ${fin5}`,
+        '⚠️ falló: La página respondió HTTP 503: el sitio pidió esperar · cuenta desde 5 o menos hasta 1 · entre 5 y 15 s · Proxy/Proxy 0003: listo (6 páginas)');
+      api.limpiar();
+
+      // Corte a partir del 6.º pedido (página e imágenes): el capítulo queda incompleto, sin archivo a medias
+      proxy.fijarReglas([{ codigo: 503, retryAfter: '1', desde: 6 }]);
+      const antes6 = proxy.pedidos.length;
+      api.encolar([{ url: `${S}/leer/ocupado-3/`, texto: 'Capítulo 3', numero: 3 }], { ...enProxy, serie: 'Corte' });
+      const corte = estados(await api.colaVacia()), inyectados = proxy.pedidos.slice(antes6).filter(p => p.inyectado);
+      eq('corte desde el 6.º pedido (503): el capítulo queda incompleto, con el motivo, y no queda ningún archivo a medias',
+        `${corte} · ${ls('Corte')}`, 'Corte/Corte 0003: incompleto (no guardé nada, para no dejarlo a medias · el sitio pidió esperar (HTTP 503)) · (no existe)');
+      eq('  el proxy contestó 503 desde el 6.º pedido del capítulo, y los 5 primeros pasaron', `${proxy.pedidos.slice(antes6).filter(p => !p.inyectado).length >= 5} · ${inyectados.length > 0} · ${inyectados.every(p => p.codigo === 503)}`, 'true · true · true');
+      api.olvidarEsperas();
+      api.limpiar();
+
+      // El sitio contesta 503 a imágenes que carga la página misma (no el armador): una imagen rota no
+      // dice por qué, pero el programa lo ve en la respuesta, y el capítulo no se guarda a medias.
+      // (Lo encontró la corrida real a través del proxy el 24-11-2026: se guardaban 3 páginas de 17 como "listo".)
+      proxy.fijarReglas([{ codigo: 503, retryAfter: '1', accept: 'avif', ruta: '/img/alfa/1/', desde: 3, veces: 2 }]);
+      const antesImg = ls('Proxy');
+      api.encolar([cap(1)], enProxy);
+      const enPagina = estados(await api.colaVacia());
+      eq('el sitio contesta 503 a dos imágenes que carga la página (no el armador): incompleto, con el motivo, sin archivo nuevo, y el sitio frenado lo que pidió',
+        `${enPagina} · ${ls('Proxy') === antesImg} · freno ${api.esperaDe(S) > 0 && api.esperaDe(S) <= 1000 ? 'de 1 s o menos' : api.esperaDe(S) + ' ms'}`,
+        'Proxy/Proxy 0001: incompleto (no guardé nada, para no dejarlo a medias · el sitio pidió esperar (HTTP 503)) · true · freno de 1 s o menos');
+      await dormir(1100);
+      api.reintentar();
+      eq('  con el sitio libre, Reintentar lo baja entero', estados(await api.colaVacia()), 'Proxy/Proxy 0001: listo (6 páginas)');
+      api.limpiar();
+
+      // El reintento no se gasta: dos fallos seguidos del mismo capítulo, y el botón se sigue ofreciendo
+      proxy.fijarReglas([{ codigo: 503, retryAfter: '2', ruta: '/leer/alfa-4/', solo: 'paginas', veces: 2 }]);
+      api.encolar([cap(4)], enProxy);
+      await api.colaVacia();
+      await hasta(`!document.querySelector('#reintentar').disabled`, 'el botón, después del primer fallo');
+      await en(`document.querySelector('#reintentar').click()`);
+      await hastaQue(() => pagDe(4).length >= 2 && api.verCola()[0]?.estado === 'falló', 'el segundo fallo');
+      await hasta(`!document.querySelector('#reintentar').disabled`, 'el botón, después del segundo fallo');
+      const boton2 = await en(`(() => { const r = document.querySelector('#reintentar'); return (r.disabled ? 'apagado' : 'prendido') + ' · ' + r.textContent; })()`);
+      await en(`document.querySelector('#reintentar').click()`);
+      await hastaQue(() => pagDe(4).length >= 3, 'el tercer intento');
+      const fin4 = estados(await api.colaVacia()), h4 = pagDe(4);
+      eq('dos fallos seguidos del mismo capítulo (503 con Retry-After: 2): el botón se sigue ofreciendo, y el tercer intento sale y completa',
+        `${boton2} · ${h4.length} pedidos · ${fin4}`, 'prendido · Reintentar 1 que falló · 3 pedidos · Proxy/Proxy 0004: listo (6 páginas)');
+      eq('  cada reintento respetó el freno: salió a los 2 s o más del fallo anterior', `${h4[1] - h4[0] >= 2000} · ${h4[2] - h4[1] >= 2000}`, 'true · true');
+      api.limpiar();
+
+      // El aviso de fin de cola: un botón por cada cosa que deja hacer la ventana, y cada uno corre el
+      // mismo manejador que su botón. Acá se dispara la acción de cada botón como la dispara Windows
+      // (tests/avisos.js los aprieta de verdad).
+      proxy.fijarReglas([{ codigo: 503, retryAfter: '3', ruta: '/leer/alfa-2/', solo: 'paginas', veces: 1 }]);
+      const antesAv = pagDe(2).length;
+      api.encolar([cap(2)], enProxy);
+      await api.colaVacia();
+      await hasta(`!document.querySelector('#reintentar').disabled`, 'el botón de reintentar');
+      const av = api.armarAvisoDeFin();
+      const ventana = await en(`['#reintentar', '#limpiar', '#abrirCarpeta'].map(s => document.querySelector(s).textContent).join(' | ')`);
+      eq('el aviso de fin de cola trae un botón por cada cosa que deja hacer la ventana, con el mismo texto',
+        `${av.titulo} · ${av.cuerpo} · ${av.botones.map(b => b.texto).join(' | ')} · ventana: ${ventana}`,
+        'Manga Reader: terminó la cola · 1 con problemas · Reintentar 1 que falló | Limpiar terminados | Abrir carpeta · ventana: Reintentar 1 que falló | Limpiar terminados | Abrir carpeta');
+      const t1 = av.accion({ actionIndex: 0 }), t2 = av.accion({ actionIndex: 0 });     // Windows avisa el toque dos veces
+      const r1 = await t1;
+      await hastaQue(() => pagDe(2).length >= antesAv + 2, 'el reintento desde el aviso');
+      const finAv = estados(await api.colaVacia()), hA = pagDe(2).slice(antesAv);
+      eq('  "Reintentar" desde el aviso: el mismo manejador que el botón (vuelve 1 a la cola, una sola vez aunque el toque llegue dos veces), respeta el freno (sale a los 3 s o más del 503) y completa',
+        `${JSON.stringify(r1)} · ${t1 === t2} · ${hA.length === 2 && hA[1] - hA[0] >= 3000 ? '3 s o más' : hA.map(h => h - hA[0]).join(',')} · ${finAv}`, '{"ok":true,"valor":1} · true · 3 s o más · Proxy/Proxy 0002: listo (6 páginas)');
+      const av2 = api.armarAvisoDeFin();
+      eq('  sin nada que reintentar, el aviso no ofrece Reintentar (la ventana lo tiene apagado)', `${av2.botones.map(b => b.texto).join(' | ')} · ${await en(`document.querySelector('#reintentar').disabled`)}`, 'Limpiar terminados | Abrir carpeta · true');
+      const abierta = await av2.accion({ actionIndex: 1 });
+      eq('  "Abrir carpeta" desde el aviso: la carpeta de descargas, como el botón (en esta prueba se anota en vez de abrir el Explorador)', `${abierta.ok} · ${api.carpetasAbiertas[api.carpetasAbiertas.length - 1] === tmp}`, 'true · true');
+      await api.armarAvisoDeFin().accion({ actionIndex: 0 });
+      await hasta(`/Todavía no hay nada/.test(document.querySelector('#cola').textContent)`, 'la cola limpia');
+      eq('  "Limpiar terminados" desde el aviso: la lista queda vacía en el programa y en la ventana', `${api.verCola().length} · ${await en(`document.querySelector('#cola').textContent`)}`, '0 · Todavía no hay nada en la cola.');
+
+      // Un capítulo que ya está en la carpeta, y una de sus imágenes pide esperar al abrir la página:
+      // sigue siendo "ya estaba" (no "incompleto"), y el sitio queda frenado lo que pidió
+      proxy.fijarReglas([{ codigo: 503, retryAfter: '1', accept: 'avif', ruta: '/img/alfa/2/', desde: 3, veces: 1 }]);
+      api.encolar([cap(2)], { ...enProxy, saltear: true });
+      eq('un capítulo que ya está en la carpeta, con una de sus imágenes pidiendo esperar al abrir la página: "ya estaba", y el sitio frenado lo que pidió',
+        `${estados(await api.colaVacia())} · freno ${api.esperaDe(S) > 0 && api.esperaDe(S) <= 1000 ? 'de 1 s o menos' : api.esperaDe(S) + ' ms'}`, 'Proxy/Proxy 0002: ya estaba (ya está en la carpeta) · freno de 1 s o menos');
+      api.limpiar();
+    } finally {
+      await api.usarProxy(null);
+      api.olvidarEsperas();
+      await proxy.cerrar();
+    }
+    eq('sin el proxy, el camino de siempre: la página va directo al sitio', await (async () => { const antes = sitio.pedidos.capitulos['/leer/alfa-1/'] || 0; api.encolar([{ url: S + '/leer/alfa-1/', texto: 'x', numero: 1 }], { carpeta: tmp, serie: 'Directo', formatos: soloPdf }); const e = estados(await api.colaVacia()); api.limpiar(); return `${e} · ${(sitio.pedidos.capitulos['/leer/alfa-1/'] || 0) - antes}`; })(),
+      'Directo/Directo 0001: listo (6 páginas) · 1');
+    // (estas series no quedan para las pruebas que siguen, que cuentan lo que hay en el registro)
+    for (const s of ['proxy', 'directo']) api.quitarDelRegistro(s);
+    for (const d of ['Proxy', 'Directo', 'Corte']) fs.rmSync(path.join(tmp, d), { recursive: true, force: true });
 
     // Favoritos: filtros por tipo y por idioma (los dos se detectan al pegar la lista, por sus títulos de grupo)
     await pegarEnFavoritos(`Zeta: ${S}/serie/zeta/\nManga en español:\nGama: ${S}/serie/gama/\nCómics en inglés:\nDelta: ${S}/serie/delta/`);

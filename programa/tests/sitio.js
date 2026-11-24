@@ -17,11 +17,17 @@
 //   /leer/inestable-1/  capítulo con una página que responde 503 las primeras seis veces (para reintentar)
 //   /leer/ocupado-N/    capítulos de un sitio que pide esperar: 503 en la página, con Retry-After y sin él,
 //                       y en una imagen (ver más abajo qué hace cada uno)
+//   /leer/vacio-1/      capítulo cuya página responde 429 sin cuerpo la primera vez
+//   /leer/relacionado-1/  capítulo con la tapa de un "relacionado" (otra carpeta) que responde siempre 503
 //   /leer/avisos-1/   capítulo con un aviso en el medio (para revisar las páginas a mano)
 //   /ver/900000N      capítulo sin número en la dirección ni en el título; su servidor de
 //                     imágenes exige el Referer del sitio
+//   /fx/fondo.html    la misma página de prueba de la extensión (tests/fixtures): un lector que dibuja
+//                     8 páginas de fondo, con 18 tapas de otras obras alrededor (?tapasDeFondo=1: las
+//                     tapas también de fondo)
 const http = require('http'), fs = require('fs'), path = require('path');
-const JPG = fs.readFileSync(path.join(__dirname, '..', '..', 'tests', 'fixtures', 'pagina.jpg'));     // 420×640
+const FIXTURES = path.join(__dirname, '..', '..', 'tests', 'fixtures');
+const JPG = fs.readFileSync(path.join(FIXTURES, 'pagina.jpg'));     // 420×640
 
 const pagina = (titulo, cuerpo) => `<!doctype html><html lang="es"><head><meta charset="UTF-8"><title>${titulo}</title></head><body style="margin:0">${cuerpo}</body></html>`;
 const menu = '<nav><a href="/">Inicio</a> <a href="/directorio/">Directorio</a> <a href="/acerca">Acerca</a> <a href="/contacto">Contacto</a></nav>';
@@ -302,6 +308,17 @@ function iniciar({ tapas = false } = {}) {
       }
       return enviar('image/jpeg', JPG);
     }
+    // (0.10.3) Un capítulo cuya página responde 429 sin cuerpo la primera vez (Chromium muestra su
+    // propia página de error), y uno con la tapa de un "relacionado" que responde siempre 503
+    m = u.match(/^\/leer\/(vacio|relacionado)-1\/$/);
+    if (m) {
+      anotarHora();
+      if (m[1] === 'vacio' && pedidos.horas[u].length === 1) { res.writeHead(429, { 'Content-Length': '0', 'Cache-Control': 'no-store' }); return res.end(); }
+      return html(pagina(`${m[1] === 'vacio' ? 'Vacio' : 'Relacionado'} Capítulo 1 | Sitio de prueba`, menu + imagenes(m[1] + '/1', false) +
+        (m[1] === 'relacionado' ? '<h3>Relacionados</h3><a href="/serie/beta/"><img width="300" height="450" src="/img/relacionados/beta.jpg"></a>' : '')));
+    }
+    if (/^\/img\/(vacio|relacionado)\/1\/\d\.jpg$/.test(u)) return enviar('image/jpeg', JPG);
+    if (u === '/img/relacionados/beta.jpg') { anotarHora(); return enviar('text/plain', 'ocupado', 503); }
     // Un capítulo con un aviso en el medio (una imagen que lleva a otro sitio)
     if (u === '/leer/avisos-1/') {
       pedidos.avisos = (pedidos.avisos || 0) + 1;
@@ -312,6 +329,9 @@ function iniciar({ tapas = false } = {}) {
     if (/^\/img\/avisos\/1\/\w+\.jpg$/.test(u)) return enviar('image/jpeg', JPG);
     m = u.match(/^\/ver\/900000([1-3])$/);
     if (m) return html(pagina('Lector', menu + imagenes('beta/' + m[1], false)));
+    // La página de prueba de fondos de la extensión, y sus imágenes (las páginas numeradas, las tapas, el logo)
+    if (u === '/fx/fondo.html') return html(fs.readFileSync(path.join(FIXTURES, 'fondo.html'), 'utf8'));
+    if (/^\/fx\/img\/[\w-]+\/[\w.-]+$/.test(u)) return enviar('image/jpeg', JPG);
     if (/^\/img\/alfa\/\d\/\d\.jpg$/.test(u) || u === '/tapa.jpg') return enviar('image/jpeg', JPG);
     if (/^\/img\/beta\/\d\/\d\.jpg$/.test(u)) {
       // Este servidor de imágenes solo entrega si el pedido viene del sitio

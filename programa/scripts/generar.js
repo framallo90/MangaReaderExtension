@@ -27,16 +27,22 @@ fs.mkdirSync(salida, { recursive: true });
 
 const una = (re) => { if (!re.test(src)) throw new Error(`content.js de ${version} no tiene ${re}`); return line(src, re); };
 const bloque = (nombre, asinc) => grab(src, new RegExp(`${asinc ? 'async ' : ''}function ${nombre}\\(`));
-const ASINC = new Set(['collectPages', 'scrollThrough']);
+const ASINC = new Set(['collectPages', 'scrollThrough', 'paginasDeFondo', 'elegirFondo']);
 const bloques = (nombres) => nombres.map(n => bloque(n, ASINC.has(n))).join('\n\n');
 
 // ── Para una página abierta (necesitan document y location) ──
 const LINEAS_PAGINA = [/const OURS = /, /const MIN_SIDE = /, /const PROBE_CONCURRENCY = /, /const sleep = /,
-  /const SAGAS = /, /let userSagas = /, /let esquemaNombres = /, /const noSlash = /, /const MONTH_RE = /];
+  /const SAGAS = /, /let userSagas = /, /let esquemaNombres = /, /const noSlash = /, /const MONTH_RE = /,
+  /const SVG_NS = /, /let fondosRecientes = /, /const unaPorPagina = /, /const sinRellenos = /];
 const FUNCIONES_PAGINA = ['absUrl', 'srcsetBest', 'lazyUrl', 'imgUrl', 'probeSize', 'urlDir', 'collectPages', 'flagNonPages',
   'countCandidates', 'sanitizeSegment', 'sanitizePath', 'chapterParam', 'cleanSerie', 'detectChapter', 'fmtNum', 'nameFor',
   'suggestName', 'pageKey', 'splitChapterUrl', 'numForms', 'isDateArchive', 'collectChapters', 'nextChapterUrl',
-  'chaptersFromLinks', 'scrollThrough', 'looksLikeChapter', 'contextoPlantilla', 'nombrePorPlantilla'];
+  'chaptersFromLinks', 'scrollThrough', 'looksLikeChapter', 'contextoPlantilla', 'nombrePorPlantilla',
+  // las páginas dibujadas de fondo y las grillas de tapas (2.11.3): collectPages, countCandidates y
+  // looksLikeChapter las usan si están
+  'direccionDeFondo', 'urlsDeFondo', 'fondosDe', 'contenedorDeFondos', 'fondosDelContenedor', 'paginasDeFondo',
+  'lectorDeFondoEnMarcos', 'elegirFondo', 'cuentaDeFondo', 'destinoDeTapa', 'esGrillaDeTapas', 'serieDeFondo', 'fondosDelAdaptador', 'marcoHijo',
+  'linkDeTarjeta', 'linkQueNoEsPagina', 'marcoGrande', 'fondoValeAca', 'hayMarcoGrande'];
 
 const aviso = `// GENERADO por scripts/generar.js a partir de ${version}. No editar: los cambios van en la extensión\n// o en src/pagina/explorar.js.\n`;
 const pagina = `${aviso}(function () {
