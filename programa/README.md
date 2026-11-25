@@ -4,7 +4,7 @@ Explora una página web por niveles (títulos → capítulos → páginas) y gua
 
 Todo corre en tu máquina: no hay servidor ni cuenta. Es independiente de la extensión de Chrome y usa su mismo código para detectar páginas, armar nombres y generar los archivos.
 
-**Estado: versión 0.10.3.** Funciona de punta a punta sobre los sitios de prueba. Los cambios de cada versión están en las [Actualizaciones](../README.md#actualizaciones) del README principal.
+**Estado: versión 0.10.4.** Funciona de punta a punta sobre los sitios de prueba. Los cambios de cada versión están en las [Actualizaciones](../README.md#actualizaciones) del README principal.
 
 ## Cómo abrirlo
 
@@ -177,13 +177,13 @@ Con eso, el capítulo 300 de Naruto se guarda en `Naruto/02 Shippuden/Naruto 030
 
 Baja de a un capítulo, con una pausa entre uno y otro. Cada renglón dice en qué anda y, si falló, por qué.
 
-- **Cancelar** corta lo que falta.
-- **Reintentar lo que falló** vuelve a poner en la cola todo lo que falló, quedó incompleto o se canceló. De lo incompleto borra antes los archivos que había escrito, para que no quede `nombre (1).pdf` al lado del que salió mal.
+- **Cancelar** corta lo que falta. El capítulo en curso se corta en el acto (0.10.4): se cierra su ventana y se borra lo que alcanzó a escribir.
+- **Reintentar lo que falló** vuelve a poner en la cola todo lo que falló, quedó incompleto o se canceló. Antes borra los archivos que ese capítulo había escrito, para que no quede `nombre (1).pdf` al lado del que salió mal. Si cancelaste y reintentaste en medio de una bajada, el intento anterior se corta antes de que salga el nuevo (0.10.4; hasta la 0.10.3 seguía con su ventana abierta hasta terminar el paso en el que estaba).
 - **Si el sitio pide esperar** (responde 429 o 503), el renglón lo dice: "el sitio pidió esperar", y el programa no le vuelve a pedir nada a ese sitio hasta que pase el freno: ni el capítulo que sigue en la cola ni un reintento, aunque toques **Reintentar** enseguida (el renglón muestra "el sitio pidió esperar: sigo en N s"). El freno es el mismo de la extensión: lo que pidió en `Retry-After` con tope de un minuto; **un minuto** si no dijo cuánto (o mandó algo que no se entiende, o una fecha vencida); nada con `Retry-After: 0`. La regla está escrita una sola vez, en la sección 4.19 de [DOCUMENTACION.md](../DOCUMENTACION.md). Vale igual para la página del capítulo y para sus imágenes (0.10.3; hasta la 0.10.2, sin cabecera seguía la pausa de siempre).
-- **Si una página queda afuera porque el sitio pidió esperar,** el capítulo no se guarda a medias: queda "incompleto · no guardé nada, para no dejarlo a medias · el sitio pidió esperar (HTTP 503)", sin ningún archivo, para **Reintentar** (0.10.3). Vale cuando lo dice el armador y cuando el sitio contesta 429 o 503 a las imágenes que carga la página misma: cuenta una de la carpeta de las páginas del capítulo que no quedó entre ellas (si después cargó, no faltó; un aviso o la tapa de un "relacionado", de otra carpeta, no cortan nada). Un 429 sin cuerpo (Chromium muestra su página de error) también frena. Si el capítulo ya estaba en la carpeta, sigue siendo "ya estaba".
+- **Si una página queda afuera porque el sitio pidió esperar,** el capítulo no se guarda a medias: queda "incompleto · no guardé nada, para no dejarlo a medias · el sitio pidió esperar (HTTP 503)", sin ningún archivo, para **Reintentar** (0.10.3). Vale cuando lo dice el armador y cuando el sitio contesta 429 o 503 a las imágenes que carga la página misma: cuenta una de la carpeta de las páginas del capítulo que no quedó entre ellas (si después cargó, no faltó; un aviso o la tapa de un "relacionado", de otra carpeta, no cortan nada). Un 429 sin cuerpo frena igual que cualquier otro. Si el capítulo ya estaba en la carpeta, sigue siendo "ya estaba".
 - **Reintentar no se gasta:** un capítulo que falló dos veces se puede reintentar otra vez, y cada intento respeta el freno.
 - **El avance se ve en el ícono** de la barra de tareas.
-- **Al terminar**, si el programa no está a la vista, Windows muestra un aviso con el resumen ("12 guardados · 1 con problemas") y el ícono titila. El aviso trae los botones de la ventana (0.10.3): **Reintentar N que falló** (si algo falló), **Limpiar terminados** y **Abrir carpeta**. Cada uno hace lo mismo que su botón, por el mismo camino; el de reintentar respeta el freno del sitio. (En `npm start`, el primer aviso después de que Electron crea su acceso directo en el menú Inicio no sale en pantalla: queda en el centro de notificaciones, Win + N.)
+- **Al terminar**, si el programa no está a la vista, Windows muestra un aviso con el resumen ("12 guardados · 1 con problemas") y el ícono titila. El aviso trae los botones de la ventana (0.10.3): **Reintentar N que falló** (si algo falló), **Limpiar terminados** y **Abrir carpeta**. Cada uno hace lo mismo que su botón, por el mismo camino; el de reintentar respeta el freno del sitio. El primero también sale en pantalla (0.10.4): con `npm start`, la primera vez el programa prepara los avisos al arrancar (Electron crea su acceso directo en el menú Inicio con un aviso mudo), y si la cola termina en esos primeros segundos su aviso espera un poco, hasta que Windows toma el acceso directo. Con el programa instalado, el acceso directo lo deja el instalador. Hasta la 0.10.3, ese primer aviso quedaba en el centro de notificaciones (Win + N).
 
 ### Probar contra un sitio que pide esperar (el proxy de prueba)
 
@@ -194,7 +194,17 @@ node tests/proxy.js --sitio https://one-piece-fans2.com --codigo 503 --retry-aft
 MR_PROXY=http://127.0.0.1:PUERTO npm start        # o: npm start -- --proxy=http://127.0.0.1:PUERTO
 ```
 
-El programa le pregunta al proxy a qué sitio reenvía y le manda todo lo de ese sitio (la barra de título lo dice). Sin `MR_PROXY` ni `--proxy=` no se registra nada y todo va directo. Las opciones del proxy (`--desde`, `--veces`, `--ruta`, `--solo imagenes|paginas`) y los resultados de una corrida real están en la sección 11 de [DOCUMENTACION.md](../DOCUMENTACION.md).
+El programa le pregunta al proxy a qué sitio reenvía y le manda todo lo de ese sitio (la barra de título lo dice). Sin `MR_PROXY` ni `--proxy=` no se registra nada y todo va directo. Las opciones del proxy (`--desde`, `--veces`, `--ruta`, `--solo imagenes|paginas`) y los resultados de las corridas reales están en la sección 11 de [DOCUMENTACION.md](../DOCUMENTACION.md).
+
+Desde la 0.10.4:
+
+- **Con el proxy en uso se pide sin caché.** El programa limpia la caché al empezar a usarlo y manda `Cache-Control: no-cache` a lo de ese sitio. Así el armador vuelve a pedir por el proxy las imágenes que la página ya bajó, y el proxy también lo puede cortar a él. Sin el proxy, las imágenes se cachean como siempre.
+- **Si el programa ya estaba abierto,** `MR_PROXY` no le llega a esa ventana: la ventana lo dice, con el botón **Cerrar y abrir de nuevo con el proxy**.
+- **Todo junto, contra un sitio real y sin dejar archivos:** `node tests/proxy-real.js <dirección del capítulo> [la regla del proxy]` arranca el proxy, abre el programa con `MR_PROXY` y una carpeta de datos aparte, baja el capítulo, toca Reintentar si hace falta y muestra cada pedido que pasó por el proxy.
+
+```bash
+node tests/proxy-real.js https://one-piece-fans2.com/manga/es/todos/1104 --codigo 503 --solo imagenes --desde 3 --veces 2
+```
 
 ## Qué no hace todavía
 
@@ -231,7 +241,7 @@ El programa le pregunta al proxy a qué sitio reenvía y le manda todo lo de ese
 | `build/icon.png` | El ícono del programa |
 | `generado/`, `dist/` | Se crean solos. No se editan ni se suben al repositorio |
 | `src/freno.js` | El freno de la cola: la regla de la extensión (`esperaDelSitio` de `ajustes.js`), sin copiarla |
-| `tests/` | El sitio de prueba, el proxy de prueba (`proxy.js`) y las pruebas |
+| `tests/` | El sitio de prueba (`sitio.js`), el proxy de prueba (`proxy.js`), las pruebas (`prueba.js`, `freno.js`) y las que usan ventanas y avisos de verdad (`avisos.js` con `clic-aviso.ps1` y `limpiar-avisos.ps1`; `proxy-abierto.js` y `proxy-real.js` con `ventana.js`) |
 
 - **El código compartido no se copia a mano.** `generar.js` saca de la extensión las funciones de detección, nombres y capítulos (`content.js`), el agrupado por tomos (`agrupar.js`), la plantilla de nombres (`plantilla.js`), el armado de archivos (`offscreen.js`), la lectura de una lista de links pegada (`sitios.js`) y la lectura de las sagas (`opciones.js`). Un arreglo en la extensión llega al programa la próxima vez que se abre. El instalador lleva adentro la copia del momento en que se armó.
 - **Las páginas web corren aisladas:** sin acceso a Node ni al disco, sin poder abrir ventanas, bajar archivos por su cuenta ni pedir permisos.
@@ -245,7 +255,7 @@ El programa le pregunta al proxy a qué sitio reenvía y le manda todo lo de ese
 npm run prueba
 ```
 
-Corren dentro de Electron contra un sitio de prueba servido en la máquina, y tardan unos 6 minutos y medio (la 0.10.2, con 191, tardaba 5). Son 226 comprobaciones:
+Corren dentro de Electron contra un sitio de prueba servido en la máquina, y tardan 7 min 46 s (la 0.10.3, con 226, tardaba 6 minutos y medio). Son 234 comprobaciones:
 
 - **Explorar:** portada, catálogo paginado, directorio que carga al bajar, serie y capítulo.
 - **Portada con tapas:** que no pase por capítulo (y que un capítulo con tapas al final lo siga siendo), que cada título traiga su tapa y que la miniatura se pida con el Referer del sitio.
@@ -260,8 +270,10 @@ Corren dentro de Electron contra un sitio de prueba servido en la máquina, y ta
 - **El freno, en Node** (también solo: `node tests/freno.js`): `esperaPedida` con "0", "3", una fecha vencida, "300" y vacío, y que el freno del programa sea el de la extensión en todos los casos.
 - **Reintentar:** la página que le falta a un capítulo responde 503 las seis veces que el armador la pide (se cuentan los pedidos y se mide el tiempo entre el primero y el último: más de 16 s); el capítulo queda incompleto sin ningún archivo, el sitio frenado un minuto, y al reintentar sale entero.
 - **El sitio pide esperar:** la página de un capítulo responde 503 sin `Retry-After` (el sitio queda frenado un minuto: el capítulo que sigue queda en cola diciendo "sigo en N s" y no se pide) y con `Retry-After: 3` (ni el reintento ni el capítulo siguiente se piden antes de los 3 s); y una imagen con `Retry-After: 3` se vuelve a pedir recién a los 3 s. Todo medido por la hora a la que le llega cada pedido al sitio de prueba.
-- **Un 429 sin cuerpo y la tapa de un "relacionado" que responde 503** (sitio de prueba): el primero frena un minuto; el segundo no corta el capítulo ni frena el sitio.
+- **Un 429 sin cuerpo y la tapa de un "relacionado" que responde 503** (sitio de prueba): el primero llega como una navegación con su código y frena un minuto (la prueba dice por dónde se supo); el segundo no corta el capítulo ni frena el sitio.
 - **A través del proxy de prueba** (desde la interfaz): 503 y 429 sin cabecera (al tocar Reintentar, la cuenta arranca cerca de 60; en el mismo instante del clic en Cancelar se leen el número y los botones, y el reintento no sale), 503 con `Retry-After: 5` (cuenta hasta 1, sale a los 5 s o más y completa), corte desde el 6.º pedido (incompleto, con el motivo y sin archivo), un capítulo que ya estaba con una imagen que pide esperar ("ya estaba", y el sitio frenado), dos fallos seguidos del mismo capítulo (el botón se sigue ofreciendo y el tercer intento sale, respetando el freno) y los botones del aviso de fin de cola (cada uno dispara el mismo manejador que su botón de la ventana). Y que sin el proxy todo va directo.
+- **El proxy y la caché** (0.10.4; el sitio de prueba deja cachear esas imágenes una hora): con el proxy, el armador vuelve a pedir por él las 6 imágenes que la página ya bajó, con `no-cache`; un 503 en cada pedido del armador por una de ellas deja el capítulo incompleto, sin archivo, y al reintentar baja entero. Sin el proxy, cada imagen se pide una sola vez y nada sale con `no-cache`.
+- **Cancelar y reintentar en medio de una bajada** (0.10.4; el sitio de prueba retiene la página o las imágenes a pedido): mientras la página tarda en abrir, mientras el armador baja y mientras escribe. La ventana del intento viejo se cierra en menos de 2 s, el nuevo sale y queda un solo archivo entero, sin "(1)". Cancelar solo no deja nada del capítulo, ni su carpeta.
 - **Páginas dibujadas de fondo:** la página de prueba de la extensión (8 páginas de fondo y 18 tapas alrededor): el explorador la toma por capítulo, devuelve las 8 en orden y ninguna tapa, y la baja entera.
 - **Revisar páginas:** todas las imágenes con el motivo de las descartadas, y la bajada con las elegidas a mano.
 - **Carpetas y series seguidas:** el aviso cuando una carpeta no está, atar a una serie una carpeta de otro nombre, y buscar y bajar lo nuevo de las series seguidas.
@@ -269,6 +281,13 @@ Corren dentro de Electron contra un sitio de prueba servido en la máquina, y ta
 - **Favoritos:** pegar, buscar, filtrar por tipo e idioma y quitar.
 - **La interfaz:** todo lo anterior manejado desde la pantalla, más "Traer todas", las direcciones recientes y la serie puesta sola.
 
-**Los botones del aviso apretados de verdad:** `npm run avisos` muestra el aviso de fin de cola y aprieta cada botón con `tests/clic-aviso.ps1` (UI Automation de Windows, sin mover el mouse; espera 1,5 s antes de tocar, porque un toque en la animación de entrada del aviso se pierde). No es parte de `npm run prueba`: muestra avisos en la pantalla y abre una ventana del Explorador (la cierra al terminar). Electron crea un acceso directo en el menú Inicio la primera vez que muestra un aviso, y ese primer aviso no sale en pantalla: la prueba lo muestra otra vez.
+Aparte están las pruebas con ventanas y avisos de verdad. No son parte de `npm run prueba`: muestran cosas en la pantalla.
+
+- **Los botones del aviso, apretados de verdad:** `npm run avisos` muestra el aviso de fin de cola y aprieta cada botón con `tests/clic-aviso.ps1` (UI Automation de Windows, sin mover el mouse; espera 1,5 s antes de tocar, porque un toque en la animación de entrada del aviso se pierde). Abre una ventana del Explorador y la cierra al terminar. Cada aviso se aprieta al primer intento: si no sale en pantalla, la prueba falla (hasta la 0.10.3 lo mostraba otra vez). El que aprieta arranca antes de que salga el aviso, para estar mirando la pantalla cuando aparece.
+- **El primer aviso, desde cero:** `npm run avisos:limpio` borra antes lo que el programa dejó en Windows (`tests/limpiar-avisos.ps1`: su acceso directo del menú Inicio, las claves de los botones y el ajuste de sus avisos) y corre la misma prueba. `npm run avisos:limpiar` solo borra, y es lo que conviene correr al terminar.
+- **Sobre el programa instalado:** `"%LOCALAPPDATA%\Programs\Manga Reader\Manga Reader.exe" --prueba --avisos --pruebas=<carpeta tests de este repositorio>` (el instalado no trae las pruebas).
+- **`MR_PROXY` con el programa ya abierto:** `npm run proxy-abierto` abre el programa dos veces, la segunda con el proxy, y comprueba que la ventana que estaba lo diga y que su botón lo vuelva a abrir con el proxy. Usa una carpeta de datos aparte (`MR_DATOS`), y lee y toca la ventana por el protocolo de depuración (`tests/ventana.js`).
+
+Los resultados, con fecha y hora, están en la sección 11 de [DOCUMENTACION.md](../DOCUMENTACION.md).
 
 Durante las pruebas el programa arranca con todo de fábrica y no escribe ni la configuración ni los favoritos, ni el registro, así que no tocan los tuyos. Con `CAPTURAS=<carpeta>` guardan además capturas de la interfaz.

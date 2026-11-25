@@ -5,7 +5,7 @@ Dos herramientas para guardar capítulos de manga y cómics como **PDF**, **CBZ*
 | | Qué es | Versión | Dónde está |
 |---|---|---|---|
 | 🧩 **La extensión** | Se usa desde Chrome, sobre la página que tenés abierta | 2.11.4 | `manga-reader-ext(ver 24-11-2026-3)/manga-reader-ext` |
-| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.10.3 | `programa/` |
+| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.10.4 | `programa/` |
 
 Funcionan por separado y comparten el mismo código para detectar páginas, armar nombres y generar los archivos. Son de uso personal, están en español y todo corre en tu máquina, sin servidor.
 
@@ -203,7 +203,7 @@ Aplicación de escritorio para Windows, hecha con Electron y JavaScript plano. H
 | 🗂 **Registro e historial** | Anota todo lo que baja. Lo que ya bajaste queda marcado aunque muevas o borres los archivos, y en un catálogo se ve qué títulos ya tenés empezados |
 | 💽 **Tu colección** | Otras carpetas donde mirar lo que ya tenés, como la de Google Drive de tu máquina. Avisa si alguna no está a la vista, y deja atar a una serie una carpeta que se llama distinto |
 | 📌 **Siguiendo** | Las series que seguís: "Buscar lo nuevo" dice qué capítulos hay que no tenés y los baja de un toque |
-| 📦 **Cola de descargas** | Baja de a un capítulo y muestra en qué anda cada uno. Se cancela, y se reintenta todo lo que falló. Si el sitio pide esperar, frena igual que la extensión. Avisa al terminar con los botones de la ventana (Reintentar, Limpiar, Abrir carpeta) y muestra el avance en la barra de tareas |
+| 📦 **Cola de descargas** | Baja de a un capítulo y muestra en qué anda cada uno. Se cancela (el capítulo en curso se corta en el acto, sin dejar nada a medias), y se reintenta todo lo que falló. Si el sitio pide esperar, frena igual que la extensión. Avisa al terminar con los botones de la ventana (Reintentar, Limpiar, Abrir carpeta) y muestra el avance en la barra de tareas |
 | 📁 **Carpeta a elección** | Guarda donde quieras, y saltea lo que ya está mirando el disco |
 | 🗂 **Nombres y sagas** | `Serie/Saga/Serie 0012` por defecto. Se cambia con una plantilla (`{serie}/{volumen}/{serie} {numero} - {titulo}`) y se cargan sagas propias |
 | 🔗 **Pegar links** | Igual que en la extensión: una lista de links con el número de cada uno |
@@ -255,6 +255,20 @@ Lo que todavía le falta y cómo está armado: [programa/README.md](programa/REA
 # Actualizaciones
 
 Lo más nuevo arriba. El historial completo de la extensión está en la sección 15 de [DOCUMENTACION.md](DOCUMENTACION.md).
+
+### 25-11-2026 · Programa 0.10.4
+
+Lo que había quedado abierto de la 0.10.3: el primer aviso, cortar un intento en el medio, el proxy sin caché, el 429 sin cuerpo, el proxy con el programa ya abierto y los botones del aviso en el programa instalado.
+
+- **El primer aviso de fin de cola sale en pantalla.** Electron crea su acceso directo en el menú Inicio con el primer aviso, y ese aviso se iba al centro de notificaciones. Ahora el programa lo prepara al arrancar: si el acceso directo no está, muestra un aviso mudo (con eso Electron lo crea), y si la cola termina en los primeros segundos su aviso espera hasta 5 s, porque Windows tarda en tomar un acceso directo nuevo (medido: un aviso en el primer segundo se pierde y arrastra al siguiente; a los 2 s sale). Con el programa instalado no hace falta nada. La prueba ya no vuelve a mostrar un aviso que no aparece, y `npm run avisos:limpio` la corre desde cero: borra antes el acceso directo y las claves del programa. Desde cero pasó tres veces (19:45, 20:00 y 20:06), y con el acceso directo ya creado, una (20:08).
+- **Cancelar y Reintentar cortan en el acto.** El intento viejo seguía con su ventana abierta hasta terminar el paso en el que estaba. Ahora se cierra su ventana, se corta el armador y se borra lo que alcanzó a escribir antes de que salga el nuevo. Probado con la página tardando en abrir, con el armador bajando y con los archivos escribiéndose: la ventana vieja se cerró en menos de 2 s y quedó un solo archivo entero, sin "(1)". Cancelar solo tampoco deja nada del capítulo.
+- **El proxy pide sin caché.** Con el proxy en uso, el programa limpia la caché al empezar y pide lo de ese sitio con `no-cache`: el armador vuelve a pedir por el proxy las imágenes que la página ya bajó, y el proxy lo puede cortar. Sin el proxy, todo sigue como siempre.
+- **Corrida real** contra one-piece-fans2.com (`node programa/tests/proxy-real.js`, nuevo): con `--codigo 503 --solo imagenes --desde 3 --veces 2` (19:56), el capítulo 1104 quedó incompleto, sin ningún archivo y con el motivo, y al reintentar (un minuto después) bajó las 13 páginas en un solo PDF. Y lo que la 0.10.3 no podía, cortar al armador en un sitio real (19:58, capítulo 1105, 503 en sus 6 pedidos de una página que la página había bajado bien): incompleto sin archivo, y al reintentar, entero.
+- **El 429 sin cuerpo: el arreglo era preventivo.** En Electron 45.4.1 un 429 o un 503 sin cuerpo llega como cualquier otro, con su código; el camino que agregó la 0.10.3 no ocurre. Quedó en el código marcado como preventivo, y la comprobación ahora mira por dónde se supo de verdad.
+- **`MR_PROXY` con el programa ya abierto:** la ventana que estaba lo dice, con un botón para cerrar y abrir de nuevo con el proxy (`npm run proxy-abierto`, 4 de 4).
+- **El programa instalado:** se armó el instalador, se instaló y se apretaron los tres botones del aviso con clics reales sobre el instalado: tres corridas (20:11, 20:13 y, con el instalador del código final, 20:41), 4 de 4 las tres. En las dos instalaciones limpias, el primer aviso después de instalar salió en pantalla. Después se desinstaló; el instalador queda en `programa/dist/`.
+- **Pruebas:** 234 comprobaciones (eran 226), en 7 min 46 s. Aparte, con ventanas y avisos de verdad: `npm run avisos` y `npm run avisos:limpio` (4), `npm run proxy-abierto` (4) y `node tests/proxy-real.js` contra un sitio real.
+- **Sigue abierto:** un 429 o un 503 que mande un sitio por su cuenta. El proxy inyecta, no observa: one-piece-fans2.com contestó 200 a todo lo que le llegó.
 
 ### 25-11-2026 · Extensión 2.11.4
 
