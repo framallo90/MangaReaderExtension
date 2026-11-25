@@ -24,10 +24,15 @@ const AVISOS = PRUEBA && process.argv.includes('--avisos');
 // armador sin mostrarlos, dice si anduvo y sale. No toca la configuración ni los favoritos.
 const HUMO = process.argv.includes('--humo');
 const espera = (ms) => new Promise(r => setTimeout(r, ms));
+// "--pruebas=<carpeta>" (0.10.4): con --prueba, toma las pruebas de esa carpeta y no de las que vienen
+// con el programa. Sirve para correr "npm run avisos" sobre el programa instalado, que no trae tests/.
+const DIR_PRUEBAS = PRUEBA ? (process.argv.find(a => a.startsWith('--pruebas=')) || '').slice('--pruebas='.length) : '';
 // Los datos (configuración y favoritos) van siempre a la misma carpeta, se abra el programa
-// con "npm start" o instalado: si no, al instalarlo arrancaría sin los favoritos.
-app.setPath('userData', path.join(app.getPath('appData'), 'manga-reader-programa'));
-app.setAppUserModelId('ar.mangareader.programa');     // para que Windows muestre los avisos con el nombre del programa
+// con "npm start" o instalado: si no, al instalarlo arrancaría sin los favoritos. MR_DATOS (solo
+// para pruebas, 0.10.4) usa otra: así se pueden abrir dos veces sin tocar los datos de verdad.
+app.setPath('userData', process.env.MR_DATOS || path.join(app.getPath('appData'), 'manga-reader-programa'));
+const AUMID = 'ar.mangareader.programa';
+app.setAppUserModelId(AUMID);     // para que Windows muestre los avisos con el nombre del programa
 
 // ── Configuración ────────────────────────────────────
 // plantilla: la plantilla de nombres ('' = la de siempre) · sagasTexto: las sagas propias, como
@@ -135,6 +140,13 @@ function prepararSesion() {
         d.requestHeaders.Referer = new URL(d.url).origin === pagina.origin ? pagina.href : pagina.origin + '/';
       } catch {}
     }
+    // Con el proxy de prueba en uso, lo de ese sitio se pide sin caché (0.10.4): si no, el armador
+    // toma de la caché las imágenes que la página ya bajó, y el proxy no las puede cortar. Sin el
+    // proxy no se toca nada: las imágenes se pueden cachear como siempre.
+    if (proxyActual && d.url.startsWith(proxyActual.proxy + '/')) {
+      d.requestHeaders['Cache-Control'] = 'no-cache';
+      d.requestHeaders.Pragma = 'no-cache';
+    }
     cb({ requestHeaders: d.requestHeaders });
   });
   // Cuando una página contesta "esperá" (429) o "ahora no" (503), se anota cuánto pide esperar
@@ -156,6 +168,9 @@ function prepararSesion() {
   });
 }
 const pedidoDeEspera = new Map();        // id de la página → { status, retryAfter } de su navegación, si fue 429 o 503
+let ultimaDeteccion = null;              // la última vez que una página pidió esperar: { status, via } (para las pruebas)
+const ventanasDePaginas = new Set();     // las ventanas ocultas de páginas abiertas ahora (para las pruebas)
+let demoraDeGuardado = 0;                // solo en las pruebas: una espera antes de escribir cada archivo del armador
 const imagenesEnEspera = new Map();      // id de la página → [{ url, status, retryAfter }] de las imágenes que contestaron 429 o 503
 
 // De las imágenes que la página pidió y el sitio contestó con 429 o 503, la que cuenta: una de la
@@ -224,6 +239,7 @@ ipcMain.on('mr:res', (_e, m) => {
   if (!p) return;
   pendientes.delete(m.id);
   clearTimeout(p.t);
+  p.limpiar();
   if (m.ok) return p.res(m.valor);
   // La pila es la de la página, no la de esta línea: con la de acá, un error de allá parece de main.js
   const error = new Error(m.error || 'Error en la página');
@@ -234,16 +250,23 @@ ipcMain.on('mr:res', (_e, m) => {
 function pedir(win, cmd, args = {}, ms = 60000) {
   return new Promise((res, rej) => {
     if (win.isDestroyed()) return rej(new Error('La página se cerró'));
-    const id = ++seq;
-    const t = setTimeout(() => { pendientes.delete(id); rej(new Error('La página no respondió')); }, ms);
-    pendientes.set(id, { res, rej, t });
-    win.webContents.send('mr:cmd', { id, cmd, args });
+    const id = ++seq, wc = win.webContents;
+    // Si la ventana se cierra antes de contestar (porque se canceló o se reintentó el capítulo), el
+    // pedido falla en el acto, en vez de esperar el tiempo máximo (0.10.4)
+    const alCerrar = () => { const p = pendientes.get(id); if (p) { pendientes.delete(id); clearTimeout(p.t); rej(new Error('La página se cerró')); } };
+    wc.once('destroyed', alCerrar);
+    const limpiar = () => { if (!wc.isDestroyed()) wc.removeListener('destroyed', alCerrar); };
+    const t = setTimeout(() => { pendientes.delete(id); limpiar(); rej(new Error('La página no respondió')); }, ms);
+    pendientes.set(id, { res, rej, t, limpiar });
+    wc.send('mr:cmd', { id, cmd, args });
   });
 }
 
 // Abre la dirección en una ventana oculta y espera a que termine de armarse (los sitios que
-// dibujan la página con JavaScript tardan un poco más que la carga).
-async function abrirPagina(url) {
+// dibujan la página con JavaScript tardan un poco más que la carga). `alCrear` recibe la ventana
+// apenas se crea: así un capítulo que se cancela o se reintenta la puede cerrar aunque todavía
+// esté cargando (0.10.4).
+async function abrirPagina(url, alCrear) {
   if (!/^https?:\/\//i.test(url || '')) throw new Error('La dirección tiene que empezar con http:// o https://');
   const win = new BrowserWindow({
     show: false, width: 1280, height: 900,
@@ -253,6 +276,10 @@ async function abrirPagina(url) {
       partition: PARTICION, preload: path.join(__dirname, '..', 'generado', 'pagina.js'),
     },
   });
+  if (alCrear) alCrear(win);
+  ventanasDePaginas.add(win.id);
+  const idVentana = win.id;
+  win.once('closed', () => ventanasDePaginas.delete(idVentana));
   try {
     const wc = win.webContents, id = wc.id;
     wc.once('destroyed', () => { pedidoDeEspera.delete(id); imagenesEnEspera.delete(id); });
@@ -266,23 +293,32 @@ async function abrirPagina(url) {
     const limite = setTimeout(() => { vencio = true; if (!wc.isDestroyed()) wc.stop(); }, 45000);
     // Un 429 o un 503 no es una página rota: el sitio pidió esperar. El error lleva cuánto
     // (`esperar`), que es lo que mira la cola antes de pedirle otra cosa a ese sitio.
-    const pidioEsperar = (status) => Object.assign(new Error(`La página respondió HTTP ${status}: el sitio pidió esperar`), { esperar: { status, retryAfter: pedidoDeEspera.get(id)?.retryAfter || '' } });
+    // `via`: por dónde se supo (para las pruebas): la navegación con su código, o una carga que falló
+    const pidioEsperar = (status, via) => {
+      ultimaDeteccion = { status, via };
+      return Object.assign(new Error(`La página respondió HTTP ${status}: el sitio pidió esperar`), { esperar: { status, retryAfter: pedidoDeEspera.get(id)?.retryAfter || '' } });
+    };
     try {
       await win.loadURL(url).catch((e) => {
         if (/ERR_ABORTED/.test(e.message)) return;
-        // (sin cuerpo, Chromium muestra su página de error y la carga "falla", pero la respuesta se vio)
-        if (pedidoDeEspera.has(id)) throw pidioEsperar(pedidoDeEspera.get(id).status);
+        // Preventivo (0.10.4): si la carga falla pero la respuesta que se vio fue un 429 o un 503,
+        // es que el sitio pidió esperar. En Electron 45.4.1 no pasa: un 429 o un 503 sin cuerpo
+        // (también con Content-Length: 0) llega como una navegación con su código, y lo ve el
+        // control de abajo. Queda por si otra versión de Chromium vuelve a darlo como carga fallida.
+        if (pedidoDeEspera.has(id)) throw pidioEsperar(pedidoDeEspera.get(id).status, 'carga fallida');
         throw new Error(mensajeDeCarga(e));
       });
     } finally { clearTimeout(limite); }
-    if (codigo === 429 || codigo === 503) throw pidioEsperar(codigo);
+    if (win.isDestroyed()) throw new Error('La página se cerró');          // se canceló o se reintentó mientras cargaba
+    if (codigo === 429 || codigo === 503) throw pidioEsperar(codigo, 'navegación');
     if (codigo >= 400) throw new Error(`La página respondió HTTP ${codigo}`);
 
     if (vencio && !(await armada(win))) throw new Error('La página tardó demasiado en cargar');
     else if (!vencio) await armada(win);
+    if (win.isDestroyed()) throw new Error('La página se cerró');
     return win;
   } catch (e) {
-    win.destroy();
+    if (!win.isDestroyed()) win.destroy();
     throw e;
   }
 }
@@ -292,6 +328,7 @@ async function armada(win) {
   let antes = '', iguales = 0;
   for (let i = 0; i < 24 && iguales < 3; i++) {
     await espera(500);
+    if (win.isDestroyed()) return '';                       // se cerró (cancelado o reintentado): no hay nada que esperar
     const c = await pedir(win, 'contar', {}, 8000).catch(() => null);
     const ahora = c ? `${c.imagenes}/${c.links}/${c.listo}` : '';
     iguales = c && c.listo && ahora === antes ? iguales + 1 : 0;
@@ -391,35 +428,98 @@ ipcMain.on('armador:progreso', (_e, m) => trabajos.get(m?.jobId)?.progreso(m.don
 ipcMain.handle('armador:guardar', async (e, { jobId, rel, bytes }) => {
   const t = trabajos.get(jobId);
   if (!t || !armador || e.sender !== armador.webContents) throw new Error('Trabajo desconocido');
+  // (cada escritura en curso queda anotada: si el trabajo se corta, armar espera a que terminen
+  // y se borren antes de devolver el control)
+  const escribiendo = guardarDelArmador(t, jobId, rel, bytes);
+  t.enCurso.add(escribiendo);
+  try { return await escribiendo; } finally { t.enCurso.delete(escribiendo); }
+});
+async function guardarDelArmador(t, jobId, rel, bytes) {
   const base = path.resolve(t.carpeta);
   let destino = path.resolve(base, ...String(rel).split('/'));
   if (!destino.startsWith(base + path.sep)) throw new Error('Nombre de archivo no válido');
   await fs.promises.mkdir(path.dirname(destino), { recursive: true });
+  if (PRUEBA && demoraDeGuardado) {
+    await espera(demoraDeGuardado);
+    if (!trabajos.has(jobId)) {
+      if (esPaginaSuelta(destino)) { try { fs.rmdirSync(path.dirname(destino)); } catch {} }      // (la carpeta recién creada, si quedó vacía)
+      throw new Error('El trabajo se cortó');
+    }
+  }
   // Si ya existe, no se pisa: "nombre (1).pdf", como hace el navegador
   const { dir, name, ext } = path.parse(destino);
   for (let n = 1; fs.existsSync(destino); n++) destino = path.join(dir, `${name} (${n})${ext}`);
   await fs.promises.writeFile(destino, Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength));
-  return { rel: path.relative(base, destino).split(path.sep).join('/') };
-});
+  const escrito = path.relative(base, destino).split(path.sep).join('/');
+  // (si mientras se escribía se cortó el trabajo, lo escrito sobra: se borra)
+  if (!trabajos.has(jobId)) { borrarEscritos(base, [escrito]); throw new Error('El trabajo se cortó'); }
+  t.escritos.push(escrito);
+  return { rel: escrito };
+}
 
-// Baja las páginas una vez y escribe lo pedido en carpeta/ruta.pdf, .cbz y/o carpeta/ruta/pagina_NNN.ext
-async function armar({ urls, formatos, ruta, meta, carpeta, referer }, progreso) {
+// Baja las páginas una vez y escribe lo pedido en carpeta/ruta.pdf, .cbz y/o carpeta/ruta/pagina_NNN.ext.
+// `intento` (el de un capítulo de la cola): ahí queda cómo cortar este trabajo (0.10.4).
+async function armar({ urls, formatos, ruta, meta, carpeta, referer }, progreso, intento) {
   const win = await prepararArmador();
   const jobId = crypto.randomUUID();
-  trabajos.set(jobId, { carpeta, progreso: progreso || (() => {}) });
+  const trabajo = { carpeta, progreso: progreso || (() => {}), escritos: [], enCurso: new Set() };
+  trabajos.set(jobId, trabajo);
   refererActual = referer || '';
+  let alCortar = null;
+  const cortado = new Promise((_, rej) => { alCortar = rej; });
+  cortado.catch(() => {});
+  if (intento) intento.trabajo = { jobId, cortar: () => alCortar(new Error('Se cortó')) };
   try {
     // soloEntero: si una página queda afuera porque el sitio pidió esperar (429 o 503), el armador
     // corta ahí y no arma nada (como en los lotes de la extensión): nada queda a medias
     const msg = { urls, formats: formatos, title: ruta.split('/').pop(), meta, jobId, path: ruta, soloEntero: true };
-    const r = await win.webContents.executeJavaScript(`armar(${JSON.stringify(msg)})`, true);
+    const corriendo = win.webContents.executeJavaScript(`armar(${JSON.stringify(msg)})`, true);
+    corriendo.catch(() => {});                       // (si se cortó, lo que conteste después no importa)
+    const r = await Promise.race([corriendo, cortado]);
     // Si no se pudo armar nada llega { error, esperar } en vez de un Error (que al cruzar de la
     // ventana a este proceso pierde lo que lleve de más): acá vuelve a ser uno, con su `esperar`
     if (r && r.error) throw Object.assign(new Error(r.error), { esperar: r.esperar || null });
     return r;
   } finally {
+    // Si se cortó con un archivo a medio escribir, se espera a que esa escritura termine y se borre
+    // (lo hace armador:guardar): el intento que sigue recién sale con la carpeta limpia. Sin corte no
+    // queda ninguna en curso: el armador espera cada una antes de terminar.
+    await Promise.allSettled([...trabajo.enCurso]);
     trabajos.delete(jobId);
     refererActual = '';
+    if (intento && intento.trabajo?.jobId === jobId) intento.trabajo = null;
+  }
+}
+
+// Borra lo que un intento escribió (rutas relativas a `carpeta`). Si eran las imágenes sueltas de un
+// capítulo y su carpeta quedó vacía, también esa carpeta: un capítulo cortado no deja nada suyo.
+const esPaginaSuelta = (p) => /^pagina_\d+\./.test(path.basename(p));
+function borrarEscritos(carpeta, rels) {
+  const carpetas = new Set();
+  for (const rel of rels || []) {
+    const p = path.join(carpeta, ...String(rel).split('/'));
+    try { fs.rmSync(p, { force: true }); } catch {}
+    if (esPaginaSuelta(p)) carpetas.add(path.dirname(p));
+  }
+  for (const d of carpetas) { try { fs.rmdirSync(d); } catch {} }      // (rmdir solo saca una carpeta vacía)
+}
+
+// Corta en el acto el intento en curso de un capítulo de la cola, al cancelarlo o al reintentarlo
+// (0.10.4): cierra su ventana, corta lo que esté armando el armador (que se vuelve a crear para el
+// que sigue) y borra lo que ese intento alcanzó a escribir. Hasta la 0.10.3 el intento viejo dejaba
+// de escribir pero seguía hasta terminar el paso en el que estaba, con su ventana abierta.
+function cortarIntento(t) {
+  const i = t.intento;
+  if (!i || i.cortado) return;
+  i.cortado = true;
+  if (i.win && !i.win.isDestroyed()) i.win.destroy();
+  const trabajo = i.trabajo && trabajos.get(i.trabajo.jobId);
+  if (trabajo) {
+    trabajos.delete(i.trabajo.jobId);              // lo que el armador mande después ya no se escribe
+    borrarEscritos(trabajo.carpeta, trabajo.escritos);
+    if (armador && !armador.isDestroyed()) armador.destroy();
+    armador = null;
+    i.trabajo.cortar();
   }
 }
 
@@ -776,10 +876,12 @@ function mostrarAvisoDeFin() {
     if (AVISOS) console.log(`[aviso] action · actionIndex ${detalles && detalles.actionIndex} · índice ${indice} · botones: ${a.botones.map(b => b.canal).join(', ')}`);
     a.accion(detalles, indice);
   });
-  aviso.show();
   avisoDeFin = { aviso, ...a };
   avisosVivos.push(avisoDeFin);
   if (avisosVivos.length > 10) avisosVivos.shift();
+  // (recién preparados los avisos, se muestra cuando Windows ya tiene el acceso directo: ver
+  // prepararAvisos. Si mientras tanto terminó otra cola, sale solo el último)
+  avisosListos.then(() => { if (avisoDeFin && avisoDeFin.aviso === aviso) aviso.show(); });
   return avisoDeFin;
 }
 
@@ -797,12 +899,15 @@ async function bajar(t) {
   // reintentar le cambia la vuelta (`vez`), y el intento nuevo es otro
   const vez = t.vez;
   const vigente = () => t.vez === vez && t.estado !== 'cancelado';
+  // Lo que hace falta para cortar este intento en el acto (cortarIntento): su ventana y su trabajo en el armador
+  const intento = { vez, win: null, trabajo: null, cortado: false };
+  t.intento = intento;
   try {
     let r = t.info;                                  // revisado a mano: ya se sabe qué páginas van
     let cortado = '';
     if (!r) {
       paso(t, 'abriendo');
-      win = await abrirPagina(t.url);
+      win = await abrirPagina(t.url, (w) => { intento.win = w; });
       if (!vigente()) return;
       paso(t, 'buscando páginas');
       r = await pedir(win, 'paginas', { recorrer: true }, 240000);
@@ -849,7 +954,7 @@ async function bajar(t) {
     let res;
     try {
       res = await armar({ urls, formatos: o.formatos, ruta, meta, carpeta: o.carpeta, referer: t.url },
-        (hechas, total) => { if (vigente() && t.estado === 'bajando') paso(t, 'bajando', `${hechas}/${total}`); });
+        (hechas, total) => { if (vigente() && t.estado === 'bajando') paso(t, 'bajando', `${hechas}/${total}`); }, intento);
     } catch (e) {
       // El sitio pidió esperar con una página y el armador cortó: el capítulo queda incompleto, sin
       // ningún archivo, y el sitio frenado
@@ -860,7 +965,7 @@ async function bajar(t) {
     }
     const escritos = res.archivos.filter(a => a.rel).map(a => a.rel);
     // (si mientras bajaba se reintentó, lo de este intento sobra: el nuevo lo vuelve a escribir entero)
-    if (t.vez !== vez) { for (const rel of escritos) { try { fs.rmSync(path.join(o.carpeta, ...rel.split('/')), { force: true }); } catch {} } return; }
+    if (t.vez !== vez) { borrarEscritos(o.carpeta, escritos); return; }
     t.archivos = escritos;
     if (t.estado === 'cancelado') return;
 
@@ -880,32 +985,34 @@ async function bajar(t) {
     paso(t, problemas.length ? 'incompleto' : 'listo', `${res.pages} páginas` + (fuera ? ` (${fuera} descartada${fuera === 1 ? '' : 's'} como publicidad)` : '') +
       (problemas.length ? ' · ' + problemas.join(' · ') : ''));
   } catch (e) {
-    if (e.esperar) anotarEspera(t, e.esperar);            // el capítulo entero falló porque el sitio pidió esperar
+    if (e.esperar && !intento.cortado) anotarEspera(t, e.esperar);      // el capítulo entero falló porque el sitio pidió esperar
     if (vigente()) paso(t, 'falló', String(e.message || e));
   } finally {
     if (win && !win.isDestroyed()) win.destroy();
+    if (t.intento === intento) t.intento = null;
   }
 }
 
-// Cancela lo que falta. El capítulo en curso se corta al terminar el paso en el que está.
+// Cancela lo que falta. El capítulo en curso se corta en el acto (desde la 0.10.4: antes seguía
+// hasta terminar el paso en el que estaba), y lo que alcanzó a escribir se borra.
 function cancelar() {
-  for (const t of cola) if (pendiente(t)) { t.estado = 'cancelado'; t.detalle = ''; }
+  for (const t of cola) if (pendiente(t)) { cortarIntento(t); t.estado = 'cancelado'; t.detalle = ''; }
   avisar();
 }
 function limpiar() {
   for (let i = cola.length - 1; i >= 0; i--) if (!pendiente(cola[i])) cola.splice(i, 1);
   avisar();
 }
-// Vuelve a poner en la cola todo lo que falló, quedó incompleto o se canceló. De lo incompleto
-// se borran antes los archivos que esa misma tarea había escrito, para bajarlo entero de nuevo
-// (si no, quedaría "nombre (1).pdf" al lado del que salió mal).
+// Vuelve a poner en la cola todo lo que falló, quedó incompleto o se canceló. Antes se corta el
+// intento que siga en curso y se borran los archivos que esa misma tarea había escrito, para
+// bajarlo entero de nuevo (si no, quedaría "nombre (1).pdf" al lado del que salió mal). Desde la
+// 0.10.4 también los de un capítulo cancelado que alcanzó a escribir.
 function reintentar() {
   let n = 0;
   for (const t of cola) {
     if (!SIN_TERMINAR.has(t.estado)) continue;
-    if (t.estado === 'incompleto') {
-      for (const rel of t.archivos) { try { fs.rmSync(path.join(t.opciones.carpeta, ...rel.split('/')), { force: true }); } catch {} }
-    }
+    cortarIntento(t);
+    borrarEscritos(t.opciones.carpeta, t.archivos);
     t.archivos = [];
     t.estado = 'en cola';
     t.detalle = '';
@@ -1116,22 +1223,95 @@ async function usarProxy(proxy, sitio) {
     sitio = (await r.json()).sitio;
   }
   sitio = new URL(sitio).origin;
+  // (lo que ya estaba en la caché no pasaría por el proxy: se borra al empezar a usarlo)
+  await ses.clearCache();
   ses.webRequest.onBeforeRequest((d, cb) => cb(d.url.startsWith(sitio + '/') ? { redirectURL: proxy + d.url.slice(sitio.length) } : {}));
   proxyActual = { proxy, sitio };
   return proxyActual;
 }
 const proxyPedido = () => process.env.MR_PROXY || (process.argv.find(a => a.startsWith('--proxy=')) || '').slice('--proxy='.length);
 
+// ── El primer aviso de Windows ───────────────────────
+// Windows muestra en pantalla los avisos de una aplicación que tiene un acceso directo en el menú
+// Inicio con su identificador (AUMID). Si no lo hay, Electron lo crea la primera vez que muestra un
+// aviso, y ese primero va directo al centro de notificaciones, sin salir en pantalla: el primer lote
+// que terminaba no avisaba. Desde la 0.10.4, al arrancar, si ese acceso directo todavía no está, se
+// muestra un aviso mudo que se cierra enseguida: Electron crea el acceso directo y el primer aviso de
+// verdad ya sale en pantalla. Con el programa instalado, el acceso directo lo crea el instalador.
+// Windows tarda en tomar el acceso directo nuevo: un aviso que llega en el primer segundo se pierde,
+// y arrastra a los que vienen unos segundos detrás (medido el 25-11-2026: a 0,5 y 1 s se perdieron,
+// y con ellos uno a los 9 s; a 2 y 5 s salieron, 4 de 4). Por eso, si la cola termina en ese rato,
+// su aviso espera hasta AVISO_TRAS_ACCESO después de que aparece el acceso directo.
+const AVISO_TRAS_ACCESO = 5000;
+let avisosListos = Promise.resolve();     // se cumple cuando un aviso ya puede salir en pantalla
+let estadoAvisos = '';                    // qué se hizo al arrancar (para las pruebas)
+function accesoDelPrograma() {
+  const raices = [path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs'),
+                  path.join(process.env.ProgramData || 'C:\\ProgramData', 'Microsoft', 'Windows', 'Start Menu', 'Programs')];
+  // Primero los que están sueltos en el menú Inicio (ahí lo deja Electron, y también el instalador) y
+  // después los de las carpetas: leer cada uno cuesta, y así el de todos los días aparece enseguida
+  // (medido el 25-11-2026 con 191 accesos directos: de 140 a 280 ms leerlos todos)
+  const sueltos = [], enCarpetas = [];
+  const recorrer = (d, nivel) => {
+    let es = [];
+    try { es = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of es) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) { if (nivel < 3) recorrer(p, nivel + 1); }
+      else if (/\.lnk$/i.test(e.name)) (nivel ? enCarpetas : sueltos).push(p);
+    }
+  };
+  raices.forEach(r => recorrer(r, 0));
+  const esDelPrograma = (p) => { try { return shell.readShortcutLink(p).appUserModelId === AUMID; } catch { return false; } };
+  return sueltos.find(esDelPrograma) || enCarpetas.find(esDelPrograma) || '';
+}
+function prepararAvisos() {
+  if (process.platform !== 'win32' || !Notification.isSupported()) { estadoAvisos = 'sin avisos de Windows'; return; }
+  const ya = accesoDelPrograma();
+  if (ya) { estadoAvisos = 'el acceso directo ya estaba: ' + path.basename(ya); return; }
+  const mudo = new Notification({ title: 'Manga Reader', body: 'Listo para avisarte cuando termine la cola.', silent: true });
+  mudo.show();
+  setTimeout(() => { try { mudo.close(); } catch {} }, 2000);
+  estadoAvisos = 'aviso mudo al arrancar: esperando el acceso directo';
+  avisosListos = (async () => {
+    let creado = '';
+    for (let i = 0; i < 25 && !(creado = accesoDelPrograma()); i++) await espera(200);
+    estadoAvisos = creado ? 'acceso directo creado al arrancar: ' + path.basename(creado) : 'aviso mudo al arrancar, pero el acceso directo no apareció en 5 s';
+    await espera(AVISO_TRAS_ACCESO);
+  })();
+}
+
 // ── Arranque ─────────────────────────────────────────
-if (!PRUEBA && !HUMO && !app.requestSingleInstanceLock()) {
-  if (proxyPedido()) console.log('El programa ya está abierto: MR_PROXY o --proxy= no se aplican a esa ventana. Cerralo y abrilo de nuevo con el proxy.');
+if (!PRUEBA && !HUMO && !app.requestSingleInstanceLock({ proxy: proxyPedido() })) {
+  if (proxyPedido()) console.log('El programa ya está abierto: MR_PROXY o --proxy= no se aplican a esa ventana. La que está abierta lo avisa, con un botón para cerrarla y abrirla de nuevo con el proxy.');
   app.quit();
 }
-app.on('second-instance', () => { if (ui && !ui.isDestroyed()) { if (ui.isMinimized()) ui.restore(); ui.focus(); } });
+// Se abrió otra vez. Si fue con el proxy de prueba y esta ventana no lo usa (o usa otro), la ventana
+// lo dice, con un botón para cerrar y abrir de nuevo con él (0.10.4: hasta la 0.10.3 solo lo decía la consola)
+let proxyEnEspera = '';
+app.on('second-instance', (_e, argv, _dir, datos) => {
+  if (ui && !ui.isDestroyed()) { if (ui.isMinimized()) ui.restore(); ui.focus(); }
+  const pedido = (datos && datos.proxy) || (argv.find(a => a.startsWith('--proxy=')) || '').slice('--proxy='.length);
+  let origen = '';
+  try { origen = pedido ? new URL(pedido).origin : ''; } catch {}
+  if (!origen || origen === proxyActual?.proxy) return;
+  proxyEnEspera = origen;
+  if (ui && !ui.isDestroyed()) ui.webContents.send('aviso-proxy', { proxy: origen, actual: proxyActual?.proxy || '' });
+  console.log(`[aviso-proxy] se pidió el proxy ${origen} con el programa ya abierto ${proxyActual ? 'con otro' : 'sin él'}`);
+});
+// El botón del aviso: cierra y abre de nuevo, con el proxy pedido
+atender('reabrir-con-proxy', () => {
+  if (!proxyEnEspera) throw new Error('No hay ningún proxy pedido');
+  app.relaunch({ args: process.argv.slice(1).filter(a => !a.startsWith('--proxy=')).concat('--proxy=' + proxyEnEspera) });
+  setTimeout(() => app.exit(0), 300);
+  return true;
+});
 app.on('window-all-closed', () => { if (!PRUEBA) app.quit(); });
 
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
+  // (con MR_DATOS, que es de las pruebas, no se toca el menú Inicio)
+  if ((!PRUEBA || AVISOS) && !HUMO && !process.env.MR_DATOS) prepararAvisos();
   leerConfig();
   if (!PRUEBA) { leerGuardados(); leerRegistro(); }      // las pruebas arrancan con todo vacío y no lo escriben
   prepararSesion();
@@ -1152,12 +1332,17 @@ app.whenReady().then(async () => {
   if (PRUEBA) {
     // "electron . --prueba": corre las pruebas del programa contra un sitio de prueba local
     // (con --avisos, la del aviso de Windows y sus botones apretados de verdad)
-    const fallas = await require(AVISOS ? '../tests/avisos.js' : '../tests/prueba.js')({ analizar, seguir, buscarEnSitio, encolar, colaVacia, cancelar, limpiar, guardarConfig, abrirUI, nucleo,
+    const archivoDePrueba = AVISOS ? 'avisos.js' : 'prueba.js';
+    const fallas = await require(DIR_PRUEBAS ? path.resolve(DIR_PRUEBAS, archivoDePrueba) : '../tests/' + archivoDePrueba)({ analizar, seguir, buscarEnSitio, encolar, colaVacia, cancelar, limpiar, guardarConfig, abrirUI, nucleo,
       guardarLinks, quitarLinks, guardados: () => guardados, tapa, reintentar, paginasDe, revisarDisco, vistaDePlantilla, agregarReciente,
       revisarTitulos, verRegistro, quitarDelRegistro, vincular, desvincular, sinMirar, seguirSerie, dejarDeSeguir, buscarNovedades, bajarNovedades, ultimoAviso: () => ultimoAviso, config: () => config,
       // el freno, el proxy y el aviso de fin de cola
       verCola: () => cola.map(publico), usarProxy, esperaDe: (url) => Math.max(0, (noAntesDe.get(sitioDe(url)) || 0) - Date.now()), olvidarEsperas: () => noAntesDe.clear(),
-      armarAvisoDeFin, mostrarAvisoDeFin, avisoDeFin: () => avisoDeFin, carpetasAbiertas })
+      armarAvisoDeFin, mostrarAvisoDeFin, avisoDeFin: () => avisoDeFin, carpetasAbiertas,
+      // (0.10.4) por dónde se supo que la página pidió esperar, las ventanas de páginas abiertas y
+      // una demora antes de escribir cada archivo del armador (para cortar un intento en el medio)
+      ultimaDeteccion: () => ultimaDeteccion, ventanasDePaginas: () => [...ventanasDePaginas], demorarGuardado: (ms) => { demoraDeGuardado = +ms || 0; },
+      estadoAvisos: () => estadoAvisos, empaquetado: app.isPackaged, ejecutable: process.execPath })
       .catch((e) => { console.log('FALLA la prueba se cortó: ' + (e.stack || e)); return 1; });
     app.exit(fallas ? 1 : 0);
     return;

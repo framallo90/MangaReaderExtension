@@ -217,9 +217,33 @@ const lectorTapas = (n) => pagina(`Obra Uno Capítulo ${n} | Sitio de tapas`, me
 
 function iniciar({ tapas = false } = {}) {
   const pedidos = { sinReferer: 0, capitulos: {}, portada: 0, horas: {} };
+  // (0.10.4) Lo que una prueba puede retener: mientras `lento.pagina` es true, la página de
+  // /leer/lento-1/ no contesta; mientras `lento.armador` es true, las imágenes de /leer/lento-2/ no
+  // contestan desde el segundo pedido de cada una (el primero es el de la página; el segundo, el del
+  // armador). `cabeceras[dirección]`: las cabeceras del último pedido de cada imagen de /img/cache/.
+  const lento = { pagina: false, armador: false };
+  const retener = (cuando, seguir) => { const fin = Date.now() + 30000; const mirar = () => (cuando() && Date.now() < fin ? setTimeout(mirar, 50) : seguir()); mirar(); };
   const srv = http.createServer((req, res) => {
     const [u, consulta = ''] = req.url.split('?');
     const enviar = (tipo, cuerpo, estado = 200, cabeceras = {}) => { res.writeHead(estado, { 'Content-Type': tipo, 'Cache-Control': 'no-store', ...cabeceras }); res.end(cuerpo); };
+    // (0.10.4) Un capítulo lento, para cancelarlo y reintentarlo en el medio, y uno con las imágenes que se pueden cachear
+    let ml = u.match(/^\/leer\/(lento|cache)-(\d)\/$/);
+    if (ml) {
+      (pedidos.horas[u] = pedidos.horas[u] || []).push(Date.now());
+      const responder = () => enviar('text/html; charset=utf-8', pagina(`${ml[1] === 'lento' ? 'Lento' : 'Cache'} Capítulo ${ml[2]} | Sitio de prueba`, menu + imagenes(ml[1] + '/' + ml[2], false)));
+      return u === '/leer/lento-1/' ? retener(() => lento.pagina, responder) : responder();
+    }
+    ml = u.match(/^\/img\/(lento|cache)\/(\d)\/\d\.jpg$/);
+    if (ml) {
+      (pedidos.horas[u] = pedidos.horas[u] || []).push(Date.now());
+      if (ml[1] === 'cache') {
+        pedidos.cabeceras = pedidos.cabeceras || {};
+        pedidos.cabeceras[u] = { 'cache-control': req.headers['cache-control'] || '', pragma: req.headers.pragma || '' };
+        return enviar('image/jpeg', JPG, 200, { 'Cache-Control': 'max-age=3600' });      // se puede guardar en la caché
+      }
+      const segundo = pedidos.horas[u].length >= 2;
+      return ml[2] === '2' && segundo ? retener(() => lento.armador, () => enviar('image/jpeg', JPG)) : enviar('image/jpeg', JPG);
+    }
     // A qué hora llegó cada pedido de las páginas que piden esperar: las pruebas miden con eso cuánto se esperó
     const anotarHora = () => (pedidos.horas[u] = pedidos.horas[u] || []).push(Date.now());
     const html = (cuerpo) => enviar('text/html; charset=utf-8', cuerpo);
@@ -310,8 +334,9 @@ function iniciar({ tapas = false } = {}) {
       }
       return enviar('image/jpeg', JPG);
     }
-    // (0.10.3) Un capítulo cuya página responde 429 sin cuerpo la primera vez (Chromium muestra su
-    // propia página de error), y uno con la tapa de un "relacionado" que responde siempre 503
+    // (0.10.3) Un capítulo cuya página responde 429 sin cuerpo la primera vez (con Content-Length: 0;
+    // en Electron 45 llega igual como una navegación con su código), y uno con la tapa de un
+    // "relacionado" que responde siempre 503
     m = u.match(/^\/leer\/(vacio|relacionado)-1\/$/);
     if (m) {
       anotarHora();
@@ -346,7 +371,7 @@ function iniciar({ tapas = false } = {}) {
     enviar('text/plain', 'no', 404);
   });
   return new Promise((resolve) => srv.listen(0, '127.0.0.1', () => resolve({
-    url: `http://127.0.0.1:${srv.address().port}`, pedidos,
+    url: `http://127.0.0.1:${srv.address().port}`, pedidos, lento,
     // (closeAllConnections: una conexión que el navegador dejó abierta sin usar haría esperar para siempre)
     cerrar: () => new Promise(r => { srv.close(r); srv.closeAllConnections(); }),
   })));

@@ -8,25 +8,38 @@
 //   "Reintentar 1 que falló"  vuelve a la cola el capítulo que falló, respetando el freno del sitio
 //   "Limpiar terminados"      saca de la lista lo terminado
 //   "Abrir carpeta"           abre la carpeta de descargas en el Explorador
-// Windows no muestra el primer aviso después de que Electron crea su acceso directo en el menú
-// Inicio (va directo al centro de notificaciones): si un aviso no aparece, se muestra otra vez.
+// Cada aviso se aprieta al primer intento: si no aparece en pantalla, falla (no se vuelve a mostrar).
+// Hasta la 0.10.3, el primer aviso después de que Electron creaba su acceso directo en el menú Inicio
+// iba directo al centro de notificaciones, y la prueba lo mostraba otra vez. Desde la 0.10.4 el
+// programa prepara los avisos al arrancar (prepararAvisos en main.js) y el primero ya sale en
+// pantalla. Para probarlo desde cero: npm run avisos:limpio (borra antes el acceso directo y las
+// claves del programa con tests/limpiar-avisos.ps1).
+//
+// Sobre el programa instalado (con las pruebas de esta carpeta):
+//   "%LOCALAPPDATA%\Programs\Manga Reader\Manga Reader.exe" --prueba --avisos --pruebas=<esta carpeta>
+// (los pasos completos, en la sección 11 de DOCUMENTACION.md)
 const fs = require('fs'), os = require('os'), path = require('path');
 const { spawn, execFileSync } = require('child_process');
 const { iniciar } = require('./sitio');
 const dormir = (ms) => new Promise(r => setTimeout(r, ms));
 const hora = () => { const d = new Date(), p = (x, n = 2) => String(x).padStart(n, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
 
-// Aprieta el botón `texto` del aviso del programa. Devuelve { codigo, salida } (codigo 0 = apretado)
+// Aprieta el botón `texto` del aviso del programa cuando aparezca en pantalla (lo espera hasta
+// `segundos`). Devuelve { mirando, fin }: `mirando` se cumple cuando el script ya está buscando el
+// aviso (tarda de 2 a 5 s en arrancar), y `fin`, con { codigo, salida } (codigo 0 = apretado).
 function apretar(texto, segundos = 15) {
-  return new Promise((resolve) => {
+  let yaMira = null;
+  const mirando = new Promise((r) => { yaMira = r; });
+  const fin = new Promise((resolve) => {
     const ps = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'clic-aviso.ps1'),
       '-Texto', texto, '-Titulo', 'Manga Reader: terminó la cola', '-Segundos', String(segundos)], { windowsHide: true });
     let salida = '';
-    ps.stdout.on('data', (d) => { salida += d; });
+    ps.stdout.on('data', (d) => { salida += d; if (/Busco el aviso/.test(salida)) yaMira(); });
     ps.stderr.on('data', (d) => { salida += d; });
-    ps.on('close', (codigo) => resolve({ codigo, salida: salida.trim() }));
-    ps.on('error', (e) => resolve({ codigo: -1, salida: e.message }));
+    ps.on('close', (codigo) => { yaMira(); resolve({ codigo, salida: salida.trim() }); });
+    ps.on('error', (e) => { yaMira(); resolve({ codigo: -1, salida: e.message }); });
   });
+  return { mirando, fin };
 }
 
 // Saca del centro de notificaciones (y de la pantalla) los avisos del programa: si quedara uno de
@@ -55,38 +68,59 @@ module.exports = async function probar(api) {
   const soloPdf = { pdf: true, cbz: false, imgs: false };
   const estados = (cola) => cola.map(t => `${t.nombre || t.texto}: ${t.estado}`).join(' ; ');
   console.log(`== Avisos de Windows con botones · ${hora()} · Windows ${os.release()} · Electron ${process.versions.electron}`);
+  console.log(`  programa: ${api.empaquetado ? 'instalado' : 'sin instalar (npm)'} · ${api.ejecutable}`);
+  // Lo que hizo al arrancar: si el acceso directo no estaba (instalación limpia), lo tuvo que preparar
+  const alArrancar = api.estadoAvisos ? api.estadoAvisos() : '(esta versión no lo dice)';
+  console.log(`  al arrancar: ${alArrancar}${/ya estaba/.test(alArrancar) ? '' : ' → corrida desde cero: el primer aviso es el primero que ve Windows'}`);
   try {
     api.guardarConfig({ carpeta: tmp, formatos: soloPdf });
     const ui = await api.abrirUI(false);          // oculta: sin el foco, el programa avisa al terminar la cola
     for (let i = 0; i < 50 && !(await ui.webContents.executeJavaScript('document.readyState === "complete" && !!window.mr').catch(() => false)); i++) await dormir(200);
 
-    // Aprieta un botón del aviso que acaba de salir; si no aparece en pantalla, lo muestra otra vez
-    const tocar = async (texto) => {
-      for (let intento = 1; intento <= 3; intento++) {
-        const r = await apretar(texto);
+    // Aprieta un botón del aviso que va a salir, al primer intento: si no aparece en pantalla, no se
+    // vuelve a mostrar (eso escondía que el primer aviso no salía). El que aprieta arranca antes de
+    // que salga el aviso y ya está mirando la pantalla cuando aparece, como una persona: un aviso
+    // dura unos 5 s en pantalla y el script tarda de 2 a 5 en arrancar, así que si arrancara después
+    // a veces llegaría tarde (pasó el 25-11-2026 a las 20:01: lo encontró cuando ya se iba).
+    // Devuelve { mirando, fin }: `fin` es 'apretado' o por qué no.
+    const tocar = (texto, segundos = 40) => {
+      const a = apretar(texto, segundos);
+      const fin = a.fin.then((r) => {
         const lineas = r.salida.split(/\r?\n/).filter(l => /OK:|NO APARECIÓ|NO SE PUDO|encontr/i.test(l));
-        console.log(`      (intento ${intento}, ${hora()}: código ${r.codigo}${lineas.length ? ' · ' + lineas.slice(-2).join(' · ') : ''})`);
-        if (r.codigo === 0) return `apretado al intento ${intento}`;
-        if (r.codigo !== 1) return `no se pudo apretar (código ${r.codigo})`;
-        api.mostrarAvisoDeFin();
-      }
-      return 'el aviso no apareció';
+        console.log(`      (${hora()}: código ${r.codigo}${lineas.length ? ' · ' + lineas.slice(-2).join(' · ') : ''})`);
+        if (r.codigo === 0) return 'apretado';
+        if (r.codigo === 1) return 'el aviso no apareció en pantalla';
+        return `no se pudo apretar (código ${r.codigo})`;
+      });
+      return { mirando: a.mirando, fin };
     };
+    const desdeCero = !/ya estaba/.test(alArrancar);
 
     limpiarAvisos();
     // 1) Reintentar: el capítulo 1 del sitio ocupado responde 503 sin Retry-After la primera vez: el
     //    sitio queda frenado un minuto. El clic llega mucho antes, y el reintento igual espera el minuto.
+    //    Desde cero, la cola sale ya: el programa retiene ese primer aviso unos segundos (es lo que se
+    //    prueba) y el que aprieta llega a tiempo. Con el acceso directo ya creado, el aviso sale apenas
+    //    termina la cola: se espera a que el que aprieta esté mirando.
+    const clic1 = tocar('Reintentar 1 que falló');
+    if (!desdeCero) await clic1.mirando;
     api.encolar([{ url: `${S}/leer/ocupado-1/`, texto: 'Capítulo 1', numero: 1 }], { carpeta: tmp, serie: 'Avisos', formatos: soloPdf });
     await api.colaVacia();
     const aviso1 = api.avisoDeFin();
     console.log(`  aviso: "${aviso1?.titulo}" · ${aviso1?.cuerpo} · botones: ${aviso1?.botones.map(b => b.texto).join(' | ')}`);
-    const tocado1 = await tocar('Reintentar 1 que falló');
+    const tocado1 = await clic1.fin;
     const alTocar = Date.now();
+    eq('el primer aviso de fin de cola sale en pantalla y se aprieta al primer intento, sin volver a mostrarlo', tocado1, 'apretado');
+    if (api.estadoAvisos) console.log(`      (lo que hizo al arrancar, ya terminado: ${api.estadoAvisos()})`);
     await dormir(500);
+    // (el primer aviso ya se usó: se saca, y el que aprieta el botón del siguiente lo espera desde
+    // ahora: sale cuando termina el reintento, al minuto)
+    limpiarAvisos();
+    const clic2 = tocar('Limpiar terminados', 110);
     const fin1 = estados(await api.colaVacia(120000));
     const h = sitio.pedidos.horas['/leer/ocupado-1/'] || [];
     const seg = (ms) => (ms / 1000).toFixed(1);
-    console.log(`      (el 503 a las ${new Date(h[0]).toLocaleTimeString('es-AR')}; el clic a los ${seg(alTocar - h[0])} s; el reintento ${h[1] ? `a los ${seg(h[1] - h[0])} s` : 'no salió'})`);
+    console.log(`      (el 503 a las ${new Date(h[0]).toLocaleTimeString('es-AR', { hour12: false })}; el clic a los ${seg(alTocar - h[0])} s; el reintento ${h[1] ? `a los ${seg(h[1] - h[0])} s` : 'no salió'})`);
     eq('clic real en "Reintentar 1 que falló" (503 sin Retry-After): el clic llega antes del minuto, el reintento sale recién al minuto del 503 (el freno del sitio) y se guarda',
       `apretado: ${tocado1.startsWith('apretado')} · clic ${alTocar - h[0] < 50000 ? 'antes de los 50 s' : 'tarde'} · ${h.length} pedidos · ${h.length >= 2 && h[1] - h[0] >= 59000 && h[1] - h[0] < 75000 ? 'el reintento, entre los 59 y los 75 s' : h[1] ? 'el reintento a los ' + seg(h[1] - h[0]) + ' s' : 'el reintento no salió'} · ${fin1}`,
       'apretado: true · clic antes de los 50 s · 2 pedidos · el reintento, entre los 59 y los 75 s · Avisos/Avisos 0001: listo');
@@ -94,17 +128,19 @@ module.exports = async function probar(api) {
     // 2) Limpiar terminados: el aviso del final de ese reintento
     const aviso2 = api.avisoDeFin();
     console.log(`  aviso: "${aviso2?.titulo}" · ${aviso2?.cuerpo} · botones: ${aviso2?.botones.map(b => b.texto).join(' | ')}`);
-    const tocado2 = await tocar('Limpiar terminados');
+    const tocado2 = await clic2.fin;
     await dormir(800);
     eq('clic real en "Limpiar terminados": la lista queda vacía, en el programa y en la ventana',
       `${tocado2.startsWith('apretado')} · ${api.verCola().length} · ${await ui.webContents.executeJavaScript(`document.querySelector('#cola').textContent`)}`, 'true · 0 · Todavía no hay nada en la cola.');
 
     limpiarAvisos();
     // 3) Abrir carpeta: otro capítulo, y el aviso de su final
+    const antes = explorador(tmp, false);
+    const clic3 = tocar('Abrir carpeta');
+    await clic3.mirando;
     api.encolar([{ url: `${S}/leer/alfa-1/`, texto: 'Capítulo 1', numero: 1 }], { carpeta: tmp, serie: 'Avisos', formatos: soloPdf });
     await api.colaVacia();
-    const antes = explorador(tmp, false);
-    const tocado3 = await tocar('Abrir carpeta');
+    const tocado3 = await clic3.fin;
     let abiertas = 0;
     for (let i = 0; i < 20 && !(abiertas = explorador(tmp, false)); i++) await dormir(500);
     eq('clic real en "Abrir carpeta": se abre el Explorador en la carpeta de descargas', `${tocado3.startsWith('apretado')} · antes ${antes} · después ${abiertas > 0 ? 'abierta' : abiertas}`, 'true · antes 0 · después abierta');

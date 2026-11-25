@@ -217,3 +217,5 @@ aside .barra button { padding: 6px 9px; font-size: 12px; }
 .fila .det { margin-left: 10px; color: #8fa6d8; font-size: 12px; }
 #lista.tapas .fila .det { display: none; }
 .fila.supuesto .txt { color: #a9b8dc; }
+#avisoProxy { padding: 8px 10px; border: 1px solid rgba(243, 156, 18, .45); border-radius: 8px; background: rgba(243, 156, 18, .1); color: #f39c12; font-size: 12px; line-height: 1.45; word-break: break-word; }
+#avisoProxy button { margin-left: 6px; }

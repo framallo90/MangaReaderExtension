@@ -1,6 +1,6 @@
 {
   "name": "manga-reader-programa",
-  "version": "0.10.3",
+  "version": "0.10.4",
   "description": "Programa de escritorio de Manga Reader: explora una página y guarda capítulos como PDF, CBZ o imágenes.",
   "private": true,
   "main": "src/main.js",
@@ -9,6 +9,9 @@
     "start": "node scripts/abrir.js",
     "prueba": "node scripts/abrir.js --prueba",
     "avisos": "node scripts/abrir.js --prueba --avisos",
+    "avisos:limpiar": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/limpiar-avisos.ps1",
+    "avisos:limpio": "npm run avisos:limpiar && npm run avisos",
+    "proxy-abierto": "node tests/proxy-abierto.js",
     "instalador": "node scripts/instalador.js"
   },
   "devDependencies": {

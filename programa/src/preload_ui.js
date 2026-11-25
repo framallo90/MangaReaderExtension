@@ -49,4 +49,7 @@ contextBridge.exposeInMainWorld('mr', {
   abrirCarpeta: () => pedir('abrir-carpeta'),
   // (entre llaves: no devuelve nada. Lo que devuelve ipcRenderer.on no se puede pasar a la página)
   alCambiarCola: (fn) => { ipcRenderer.on('cola', (_e, cola) => fn(cola)); },
+  // (0.10.4) Se abrió el programa otra vez con el proxy de prueba y esta ventana no lo usa: { proxy, actual }
+  alPedirProxy: (fn) => { ipcRenderer.on('aviso-proxy', (_e, d) => fn(d)); },
+  reabrirConProxy: () => pedir('reabrir-con-proxy'),
 });

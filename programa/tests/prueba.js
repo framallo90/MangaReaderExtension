@@ -228,10 +228,13 @@ module.exports = async function probar(api) {
     api.reintentar();
     eq('  con el sitio ya libre, Reintentar baja el que había fallado', estados(await api.colaVacia()).split(' ; ')[0], 'Ocupado/Ocupado 0005: listo (6 páginas)');
     api.limpiar();
-    // (0.10.3) Un 429 sin cuerpo: Chromium muestra su propia página de error, pero el programa ve la respuesta y frena igual
+    // Un 429 sin cuerpo (y con Content-Length: 0). En la 0.10.3 se agregó el camino de una carga que
+    // falla con la respuesta vista, por si Chromium lo daba así; en la 0.10.4 se comprobó que en
+    // Electron 45.4.1 llega como una navegación con su código, como cualquier 429: ese camino es
+    // preventivo. Acá se comprueba por dónde se supo de verdad.
     api.encolar([{ url: `${S}/leer/vacio-1/`, texto: 'Capítulo 1', numero: 1 }], { carpeta: tmp, serie: 'Vacio', formatos: soloPdf });
-    eq('la página responde 429 sin cuerpo (Chromium muestra su página de error): falla con el motivo y el sitio queda frenado un minuto',
-      `${estados(await api.colaVacia())} · ${minuto(api.esperaDe(S))}`, 'Capítulo 1: falló (La página respondió HTTP 429: el sitio pidió esperar) · entre 55 y 60 s');
+    eq('la página responde 429 sin cuerpo: llega como una navegación con su código (no como una carga fallida), falla con el motivo y el sitio queda frenado un minuto',
+      `${estados(await api.colaVacia())} · se supo por: ${api.ultimaDeteccion()?.via} · ${minuto(api.esperaDe(S))}`, 'Capítulo 1: falló (La página respondió HTTP 429: el sitio pidió esperar) · se supo por: navegación · entre 55 y 60 s');
     api.olvidarEsperas();
     eq('  y al reintentar, sale', api.reintentar() + ' · ' + estados(await api.colaVacia()), '1 · Vacio/Vacio 0001: listo (6 páginas)');
     api.limpiar();
@@ -837,6 +840,33 @@ module.exports = async function probar(api) {
       eq('un capítulo que ya está en la carpeta, con una de sus imágenes pidiendo esperar al abrir la página: "ya estaba", y el sitio frenado lo que pidió',
         `${estados(await api.colaVacia())} · freno ${api.esperaDe(S) > 0 && api.esperaDe(S) <= 1000 ? 'de 1 s o menos' : api.esperaDe(S) + ' ms'}`, 'Proxy/Proxy 0002: ya estaba (ya está en la carpeta) · freno de 1 s o menos');
       api.limpiar();
+      await dormir(1100);
+
+      // (0.10.4) Con el proxy, lo de ese sitio se pide sin caché: el armador vuelve a pedir las imágenes
+      // que la página ya bajó, aunque el sitio deje cachearlas, y así el proxy las puede cortar. Hasta la
+      // 0.10.3 el armador las tomaba de la caché y no llegaban al proxy.
+      proxy.fijarReglas([]);
+      const delArmador = (n) => proxy.pedidos.filter(p => p.ruta.startsWith(`/img/cache/${n}/`) && p.accept === 'image/*').length;
+      api.encolar([{ url: `${S}/leer/cache-1/`, texto: 'Capítulo 1', numero: 1 }], { ...enProxy, serie: 'Cache' });
+      const cache1 = estados(await api.colaVacia());
+      const cabs = Object.entries(sitio.pedidos.cabeceras || {}).filter(([u]) => u.startsWith('/img/cache/1/')).map(([, c]) => c);
+      eq('con el proxy, el armador vuelve a pedir las 6 imágenes que la página ya bajó (el sitio deja cachearlas): van sin caché, con Cache-Control: no-cache',
+        `${cache1} · del armador, por el proxy: ${delArmador(1)} · ${cabs.length === 6 && cabs.every(c => c['cache-control'] === 'no-cache' && c.pragma === 'no-cache') ? 'no-cache' : JSON.stringify(cabs)}`,
+        'Cache/Cache 0001: listo (6 páginas) · del armador, por el proxy: 6 · no-cache');
+      api.limpiar();
+      // (todos los pedidos del armador por la 3.ª imagen: el armador reintenta cada página hasta 6
+      // veces, y un 503 suelto lo salva un reintento. La página ya la bajó entera, así que si el
+      // armador la tomara de la caché, el proxy no vería nada y el capítulo saldría "listo")
+      proxy.fijarReglas([{ codigo: 503, retryAfter: '1', accept: /^image\/\*$/, ruta: '/img/cache/2/3.jpg' }]);
+      api.encolar([{ url: `${S}/leer/cache-2/`, texto: 'Capítulo 2', numero: 2 }], { ...enProxy, serie: 'Cache' });
+      const cache2 = estados(await api.colaVacia());
+      eq('  y así el proxy corta al armador: 503 en cada pedido del armador por la 3.ª imagen (la página la había bajado bien) → incompleto, con el motivo, sin ningún archivo',
+        `${cache2} · ${ls('Cache')}`, 'Cache/Cache 0002: incompleto (no guardé nada, para no dejarlo a medias · el sitio pidió esperar (HTTP 503)) · Cache 0001.pdf');
+      proxy.fijarReglas([]);
+      await dormir(1100);
+      api.reintentar();
+      eq('  y al reintentar baja entero', `${estados(await api.colaVacia())} · ${ls('Cache')}`, 'Cache/Cache 0002: listo (6 páginas) · Cache 0001.pdf | Cache 0002.pdf');
+      api.limpiar();
     } finally {
       await api.usarProxy(null);
       api.olvidarEsperas();
@@ -844,9 +874,90 @@ module.exports = async function probar(api) {
     }
     eq('sin el proxy, el camino de siempre: la página va directo al sitio', await (async () => { const antes = sitio.pedidos.capitulos['/leer/alfa-1/'] || 0; api.encolar([{ url: S + '/leer/alfa-1/', texto: 'x', numero: 1 }], { carpeta: tmp, serie: 'Directo', formatos: soloPdf }); const e = estados(await api.colaVacia()); api.limpiar(); return `${e} · ${(sitio.pedidos.capitulos['/leer/alfa-1/'] || 0) - antes}`; })(),
       'Directo/Directo 0001: listo (6 páginas) · 1');
+    // …y las imágenes se pueden cachear como siempre: el armador las toma de la caché (cada una se pidió
+    // una sola vez, la de la página) y nada se manda con no-cache
+    api.encolar([{ url: `${S}/leer/cache-3/`, texto: 'Capítulo 3', numero: 3 }], { carpeta: tmp, serie: 'Cache', formatos: soloPdf });
+    const cache3 = estados(await api.colaVacia());
+    const veces3 = [1, 2, 3, 4, 5, 6].map(k => (sitio.pedidos.horas[`/img/cache/3/${k}.jpg`] || []).length);
+    const cabs3 = Object.entries(sitio.pedidos.cabeceras || {}).filter(([u]) => u.startsWith('/img/cache/3/')).map(([, c]) => c);
+    eq('  sin el proxy, las imágenes se pueden cachear: el armador las toma de la caché (cada una se pidió una vez) y no se manda no-cache',
+      `${cache3} · ${veces3.every(v => v === 1) ? 'una vez cada una' : veces3.join(',')} · ${cabs3.some(c => /no-cache/.test(c['cache-control'] + c.pragma)) ? 'con no-cache' : 'sin no-cache'}`,
+      'Cache/Cache 0003: listo (6 páginas) · una vez cada una · sin no-cache');
+    api.limpiar();
+
+    // ── (0.10.4) Cancelar y reintentar en medio de una bajada ──
+    // El intento viejo se corta en el acto: su ventana se cierra, el armador se corta y lo que alcanzó a
+    // escribir se borra antes de que salga el nuevo. Hasta la 0.10.3 dejaba de escribir pero seguía
+    // hasta terminar el paso en el que estaba, con su ventana abierta.
+    console.log('\n── Cancelar y reintentar en medio de una bajada');
+    const enLento = { carpeta: tmp, serie: 'Lento', formatos: soloPdf, saltear: false };
+    const lento = (n) => ({ url: `${S}/leer/lento-${n}/`, texto: `Capítulo ${n}`, numero: n });
+    const esperarQue = async (fn, que, ms = 30000) => { for (const fin = Date.now() + ms; Date.now() < fin; await dormir(50)) if (fn()) return; throw new Error('No llegó: ' + que); };
+    // Cancela y reintenta de una, como dos clics seguidos, y mide cuánto tarda en cerrarse la ventana del intento viejo
+    const cortarEnElMedio = async () => {
+      const viejas = api.ventanasDePaginas();
+      const t0 = Date.now();
+      api.cancelar();
+      api.reintentar();
+      for (const fin = Date.now() + 5000; Date.now() < fin; await dormir(20)) if (!viejas.some(v => api.ventanasDePaginas().includes(v))) return { viejas: viejas.length, ms: Date.now() - t0 };
+      return { viejas: viejas.length, ms: -1 };
+    };
+    const enMenosDe2 = (c) => (c.ms >= 0 && c.ms < 2000 ? 'en menos de 2 s' : c.ms < 0 ? 'no se cerró' : c.ms + ' ms');
+    sitio.lento.pagina = true;                                  // la página no contesta todavía
+    api.encolar([lento(1)], enLento);
+    await esperarQue(() => api.ventanasDePaginas().length > 0 && api.verCola()[0]?.estado === 'abriendo', 'la página abriéndose');
+    const corte1 = await cortarEnElMedio();
+    sitio.lento.pagina = false;
+    eq('cancelar y reintentar mientras la página tarda en abrir: el intento viejo cierra su ventana en el acto, el nuevo sale, y queda un solo archivo entero',
+      `${corte1.viejas} ventana · se cerró ${enMenosDe2(corte1)} · ${estados(await api.colaVacia())} · ${ls('Lento')}`, '1 ventana · se cerró en menos de 2 s · Lento/Lento 0001: listo (6 páginas) · Lento 0001.pdf');
+    api.limpiar();
+    sitio.lento.armador = true;                                 // las imágenes no le contestan al armador todavía
+    api.encolar([lento(2)], enLento);
+    await esperarQue(() => api.verCola()[0]?.estado === 'bajando', 'el armador bajando las páginas');
+    await dormir(300);
+    const corte2 = await cortarEnElMedio();
+    sitio.lento.armador = false;
+    eq('  lo mismo mientras el armador baja las páginas: la ventana del intento viejo se cierra en el acto, el armador se corta, y queda un solo archivo entero',
+      `${corte2.viejas} ventana · se cerró ${enMenosDe2(corte2)} · ${estados(await api.colaVacia())} · ${ls('Lento')}`, '1 ventana · se cerró en menos de 2 s · Lento/Lento 0002: listo (6 páginas) · Lento 0001.pdf | Lento 0002.pdf');
+    api.limpiar();
+    // Con imágenes sueltas, el armador escribe una por una (acá, con medio segundo entre una y otra):
+    // lo que el intento viejo alcanzó a escribir se borra antes de que salga el nuevo
+    api.demorarGuardado(500);
+    api.encolar([lento(3)], { ...enLento, formatos: { pdf: false, cbz: false, imgs: true } });
+    const carpeta3 = path.join(tmp, 'Lento', 'Lento 0003');
+    const escritas = () => { try { return fs.readdirSync(carpeta3).length; } catch { return 0; } };
+    await esperarQue(() => escritas() >= 2, 'las primeras imágenes escritas');
+    const antesDelCorte = escritas();
+    const corte3 = await cortarEnElMedio();
+    // Se mira en el momento en que sale el intento nuevo (el renglón pasa a "abriendo"): para entonces no
+    // puede quedar nada del viejo, tampoco el archivo que estaba a medio escribir cuando se cortó
+    await esperarQue(() => ['abriendo', 'buscando páginas'].includes(api.verCola()[0]?.estado), 'el intento nuevo saliendo');
+    const despuesDelCorte = escritas();
+    api.demorarGuardado(0);
+    eq('  con imágenes sueltas: lo que el intento viejo alcanzó a escribir se borra antes de que salga el nuevo, y al final están las 6, sin ningún "(1)"',
+      `escritas antes del corte: ${antesDelCorte >= 2 ? '2 o más' : antesDelCorte} · al salir el nuevo: ${despuesDelCorte} · se cerró ${enMenosDe2(corte3)} · ${estados(await api.colaVacia())} · ${ls('Lento/Lento 0003')}`,
+      'escritas antes del corte: 2 o más · al salir el nuevo: 0 · se cerró en menos de 2 s · Lento/Lento 0003: listo (6 páginas) · pagina_001.jpg | pagina_002.jpg | pagina_003.jpg | pagina_004.jpg | pagina_005.jpg | pagina_006.jpg');
+    api.limpiar();
+    // Cancelar solo, sin reintentar, con las imágenes a medio escribir: no queda nada del capítulo, ni su carpeta
+    api.demorarGuardado(500);
+    api.encolar([{ ...lento(3), numero: 4, texto: 'Capítulo 4' }], { ...enLento, formatos: { pdf: false, cbz: false, imgs: true } });
+    const carpeta4 = path.join(tmp, 'Lento', 'Lento 0004');
+    const escritas4 = () => { try { return fs.readdirSync(carpeta4).length; } catch { return -1; } };       // -1: la carpeta no está
+    await esperarQue(() => escritas4() >= 2, 'las primeras imágenes del capítulo 4');
+    const viejas4 = api.ventanasDePaginas(), t4 = Date.now();
+    api.cancelar();
+    let cerro4 = -1;
+    for (const fin = Date.now() + 5000; Date.now() < fin; await dormir(20)) if (!viejas4.some(v => api.ventanasDePaginas().includes(v))) { cerro4 = Date.now() - t4; break; }
+    await dormir(1200);                                         // (más que la demora de un archivo: lo que estaba por escribirse ya pasó)
+    api.demorarGuardado(0);
+    eq('  cancelar solo, con las imágenes a medio escribir: la ventana se cierra en el acto y no queda nada del capítulo, ni su carpeta',
+      `se cerró ${enMenosDe2({ ms: cerro4 })} · ${estados(api.verCola())} · ${escritas4() === -1 ? 'sin carpeta' : escritas4() + ' archivos'} · ${ls('Lento')}`,
+      'se cerró en menos de 2 s · Lento/Lento 0004: cancelado · sin carpeta · Lento 0001.pdf | Lento 0002.pdf | Lento 0003');
+    api.limpiar();
+
     // (estas series no quedan para las pruebas que siguen, que cuentan lo que hay en el registro)
-    for (const s of ['proxy', 'directo']) api.quitarDelRegistro(s);
-    for (const d of ['Proxy', 'Directo', 'Corte']) fs.rmSync(path.join(tmp, d), { recursive: true, force: true });
+    for (const s of ['proxy', 'directo', 'cache', 'lento']) api.quitarDelRegistro(s);
+    for (const d of ['Proxy', 'Directo', 'Corte', 'Cache', 'Lento']) fs.rmSync(path.join(tmp, d), { recursive: true, force: true });
 
     // Favoritos: filtros por tipo y por idioma (los dos se detectan al pegar la lista, por sus títulos de grupo)
     await pegarEnFavoritos(`Zeta: ${S}/serie/zeta/\nManga en español:\nGama: ${S}/serie/gama/\nCómics en inglés:\nDelta: ${S}/serie/delta/`);

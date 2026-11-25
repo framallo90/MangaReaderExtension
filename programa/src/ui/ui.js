@@ -790,6 +790,19 @@ function avisarCarpetas(lista) {
     'Si están en Google Drive o en otro disco, abrilo o conectalo. Mientras tanto, lo que tengas ahí no aparece marcado y podrías bajarlo de nuevo.';
 }
 
+// (0.10.4) Se abrió el programa otra vez con el proxy de prueba (MR_PROXY o --proxy=) mientras esta
+// ventana estaba abierta sin él (o con otro): esta ventana no pasa por ese proxy. Lo dice, con el
+// botón para cerrar y abrir de nuevo con él.
+mr.alPedirProxy(({ proxy, actual }) => {
+  $('avisoProxyTexto').textContent = `⚠️ Se abrió el programa con el proxy de prueba (${proxy}), pero esta ventana ya estaba abierta ` +
+    (actual ? `con otro (${actual})` : 'sin él') + ': lo que bajes desde acá no pasa por ese proxy.';
+  $('avisoProxy').hidden = false;
+});
+$('reabrirProxy').addEventListener('click', async () => {
+  $('reabrirProxy').disabled = true;
+  try { await mr.reabrirConProxy(); } catch (e) { $('avisoProxyTexto').textContent = '⚠️ ' + e.message; $('reabrirProxy').disabled = false; }
+});
+
 // ── Tu colección ──
 // Otras carpetas donde mirar lo que ya tenés, además de la de descargas: donde guardás tus
 // mangas, cómics o libros (por ejemplo, la carpeta de Google Drive de tu máquina).
