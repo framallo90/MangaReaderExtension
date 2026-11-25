@@ -1,4 +1,4 @@
-# 📖 Manga Reader v2.11.3 — Guardar capítulos, de a uno o varios seguidos
+# 📖 Manga Reader v2.11.4 — Guardar capítulos, de a uno o varios seguidos
 
 Guarda capítulos de manga como PDF, CBZ y/o imágenes sueltas, sin las páginas de publicidad, con nombre y carpetas automáticos.
 

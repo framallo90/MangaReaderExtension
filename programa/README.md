@@ -245,7 +245,7 @@ El programa le pregunta al proxy a qué sitio reenvía y le manda todo lo de ese
 npm run prueba
 ```
 
-Corren dentro de Electron contra un sitio de prueba servido en la máquina, y tardan unos 6 minutos y medio (la 0.10.2, con 191, tardaba 5). Son 224 comprobaciones:
+Corren dentro de Electron contra un sitio de prueba servido en la máquina, y tardan unos 6 minutos y medio (la 0.10.2, con 191, tardaba 5). Son 226 comprobaciones:
 
 - **Explorar:** portada, catálogo paginado, directorio que carga al bajar, serie y capítulo.
 - **Portada con tapas:** que no pase por capítulo (y que un capítulo con tapas al final lo siga siendo), que cada título traiga su tapa y que la miniatura se pida con el Referer del sitio.

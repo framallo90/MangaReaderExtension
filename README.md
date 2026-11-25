@@ -4,7 +4,7 @@ Dos herramientas para guardar capítulos de manga y cómics como **PDF**, **CBZ*
 
 | | Qué es | Versión | Dónde está |
 |---|---|---|---|
-| 🧩 **La extensión** | Se usa desde Chrome, sobre la página que tenés abierta | 2.11.3 | `manga-reader-ext(ver 24-11-2026-2)/manga-reader-ext` |
+| 🧩 **La extensión** | Se usa desde Chrome, sobre la página que tenés abierta | 2.11.4 | `manga-reader-ext(ver 24-11-2026-3)/manga-reader-ext` |
 | 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.10.3 | `programa/` |
 
 Funcionan por separado y comparten el mismo código para detectar páginas, armar nombres y generar los archivos. Son de uso personal, están en español y todo corre en tu máquina, sin servidor.
@@ -29,8 +29,8 @@ JavaScript plano (Manifest V3), sin dependencias ni compilación.
 | 🧭 **Adaptadores por sitio** | Donde el filtro no acierta, le decís con selectores CSS dónde están las páginas, y lo probás antes de guardarlo |
 | 🪟 **Lectores en un iframe** | Encuentra las páginas aunque estén en un marco aparte, incluso de otro sitio |
 | 🎨 **Páginas dibujadas de fondo** | Lectores que no usan `<img>` y pintan cada página como fondo (CSS, `image-set()`, SVG): toma las de una misma serie, en orden, y lo dice ("páginas dibujadas de fondo"). Las tapas de otras cosas alrededor no se ofrecen como si fueran el capítulo |
-| ⏯ **Cola del lote** | Queda guardada: si se corta o algo falla, se reanuda o se reintenta. El ícono muestra el avance y al terminar llega una notificación |
-| 🐢 **Ritmo** | Pausa entre capítulos, descansos y espera automática cuando el sitio responde "esperá" (429 o 503), con la página de un capítulo o con sus imágenes: lo que el sitio pida (con tope de un minuto), o un minuto si no dice cuánto. Es la misma regla que usa el programa |
+| ⏯ **Cola del lote** | Queda guardada: si se corta o algo falla, se reanuda o se reintenta. El ícono muestra el avance y al terminar llega una notificación, con botones para reintentar lo que falló (por el mismo camino que el botón del diálogo) y abrir la carpeta |
+| 🐢 **Ritmo** | Pausa entre capítulos, descansos y espera automática cuando el sitio responde "esperá" (429 o 503), con la página de un capítulo o con sus imágenes (también las que carga la página: el capítulo no se guarda a medias): lo que el sitio pida (con tope de un minuto), o un minuto si no dice cuánto. Es la misma regla que usa el programa |
 | ⌨️ **Teclado** | Los diálogos se usan sin mouse: Tab, flechas entre las miniaturas, espacio para incluir o quitar |
 | 🗂 **Nombre y carpetas automáticos** | `Serie/Saga/Serie 0012`, con ceros adelante para que ordenen bien. Se cambia con una plantilla (`{serie}/{volumen}/{serie} {numero}`) |
 | ✔ **Registro de guardados** | Avisa lo que ya guardaste, lo saltea en los lotes y muestra los capítulos que te faltan |
@@ -256,6 +256,20 @@ Lo que todavía le falta y cómo está armado: [programa/README.md](programa/REA
 
 Lo más nuevo arriba. El historial completo de la extensión está en la sección 15 de [DOCUMENTACION.md](DOCUMENTACION.md).
 
+### 25-11-2026 · Extensión 2.11.4
+
+Un 503 en las imágenes que carga la página corta el capítulo de un lote, igual que uno en la página. La carpeta es `manga-reader-ext(ver 24-11-2026-3)`.
+
+- **Lo que pasaba:** si el sitio contestaba 429 o 503 a una página cuando la cargaba la página misma, la imagen quedaba rota sin decir por qué y el lote guardaba el capítulo con las que habían cargado (en la prueba, un PDF de 5 páginas de un capítulo de 6), sin frenar al sitio. El programa ya lo veía desde la 0.10.3; el lote, que es el uso principal de la extensión, no.
+- **Ahora:** mientras un lote tiene un capítulo abierto, la extensión escucha también las imágenes; cada marco dice sus páginas y cuáles cargaron, y antes de pedirle que guarde se decide con la regla del programa: cuenta una página que no cargó (o una de su carpeta); un banner o un aviso de otra carpeta no corta nada, y una que después cargó no faltó. Si cuenta, el sitio queda frenado por el mismo camino de siempre, no se escribe nada y el capítulo queda para Reintentar con "el sitio pidió esperar (HTTP 503)". Si ya estaba guardado, sigue siendo "ya estaba". Guardando de a uno se guarda lo que bajó, con el motivo, y no queda anotado como guardado.
+- **Un lector de una página por vez** (como Issuu): el diálogo lo dice ("el lector muestra una página por vez: se guarda la que está a la vista").
+- **Los botones de la notificación:** cada uno hace lo que dice aunque la cola haya cambiado desde que se mostró (antes "Mostrar la carpeta" podía reintentar); Reintentar llega a la pestaña de la serie por el mismo camino que el botón del diálogo, también si estaba descartada, y respeta el freno. Se prueban disparando la acción como Chrome; el toque real sigue a mano.
+- **Un tercer intento** de un capítulo que falló dos veces, desde la cola: probado, respeta el freno.
+- **Revisión:** cuatro revisores con un escéptico por hallazgo confirmaron 24 problemas de la primera versión (carga diferida, adaptadores, una carpeta por página, redirecciones, `srcset`, reintentos con otra consulta, la notificación de otro lote, pestañas descartadas, pruebas que no podían fallar); quedaron arreglados, cada uno con su prueba.
+- **En el programa:** `pareceListado` mira primero las imágenes grandes: un catálogo con un capítulo destacado dibujado de fondo ya no pasa por un capítulo (va sin cambio de versión hasta la 0.10.4).
+- **Pruebas:** 601 en Node (35 nuevas) y un área nueva en el navegador, `imagenes` (12; 10 fallan contra la 2.11.3); las 14 secciones de siempre (174), las otras áreas de la 2.11 y `fondos` siguen en verde; el programa, 226.
+- **Sigue abierto:** un 429 o un 503 que mande un sitio por su cuenta. El proxy de prueba inyecta, no observa: dice qué hacen la extensión y el programa con esas respuestas, no qué manda un sitio cuando de verdad se satura.
+
 ### 24-11-2026 · Programa 0.10.3
 
 El mismo freno que la extensión, un proxy para provocar un 429 o un 503 de verdad, y botones en el aviso de fin de cola.
@@ -281,7 +295,7 @@ Páginas dibujadas de fondo, sin ofrecer las tapas de alrededor. La carpeta es `
 - **Revisión:** tres pasadas adversariales encontraron casos donde la primera versión ofrecía adornos como páginas o hacía aparecer la burbuja en páginas comunes (diarios, foros, catálogos); quedaron arreglados y cada uno con su prueba.
 - **Páginas SVG:** se usa el escaneo de adentro sin recodificar (embebido o por dirección), y si hay algo más dibujado, se dibuja entero.
 - **Pruebas:** 566 comprobaciones en Node (`test_fondos.js`, 50, nueva) y un área nueva en el navegador (`fondos`, 14: contra la 2.11.2 fallan 11, que guardaba las 18 tapas de la página de prueba); las 14 secciones de siempre (174) y las otras áreas de la 2.11 (98) siguen en verde.
-- **Falta:** un lector que muestra de a una página en la página de arriba (no en un iframe), uno cuyas páginas llevan cada una a otra página, y una página SVG con texto encima (se dibuja, sin prueba en el navegador). En la extensión, un 503 en las imágenes que carga la página no se ve (en el programa sí).
+- **Falta:** un lector que muestra de a una página en la página de arriba (no en un iframe), uno cuyas páginas llevan cada una a otra página, y una página SVG con texto encima (se dibuja, sin prueba en el navegador). En la extensión, un 503 en las imágenes que carga la página no se veía (en el programa sí): resuelto en la 2.11.4.
 
 ### 24-11-2026 · Extensión 2.11.2
 
@@ -505,8 +519,8 @@ node tests/e2e_211.js       # solo lo que sumó la 2.11 (SOLO=cola,ritmo… para
 node tests/lote_largo.js    # un lote de decenas de capítulos seguidos
 ```
 
-- El programa tiene las suyas: `cd programa` y `npm run prueba` (224 comprobaciones, unos 6 minutos y medio). `npm run avisos` aprieta de verdad los botones del aviso de fin de cola (muestra avisos en la pantalla). `node programa/tests/proxy.js --sitio <dirección> --codigo 503` es el proxy que provoca un 429 o un 503 de verdad delante de un sitio real; el programa lo usa con `MR_PROXY=<dirección del proxy> npm start` (detalle en la sección 11 de [DOCUMENTACION.md](DOCUMENTACION.md)).
-- `bash tests/correr.sh` son 566 comprobaciones en Node; en el navegador, `SOLO=shadow node tests/e2e.js` (174) y `node tests/e2e_211.js` por tandas (`SOLO=iframes,cola,insignia`, `SOLO=ritmo,espera`, `SOLO=orden,adaptadores,carpeta,pegar,teclado,menores` y `SOLO=fondos`): cada comando tiene que entrar en 10 minutos.
+- El programa tiene las suyas: `cd programa` y `npm run prueba` (226 comprobaciones, unos 6 minutos y medio). `npm run avisos` aprieta de verdad los botones del aviso de fin de cola (muestra avisos en la pantalla). `node programa/tests/proxy.js --sitio <dirección> --codigo 503` es el proxy que provoca un 429 o un 503 de verdad delante de un sitio real; el programa lo usa con `MR_PROXY=<dirección del proxy> npm start` (detalle en la sección 11 de [DOCUMENTACION.md](DOCUMENTACION.md)).
+- `bash tests/correr.sh` son 601 comprobaciones en Node; en el navegador, `SOLO=shadow node tests/e2e.js` (174) y `node tests/e2e_211.js` por tandas (`SOLO=iframes,cola,insignia`, `SOLO=ritmo,espera`, `SOLO=orden,adaptadores,carpeta,pegar,teclado,menores`, `SOLO=fondos` y `SOLO=imagenes`): cada comando tiene que entrar en 10 minutos.
 - Las pruebas en navegador necesitan el Chromium de Playwright (`%LOCALAPPDATA%\ms-playwright\chromium-*`) o el de la variable `CHROMIUM`. El Chrome común ya no acepta cargar extensiones por línea de comandos.
 - `node tests/probar_sitio.js "<dirección>"` informa qué detecta la extensión en una página, sin dejar archivos: también si el lector está en un iframe y en qué marco se abre el diálogo. Con un rango (`1100 1119`) baja esos capítulos, y con `guardar` el capítulo abierto, a una carpeta temporal que se borra. `PAUSA=0 CONCURRENCIA=8` ponen el ritmo del lote y `ADAPTADOR='{"sitio":"…","contenedor":"…"}'` un adaptador.
 - `node tests/probar_version.js` hace de verdad el pedido a GitHub del aviso de versión nueva y dice qué contestó (con `--navegador`, además desde el popup). No es parte de ninguna suite: depende de la red.
