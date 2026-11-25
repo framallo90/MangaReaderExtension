@@ -405,11 +405,19 @@
   // imágenes grandes en una misma carpeta). Así un capítulo con tapas de "otras series" al
   // final sigue siendo un capítulo.
   function pareceListado() {
-    // Un lector que dibuja las páginas de fondo (tres o más) es un capítulo, aunque tenga tapas de
-    // otras obras alrededor (las tapas dibujadas de fondo no cuentan como páginas)
-    if (typeof cuentaDeFondo === 'function' && cuentaDeFondo(0, false) >= 3) return false;
     const grandes = [...document.querySelectorAll('img')].filter(img =>
       imgUrl(img) && !(img.complete && img.naturalWidth && (img.naturalWidth < MIN_SIDE || img.naturalHeight < MIN_SIDE)));
+    // Primero las imágenes grandes, con la misma regla con que la extensión ve un capítulo en <img>
+    // (flagNonPages): si tres o más están en una carpeta que junta al menos la mitad, deciden ellas,
+    // aunque la página tenga además un lector de fondo (un catálogo de verdad con un capítulo destacado
+    // sigue siendo un catálogo). Si no, decide el lector de fondo (tres páginas o más): es un capítulo
+    // aunque tenga alrededor tapas de otras obras repartidas en varias carpetas (como en Issuu, o en
+    // fondo.html de las pruebas, o con las tapas en carpetas por mes).
+    const porCarpeta = new Map();
+    for (const img of grandes) { const d = urlDir(imgUrl(img)); porCarpeta.set(d, (porCarpeta.get(d) || 0) + 1); }
+    const mayor = Math.max(0, ...porCarpeta.values());
+    const decidenLasImagenes = mayor >= 3 && mayor >= grandes.length * 0.5;
+    if (!decidenLasImagenes && typeof cuentaDeFondo === 'function' && cuentaDeFondo(0, false) >= 3) return false;
     if (grandes.length < 3) return false;
     const esGrande = new Set(grandes);
     const aca = noSlash(location.href.split('#')[0]);

@@ -53,6 +53,7 @@ function documento(arbol, { url = 'https://sitio.com/leer/1', hojas = [], marco 
     if (nd.tag === 'img') {
       const i = nd.img || {};
       Object.assign(e, { src: new URL(i.src, url).href, currentSrc: new URL(i.src, url).href, complete: i.complete !== false, naturalWidth: i.w || 0, naturalHeight: i.h || 0 });
+      if (i.dataSrc) e.dataset = { src: i.dataSrc };        // carga diferida: la página real está en data-src
     }
     if (nd.tag === 'a') e.href = new URL(attrs.href, url).href;
     if (nd.doc) e.contentDocument = nd.doc;            // un iframe del mismo sitio
@@ -94,7 +95,8 @@ function cargar(d, { medidas = {}, adaptador = null } = {}) {
   const FN_NUEVAS = [/function direccionDeFondo\(/, /function urlsDeFondo\(/, /function fondosDe\(/, /function contenedorDeFondos\(/,
     /function fondosDelContenedor\(/, /async function paginasDeFondo\(/, /function lectorDeFondoEnMarcos\(/, /async function elegirFondo\(/, /function cuentaDeFondo\(/,
     /function destinoDeTapa\(/, /function esGrillaDeTapas\(/, /function serieDeFondo\(/, /function fondosDelAdaptador\(/, /function marcoHijo\(/,
-    /function linkDeTarjeta\(/, /function linkQueNoEsPagina\(/, /function marcoGrande\(/, /function fondoValeAca\(/, /function hayMarcoGrande\(/];
+    /function linkDeTarjeta\(/, /function linkQueNoEsPagina\(/, /function marcoGrande\(/, /function fondoValeAca\(/, /function hayMarcoGrande\(/,
+    /function paginasQueCuenta\(/];
   vm.runInContext([...LIN.map(re => line(src, re)), ...LIN_NUEVAS.filter(tiene).map(re => line(src, re)),
     ...FN.map(re => grab(src, re)), ...FN_NUEVAS.filter(tiene).map(re => grab(src, re))].join('\n'), ctx);
   return ctx;
@@ -516,6 +518,47 @@ const ocho = (hacer = tapa) => documento(n('html', {}, [n('body', { bg: { '': 'u
     eq('un adaptador con "fondos": sin "ignorar" entra todo lo del bloque; con "ignorar: .flecha", las flechas no; con "contenedor: .pagina" (tres bloques), las tres',
       `${await con({ fondos: true, contenedor: '#lector' })} | ${await con({ fondos: true, contenedor: '#lector', ignorar: ['.flecha'] })} | ${await con({ fondos: true, contenedor: '.pagina' })}`,
       'izq.png,1.jpg,2.jpg,3.jpg,der.png | 1.jpg,2.jpg,3.jpg | 1.jpg,2.jpg,3.jpg');
+  }
+
+  // ── (2.11.4) Lo que cada marco le dice al service worker: sus páginas y cuáles cargaron ──
+  // (con eso decide si una imagen que pidió esperar es una página que faltó, antes de pedir el guardado)
+  if (tiene(/function paginasQueCuenta\(/)) {
+    const P = 'https://sitio.com/cap/5/';
+    const pag = (k, o = {}) => n('img', { img: { src: `${P}${k}.jpg`, w: 800, h: 1200, ...o } });
+    const banner = n('img', { img: { src: 'https://sitio.com/publicidad/banner.jpg', w: 0, h: 0 } });          // roto: respondió 503
+    const corto = (u) => u.replace(/^https:\/\/[^/]+/, '');
+    const cuenta = (ctx) => { const n0 = ctx.countCandidates(); const r = ctx.paginasQueCuenta(); return `${n0} · ${r.urls.map(corto).join(' ')} · cargadas ${r.cargadas.length}`; };
+    eq('6 páginas cargadas y un banner roto de otra carpeta: el marco dice sus 6 páginas, las 6 cargadas, y no el banner',
+      cuenta(cargar(documento(n('html', {}, [n('body', {}, [banner, ...[1, 2, 3, 4, 5, 6].map(k => pag(k))])])))),
+      '6 · /cap/5/1.jpg /cap/5/2.jpg /cap/5/3.jpg /cap/5/4.jpg /cap/5/5.jpg /cap/5/6.jpg · cargadas 6');
+    eq('  la 3 rota (respondió 503): sigue entre las páginas, pero no entre las cargadas',
+      cuenta(cargar(documento(n('html', {}, [n('body', {}, [1, 2, 3, 4, 5, 6].map(k => pag(k, k === 3 ? { w: 0, h: 0 } : {})))])))),
+      '6 · /cap/5/1.jpg /cap/5/2.jpg /cap/5/3.jpg /cap/5/4.jpg /cap/5/5.jpg /cap/5/6.jpg · cargadas 5');
+    // Carga diferida, como en el sitio "clásico" de e2e.js: cada <img> muestra un marcador de 1×1 y la
+    // página está en data-src. Las páginas son esas, sin cargar todavía: el banner roto no es el capítulo
+    const diferida = (k) => n('img', { img: { src: 'https://sitio.com/images/px.png', w: 1, h: 1, dataSrc: `${P}${k}.jpg` } });
+    eq('  con carga diferida (marcador de 1×1 y la página en data-src): las páginas son las de data-src, sin cargar, y el banner roto no entra',
+      cuenta(cargar(documento(n('html', {}, [n('body', {}, [banner, ...[1, 2, 3, 4, 5, 6].map(diferida)])])))).replace(/^\d+ · /, ''),
+      '/cap/5/1.jpg /cap/5/2.jpg /cap/5/3.jpg /cap/5/4.jpg /cap/5/5.jpg /cap/5/6.jpg · cargadas 0');
+    // Un adaptador que pide los fondos: las páginas son las de fondo, aunque el contenedor no tenga <img>
+    const lectorFondo = documento(n('html', {}, [n('body', {}, [banner, n('div', { attrs: { id: 'reader' } }, [1, 2, 3, 4, 5, 6].map(k =>
+      n('div', { attrs: { class: 'pagina' }, bg: { '': `url("${P}${k}.jpg")` } })))])]));
+    eq('  con un adaptador que pide los fondos (y un contenedor sin <img>): las páginas son las 6 de fondo, no ninguna',
+      cuenta(cargar(lectorFondo, { adaptador: { fondos: true, contenedor: '#reader' } })), '6 · /cap/5/1.jpg /cap/5/2.jpg /cap/5/3.jpg /cap/5/4.jpg /cap/5/5.jpg /cap/5/6.jpg · cargadas 0');
+    // Con un adaptador, cada página puede estar en su carpeta: van todas
+    const porCarpeta = documento(n('html', {}, [n('body', {}, [n('div', { attrs: { id: 'lector' } }, [1, 2, 3].map(k =>
+      n('img', { img: { src: `https://sitio.com/p/${k}/img.jpg`, w: k === 2 ? 0 : 800, h: k === 2 ? 0 : 1200 } })))])]));
+    eq('  con un adaptador y una carpeta por página: van las tres, y la rota no está entre las cargadas',
+      cuenta(cargar(porCarpeta, { adaptador: { contenedor: '#lector' } })), '3 · /p/1/img.jpg /p/2/img.jpg /p/3/img.jpg · cargadas 2');
+  }
+  // (2.11.4) Las 18 tapas de alrededor del lector de fondo, 3 de ellas en una misma carpeta (las
+  // subidas de un mes): esa carpeta no junta la mitad de las imágenes, así que no es el capítulo. Hasta
+  // la 2.11.3 el marco contaba esas 3 (el diálogo ya ofrecía las 8 de fondo)
+  if (tiene(/function fondosDe\(/)) {
+    const tapaMes = (k) => n('a', { attrs: { href: `/obra/${k}` } }, [n('img', { img: { src: k <= 3 ? `https://img.sitio.com/subidas/2024-05/tapa-${k}.jpg` : `https://img.sitio.com/tapas/obra-${k}/portada.jpg`, w: 331, h: 480 } })]);
+    const rm = cargar(ocho(tapaMes));
+    eq('con 3 de las 18 tapas en una misma carpeta: el marco cuenta las 8 páginas de fondo (no esas 3) y el diálogo ofrece las 8',
+      `${rm.countCandidates()} · ${paginas(await rm.collectPages()).length}`, '8 · 8');
   }
   fin();
 })();

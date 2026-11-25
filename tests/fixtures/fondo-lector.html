@@ -12,12 +12,15 @@
 <body>
 <!-- El lector de fondo de fondo-marco.html: dos páginas a la vista, cada una pintada de fondo
      con un degradé encima, y adentro de cada una un SVG con un escaneo (data:), como en Issuu,
-     que es la misma página dibujada otra vez. ?blob=1: con direcciones blob: (no se pueden bajar). -->
+     que es la misma página dibujada otra vez. ?blob=1: con direcciones blob: (no se pueden bajar).
+     ?una=1: una sola página a la vista. -->
 <div id="reader"><div class="inner-container">
   <section class="page left"><div class="page-svg"><svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><image href="data:image/jpeg;base64,%JPG64%" width="1" height="1"></image></svg></div></section>
   <section class="page right"><div class="page-svg"><svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><image href="data:image/jpeg;base64,%JPG64%" width="1" height="1"></image></svg></div></section>
 </div></div>
 <script>
+  // ?una=1 (2.11.4): el lector muestra una sola página por vez, como el de Issuu
+  if (/una=1/.test(location.search)) document.querySelector('section.page.right').remove();
   const paginas = [...document.querySelectorAll('section.page')];
   const pintar = (sec, url) => { sec.style.backgroundImage = 'url("' + url + '"), linear-gradient(110deg, rgba(0, 0, 0, 0) 20%, rgba(255, 255, 255, 0.3) 30%)'; };
   if (/blob=1/.test(location.search)) {

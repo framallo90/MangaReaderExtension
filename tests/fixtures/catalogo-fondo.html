@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Sitio de prueba – Catálogo</title>
+<style>
+  .grilla { display: flex; flex-wrap: wrap; gap: 8px; }
+  .grilla a { display: block; width: 150px; }
+  .grilla img { width: 150px; height: 225px; display: block; }
+  #lector .pagina { width: 420px; height: 600px; background-size: contain; background-repeat: no-repeat; margin: 4px auto; }
+</style>
+</head>
+<body style="margin:0">
+<!-- Un catálogo de verdad (2.11.4, para el programa): 12 tapas <img> juntas en una carpeta, cada una
+     con su link a una obra, y en la misma página un lector que dibuja 4 páginas numeradas de fondo
+     (un "capítulo destacado"). Es un listado: mandan las imágenes grandes, que están juntas; el lector
+     de fondo decide solo cuando no llegan a 3 (como en fondo.html, donde cada tapa está en su carpeta). -->
+<h1>Catálogo</h1>
+<div id="lector"></div>
+<div class="grilla" id="grilla"></div>
+<script>
+  document.getElementById('lector').innerHTML = Array.from({ length: 4 }, (_, i) =>
+    '<div class="pagina" style="background-image: url(/fx/img/numerada/' + (i + 1) + '.png)"></div>').join('');
+  document.getElementById('grilla').innerHTML = Array.from({ length: 12 }, (_, i) =>
+    '<a href="/obra/' + (i + 1) + '"><img src="/fx/img/portadas/' + (i + 1) + '.jpg" alt=""><span>Obra ' + (i + 1) + '</span></a>').join('');
+</script>
+</body>
+</html>

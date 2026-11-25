@@ -23,7 +23,16 @@
         document.body.appendChild(im);
       }
     }, 3000);
+  } else if (serie === 'diferida') {
+    // La serie "diferida" (2.11.4): las páginas con carga diferida (un marcador de 1×1 y la página en
+    // data-src, sin nada que las cambie), y arriba un banner de otra carpeta (en la prueba responde 503)
+    document.write('<img style="display:block" width="728" height="90" src="/fx/img/publicidad/banner.jpg">');
+    for (let i = 1; i <= pags; i++) {
+      document.write('<img style="display:block" width="420" height="640" src="/fx/img/px.png" data-src="/fx/img/' + serie + '/' + n + '/' + i + '.jpg">');
+    }
   } else {
+    // La serie "banner" (2.11.4): arriba de las páginas, un banner de otra carpeta (en la prueba responde 503)
+    if (serie === 'banner') document.write('<img style="display:block" width="728" height="90" src="/fx/img/publicidad/banner.jpg">');
     for (let i = 1; i <= pags; i++) {
       document.write('<img style="display:block" width="420" height="640" src="/fx/img/' + serie + '/' + n + '/' + i + '.jpg">');
     }

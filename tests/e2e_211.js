@@ -31,6 +31,8 @@ function pngGris(w, h, tono) {
 const DE_ORDEN = { 1: JPG, 2: pngGris(400, 600, 230), 3: pngGris(380, 560, 200) };
 // Una tira de webtoon: más baja que el lado mínimo (250) de la detección automática
 const TIRA = pngGris(420, 200, 215);
+// El marcador de 1×1 que muestran las páginas con carga diferida hasta que se piden (2.11.4)
+const PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=', 'base64');
 // Las páginas numeradas de las páginas de fondo (2.11.3): la n mide 400 + 4·n de ancho, así el
 // orden se lee en el PDF
 const NUMERADAS = Array.from({ length: 9 }, (_, n) => pngGris(400 + 4 * n, 600, 180 + n * 8));
@@ -90,7 +92,8 @@ async function sitio(pedidos = {}, estado = { rotos: new Set(), imagen: null, ho
     if (m) return send(m[1] === '1' ? 'image/jpeg' : 'image/png', DE_ORDEN[m[1]]);
     if (/^\/fx\/img\/tiras\/[\w-]+\/\d+\.png$/.test(u)) return send('image/png', TIRA);
     m = u.match(/^\/fx\/img\/numerada\/([1-8])\.png$/);
-    if (m) return send('image/png', NUMERADAS[+m[1]]);
+    if (m) { const mal = estado.imagen ? estado.imagen(u, req) : null; return mal ? send('text/plain', 'no', mal.status, mal.headers || {}) : send('image/png', NUMERADAS[+m[1]]); }
+    if (u === '/fx/img/px.png') return send('image/png', PX);         // el marcador de 1×1 de la carga diferida
     if (/^\/fx\/img\/[\w/-]+\.jpg$/.test(u)) {
       const mal = estado.imagen ? estado.imagen(u, req) : null;
       return mal ? send('text/plain', 'no', mal.status, mal.headers || {}) : send('image/jpeg', JPG);
@@ -146,6 +149,27 @@ async function esperarMarcos(b, url, cuerpo, listo, ms = 20000) {
   }
   return r;
 }
+// Evalúa `expr` en el service worker de la extensión (2.11.4): con eso se llama a lo mismo que llama
+// Chrome cuando se toca un botón de la notificación. Si estaba dormido, se lo despierta con un pedido
+// que no cambia nada.
+async function enServicio(b, expr) {
+  for (let i = 0; i < 20; i++) {
+    const { targetInfos } = await b.cdp.send('Target.getTargets');
+    const t = targetInfos.find(x => x.type === 'service_worker' && x.url.startsWith(`chrome-extension://${b.extId}/`));
+    if (t) {
+      const { sessionId } = await b.cdp.send('Target.attachToTarget', { targetId: t.targetId, flatten: true });
+      try {
+        const r = await b.cdp.send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true }, sessionId);
+        if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text);
+        return r.result.value;
+      } finally { await b.cdp.send('Target.detachFromTarget', { sessionId }).catch(() => {}); }
+    }
+    await b.ext.eval(`chrome.runtime.sendMessage({ action: 'colaMarca', id: '-' }).catch(() => {})`);
+    await sleep(300);
+  }
+  throw new Error('No encontré el service worker de la extensión');
+}
+
 // La interfaz de la extensión en ese marco (adentro del shadow root desde la 2.11)
 const UI = `(document.querySelector('#mr-host')?.shadowRoot || document)`;
 const donde = (r, campo) => r.map((m, i) => `${i ? 'iframe' : 'página'}: ${m?.[campo] ? 'sí' : 'no'}`).join(' · ');
@@ -372,9 +396,9 @@ const AREAS = {
     const fin2 = await lotear(S + '/fx/pide/?caps=3');
     eq('el capítulo entero responde 429: el lote para, lo reintenta una vez y, si vuelve a fallar, queda en falla con su motivo',
       `${fin2.split('\n').filter(l => /^Listo|Capítulo 2/.test(l)).join(' / ')} · se abrió ${(pedidos['/fx/pide/leer/2'] || 0) - antes} veces`,
-      'Listo: 2 capítulos guardados · 1 con problemas / Capítulo 2: el sitio pidió esperar · se abrió 2 veces');
+      'Listo: 2 capítulos guardados · 1 con problemas / Capítulo 2: el sitio pidió esperar (HTTP 429) · se abrió 2 veces');
     eq('  y los otros capítulos se guardaron igual', `${await pdfDe(pdf('Serie Pide', 1), 3000)} · ${await pdfDe(pdf('Serie Pide', 3), 3000)} · cola: ${colaComo(await b.storage('cola'))}`,
-      '6 × 420x640 · 6 × 420x640 · cola: 1 listo, 2 fallo (el sitio pidió esperar), 3 listo');
+      '6 × 420x640 · 6 × 420x640 · cola: 1 listo, 2 fallo (el sitio pidió esperar (HTTP 429)), 3 listo');
     estado.capitulo = null;
 
     // (2.11.1) Las imágenes de un capítulo responden 503: tiene que pasar lo mismo que cuando lo
@@ -393,7 +417,7 @@ const AREAS = {
     }
     eq('las imágenes de un capítulo responden 503: el lote para igual que cuando lo responde la página, y la falla dice que el sitio pidió esperar',
       `${parado} · ${fin5.split('\n').filter(l => /^Listo|Capítulo 2/.test(l)).join(' / ')}`,
-      '(2/3) Capítulo 2: el sitio pidió esperar, sigo en N s… · Listo: 2 capítulos guardados · 1 con problemas / Capítulo 2: el sitio pidió esperar');
+      '(2/3) Capítulo 2: el sitio pidió esperar, sigo en N s… · Listo: 2 capítulos guardados · 1 con problemas / Capítulo 2: el sitio pidió esperar (HTTP 503)');
     const quedo = () => fs.readdirSync(path.join(b.dl, 'MangaReader', 'Serie Imagenes')).sort().join(' | ');
     // Cuántos pedidos le llegan al sitio sale de las constantes del armador que está cargado (no se
     // escribe a mano: tocar la concurrencia no tiene que romper esta prueba). Por cada intento del
@@ -406,7 +430,7 @@ const AREAS = {
     const porIntento = Math.min(constante('FETCH_CONCURRENCY'), 6) * porPagina;
     eq(`  no queda nada guardado a medias, la cola lo tiene como falla y el armador dejó de pedir apenas lo supo (${Math.min(constante('FETCH_CONCURRENCY'), 6)} páginas por intento, ${porPagina} pedidos cada una, 2 intentos)`,
       `${quedo()} · cola: ${colaComo(await b.storage('cola'))} · ${negadas} pedidos negados`,
-      `Serie Imagenes 0001.pdf | Serie Imagenes 0003.pdf · cola: 1 listo, 2 fallo (el sitio pidió esperar), 3 listo · ${2 * porIntento} pedidos negados`);
+      `Serie Imagenes 0001.pdf | Serie Imagenes 0003.pdf · cola: 1 listo, 2 fallo (el sitio pidió esperar (HTTP 503)), 3 listo · ${2 * porIntento} pedidos negados`);
     estado.imagen = null;                                   // el sitio vuelve a andar
     await p5.eval(`document.querySelector('#mr-cola-reintentar').click()`);
     await p5.waitFor(`/Cancelar/.test(document.querySelector('#mr-chapter-go').textContent)`, 'que arranque el reintento', 10000).catch(() => {});
@@ -478,7 +502,7 @@ const AREAS = {
     eq(`  el capítulo siguiente también espera: llega a los 4 s o más del segundo 503 (llegó a los ${seg(siguiente)})`, rango(siguiente), 'entre 4 y 15 s');
     eq('  el capítulo 2 queda con "el sitio pidió esperar" y los otros se guardan',
       `${fin.split('\n').filter(l => /^Listo|Capítulo 2/.test(l)).join(' / ')} · cola: ${colaComo(await b.storage('cola'))}`,
-      'Listo: 2 capítulos guardados · 1 con problemas / Capítulo 2: el sitio pidió esperar · cola: 1 listo, 2 fallo (el sitio pidió esperar), 3 listo');
+      'Listo: 2 capítulos guardados · 1 con problemas / Capítulo 2: el sitio pidió esperar (HTTP 503) · cola: 1 listo, 2 fallo (el sitio pidió esperar (HTTP 503)), 3 listo');
     await pg.close();
 
     // ── Sin cabecera, o con una que no se entiende: un minuto ──
@@ -827,6 +851,216 @@ const AREAS = {
       `fondos: ${guardado.fondos} · ${await b.ext.eval(`[...document.querySelectorAll('#adLista .s-datos')].map(s => s.textContent).join(' | ')`)}`,
       'fondos: true · contenedor: #reader · páginas dibujadas de fondo');
     await b.ext.eval(`chrome.storage.local.remove('adaptadores')`);
+  },
+
+  // ═══ 7b. Un 503 en las imágenes que carga la página del capítulo (2.11.4) ═══
+  async imagenes({ b, S, eq, estado }) {
+    console.log('\n── 2.11.4 · Un 503 en las imágenes que carga la página, el tercer intento, la notificación y un lector de una página por vez');
+    const pdf = (serie, n) => path.join(b.dl, 'MangaReader', serie, `${serie} ${String(n).padStart(4, '0')}.pdf`);
+    const horas = (u) => estado.horas[u] || [];
+    const seg = (ms) => (Number.isFinite(ms) ? (ms / 1000).toFixed(1).replace('.', ',') + ' s' : 'no llegó');
+    // La imagen la pidió la página (o la extensión al medirla), no el armador al guardarla (ese pide "image/*")
+    const deLaPagina = (req) => req.headers.accept !== 'image/*';
+    const ESTADO = `document.querySelector('#mr-chapter-status')?.textContent || ''`;
+    const FIN = /^(✅ )?(Listo|Cancelado|Parado)/;
+    // Sigue el estado del diálogo de varios capítulos hasta que termina un lote (uno nuevo: si ya
+    // mostraba el final de otro, espera a que cambie) y anota la primera cuenta regresiva que ve
+    const seguir = async (pg, antes = '') => {
+      let cuenta = '', fin = '', cambio = !antes;
+      for (const hasta = Date.now() + 180000; Date.now() < hasta && !fin; await sleep(120)) {
+        const t = await pg.eval(ESTADO).catch(() => '');
+        if (t !== antes) cambio = true;
+        if (!cuenta && /pidió esperar, sigo en/.test(t)) cuenta = t.replace(/\d+ s/, 'N s');
+        if (cambio && FIN.test(t)) fin = t;
+      }
+      return { cuenta, fin };
+    };
+    const frenado = async () => JSON.stringify((await b.storage('esperaSitio')) || {});
+    await b.ext.eval(`chrome.storage.local.remove(['cola', 'esperaSitio', 'avisoBotones'])`);
+    // Sin pausa entre capítulos; sin Retry-After, el sitio queda frenado 4 s en vez de un minuto. (Con
+    // menos casi no se ve la cuenta regresiva: el freno corre desde la respuesta de la imagen, y el
+    // service worker tarda un par de segundos en ver que las páginas dejaron de sumarse.)
+    await b.setStorage({ ritmo: { pausa: 0, espera429: 4 } });
+
+    // 0) Lo que el marco le dice al service worker: sus páginas y cuáles cargaron (la 3 respondió 503)
+    estado.imagen = (u, req) => (u === '/fx/img/cuenta/1/3.jpg' && deLaPagina(req) ? { status: 503 } : null);
+    const uc = S + '/fx/cuenta/leer/1';
+    const pc = await b.cdp.open(uc);
+    await pc.waitFor(`document.readyState === 'complete' && [...document.images].every(i => i.complete)`, 'el capítulo', 30000);
+    await sleep(600);
+    const [cuentaDelMarco] = await enMarcos(b, uc, `() => window.__mangaReaderCuenta()`);
+    await pc.close();
+    const corto = (u) => String(u).replace(/^.*\/fx\/img\/cuenta\/1\//, '');
+    eq('lo que el marco le dice al service worker: cuántas páginas cuenta, cuáles son y cuáles cargaron (la 3 respondió 503 y está rota)',
+      `${cuentaDelMarco?.n} · ${(cuentaDelMarco?.urls || []).map(corto).join(' ')} · cargadas: ${(cuentaDelMarco?.cargadas || []).map(corto).join(' ')}`,
+      '6 · 1.jpg 2.jpg 3.jpg 4.jpg 5.jpg 6.jpg · cargadas: 1.jpg 2.jpg 4.jpg 5.jpg 6.jpg');
+
+    // 1) Una página del capítulo 2 (la 3) responde 503 cuando la carga la página, las dos primeras veces.
+    //    Se anota a qué capítulos el service worker les pidió guardar (envolviendo tellTab, que es por
+    //    donde lo pide): al 2 no se le tiene que pedir nunca, porque se mira antes.
+    let negadas = 0, alArmador = 0;
+    estado.imagen = (u, req) => {
+      if (!u.startsWith('/fx/img/rota/2/')) return null;
+      if (!deLaPagina(req)) { alArmador++; return null; }
+      return u === '/fx/img/rota/2/3.jpg' && negadas < 2 ? (negadas++, { status: 503 }) : null;
+    };
+    await enServicio(b, `(() => { globalThis.__guardar = []; globalThis.__tellTab = tellTab;
+      tellTab = (id, m) => { if (m && m.action === 'autoSave') __guardar.push(m.numero); return __tellTab(id, m); }; return true; })()`);
+    const pg = await abrirLote(b, S + '/fx/rota/?caps=3', 3);
+    await pg.eval(`document.querySelector('#mr-chapter-all').click(); document.querySelector('#mr-chapter-go').click()`);
+    const l1 = await seguir(pg);
+    const aGuardar = await enServicio(b, `(() => { const g = (globalThis.__guardar || []).slice(); if (globalThis.__tellTab) tellTab = globalThis.__tellTab; return g; })()`).catch(e => ['error: ' + e.message]);
+    const h2 = horas('/fx/rota/leer/2'), h3 = horas('/fx/rota/leer/3'), i3 = horas('/fx/img/rota/2/3.jpg');
+    eq('una página del capítulo responde 503 cuando la carga la página: el lote no guarda ese capítulo, dice el motivo y sigue con los otros',
+      `${l1.cuenta} · ${l1.fin.split('\n').filter(l => /^Listo|Capítulo 2/.test(l)).join(' / ')}`,
+      '(2/3) Capítulo 2: el sitio pidió esperar, sigo en N s… · Listo: 2 capítulos guardados · 1 con problemas / Capítulo 2: el sitio pidió esperar (HTTP 503)');
+    eq('  no queda nada a medias: no hay archivo del capítulo 2, al marco del 2 nunca se le pidió que guarde (se miró antes: sí a los del 1 y el 3), el armador no pidió ninguna de sus páginas, y queda en la cola para Reintentar',
+      `${b.ls('Serie Rota')} · se pidió guardar: ${aGuardar.join(', ')} · pedidos del armador: ${alArmador} · cola: ${colaComo(await b.storage('cola'))}`,
+      'Serie Rota 0001.pdf Serie Rota 0003.pdf · se pidió guardar: 1, 3 · pedidos del armador: 0 · cola: 1 listo, 2 fallo (el sitio pidió esperar (HTTP 503)), 3 listo');
+    eq(`  el sitio quedó frenado (4 s sin Retry-After en esta prueba): el reintento del lote llegó a los ${seg(h2[1] - i3[0])} del 503 y el capítulo siguiente a los ${seg(h3[0] - i3[1])} del segundo`,
+      `${h2[1] - i3[0] >= 4000 ? 'esperó' : 'no esperó'} · ${h3[0] - i3[1] >= 4000 ? 'esperó' : 'no esperó'} · la página 3 se pidió ${i3.length} veces`, 'esperó · esperó · la página 3 se pidió 2 veces');
+
+    // 2) Un tercer intento desde la cola: el capítulo falló dos veces (el intento y el reintento del
+    //    lote). "Reintentar" lo vuelve a intentar, y espera lo que el sitio acaba de pedir (3 s)
+    await b.setStorage({ esperaSitio: { '127.0.0.1': Date.now() + 3000 } });
+    const tocado = Date.now();
+    await pg.eval(`document.querySelector('#mr-cola-reintentar').click()`);
+    const l2 = await seguir(pg, l1.fin);
+    const h2b = horas('/fx/rota/leer/2');
+    eq(`un tercer intento desde la cola (Reintentar, después de dos fallas): espera lo que pidió el sitio (el capítulo se pidió a los ${seg(h2b[2] - tocado)} del toque, con 3 s por esperar) y lo baja entero`,
+      `${l2.cuenta} · ${h2b.length} pedidos del capítulo · ${h2b[2] - tocado >= 2800 ? 'esperó' : 'no esperó'} · ${l2.fin.split('\n')[0]} · ${await pdfDe(pdf('Serie Rota', 2), 5000)} · cola: ${colaComo(await b.storage('cola'))}`,
+      '(1/1) Capítulo 2: el sitio pidió esperar, sigo en N s… · 3 pedidos del capítulo · esperó · ✅ Listo: 1 capítulo guardado · 6 × 420x640 · cola: sin cola');
+    await pg.close();
+
+    // 3) El 503 es de un banner de otra carpeta: el capítulo sale entero y el sitio no se frena
+    await b.ext.eval(`chrome.storage.local.remove(['cola', 'esperaSitio'])`);
+    let banner = 0;
+    estado.imagen = (u) => (u === '/fx/img/publicidad/banner.jpg' ? (banner++, { status: 503, headers: { 'Retry-After': '30' } }) : null);
+    const pb = await abrirLote(b, S + '/fx/banner/?caps=2', 2);
+    await pb.eval(`document.querySelector('#mr-chapter-all').click(); document.querySelector('#mr-chapter-go').click()`);
+    const lb = await seguir(pb);
+    eq('un banner de otra carpeta responde 503 (con Retry-After: 30) cuando lo carga la página: los capítulos salen enteros y el sitio no queda frenado',
+      `${lb.fin.split('\n')[0]} · ${await pdfDe(pdf('Serie Banner', 1), 5000)} · ${await pdfDe(pdf('Serie Banner', 2), 5000)} · el banner se pidió ${banner} veces · frenado: ${await frenado()}`,
+      '✅ Listo: 2 capítulos guardados · 6 × 420x640 · 6 × 420x640 · el banner se pidió 2 veces · frenado: {}');
+    await pb.close();
+    // Lo mismo con las páginas en carga diferida (un marcador de 1×1 y la página en data-src, que
+    // nadie cambia en una pestaña de fondo): el banner roto no pasa por el capítulo
+    const pd = await abrirLote(b, S + '/fx/diferida/?caps=2', 2);
+    await pd.eval(`document.querySelector('#mr-chapter-all').click(); document.querySelector('#mr-chapter-go').click()`);
+    const ld = await seguir(pd);
+    eq('  y con las páginas en carga diferida (marcador de 1×1, la página en data-src): el banner roto no es el capítulo, que sale entero',
+      `${ld.fin.split('\n')[0]} · ${await pdfDe(pdf('Serie Diferida', 1), 5000)} · ${await pdfDe(pdf('Serie Diferida', 2), 5000)} · frenado: ${await frenado()}`,
+      '✅ Listo: 2 capítulos guardados · 6 × 420x640 · 6 × 420x640 · frenado: {}');
+    await pd.close();
+
+    // 4) Los botones de la notificación, como los toca Chrome: se llama en el service worker al
+    //    mismo oyente que llama Chrome (alTocarAviso, con la notificación y el número del botón).
+    //    "Reintentar" retoma la cola en la pestaña de la serie con lo mismo que su botón de la ventana
+    //    (seguirCola), y espera lo que pidió el sitio.
+    await b.ext.eval(`chrome.storage.local.remove(['cola', 'esperaSitio', 'avisoBotones']); chrome.notifications.clear('mr-lote')`);
+    let negadasT = 0;
+    estado.imagen = (u, req) => (u === '/fx/img/toque/1/2.jpg' && deLaPagina(req) && negadasT < 2 ? (negadasT++, { status: 503 }) : null);
+    const pt = await abrirLote(b, S + '/fx/toque/?caps=2', 2);
+    await pt.eval(`document.querySelector('#mr-chapter-all').click(); document.querySelector('#mr-chapter-go').click()`);
+    const lt = await seguir(pt);
+    const avisos = await b.ext.eval(`new Promise(r => chrome.notifications.getAll(n => r(Object.keys(n || {}))))`).catch(() => []);
+    const botones1 = (await b.storage('avisoBotones')) || [];
+    await b.setStorage({ esperaSitio: { '127.0.0.1': Date.now() + 3000 } });
+    const tocadoT = Date.now();
+    // (una versión sin alTocarAviso no tiene a quién llamar: se anota y sigue)
+    const registrado = await enServicio(b, `(async () => { const es = chrome.notifications.onButtonClicked.hasListener(alTocarAviso); await alTocarAviso('mr-lote', 0); return es; })()`)
+      .catch(e => 'error: ' + String(e.message).split('\n')[0]);
+    const lt2 = registrado === true ? await seguir(pt, lt.fin) : { cuenta: '', fin: '(no se reintentó)' };
+    const ht = horas('/fx/toque/leer/1');
+    eq('la notificación del lote que terminó con una falla tiene "Reintentar" y "Mostrar la carpeta"; tocar "Reintentar" (llamando a alTocarAviso como Chrome) retoma la cola en la pestaña de la serie, espera lo que pidió el sitio y baja el capítulo entero',
+      `${lt.fin.split('\n')[0]} · aviso: ${avisos.join(',')} [${botones1.join(', ')}] · oyente registrado: ${registrado} · ${lt2.cuenta} · ${ht[2] - tocadoT >= 2800 ? 'esperó' : 'no esperó (' + seg(ht[2] - tocadoT) + ')'} · ${lt2.fin.split('\n')[0]} · ${await pdfDe(pdf('Serie Toque', 1), 5000)}`,
+      'Listo: 1 capítulo guardado · 1 con problemas · aviso: mr-lote [reintentar, carpeta] · oyente registrado: true · (1/1) Capítulo 1: el sitio pidió esperar, sigo en N s… · esperó · ✅ Listo: 1 capítulo guardado · 6 × 420x640');
+    await sleep(500);
+    // La de ese lote ya no tiene fallas: solo "Mostrar la carpeta". Se anota a qué descarga va en vez
+    // de abrir el Explorador (mostrarCarpeta es lo único que se cambia, por un momento)
+    const carpeta = await enServicio(b, `(async () => {
+      const vistas = [], antes = mostrarCarpeta;
+      mostrarCarpeta = (id) => { vistas.push(id); };
+      try { await alTocarAviso('mr-lote', 0); } finally { mostrarCarpeta = antes; }
+      const st = await chrome.storage.local.get(['ultimaDescarga', 'avisoBotones']);
+      return { botones: st.avisoBotones || [], vistas, ultima: st.ultimaDescarga ?? null };
+    })()`).catch(e => ({ botones: [], vistas: [], ultima: null, error: String(e.message).split('\n')[0] }));
+    eq('  la notificación de ese lote ya no tiene fallas y tiene un solo botón: tocarlo muestra la carpeta de la última descarga',
+      `[${carpeta.botones.join(', ')}] · ${carpeta.vistas.length === 1 && carpeta.vistas[0] === carpeta.ultima && carpeta.ultima != null ? 'mostró la de la última descarga' : JSON.stringify(carpeta)}`,
+      '[carpeta] · mostró la de la última descarga');
+    await pt.close();
+
+    // 5) Guardando de a uno no se corta nada: se guarda lo que bajó, con el motivo. La 3 responde 503
+    //    cuando la carga la página; además, al armador la 5 le responde 503 la primera vez (con
+    //    Retry-After: 1): guardando de a uno eso tampoco frena el sitio
+    await b.ext.eval(`chrome.storage.local.remove(['cola', 'esperaSitio']); chrome.notifications.clear('mr-lote')`);
+    let alArmador5 = 0;
+    estado.imagen = (u, req) => {
+      if (u === '/fx/img/suelto/1/3.jpg' && deLaPagina(req)) return { status: 503 };
+      if (u === '/fx/img/suelto/1/5.jpg' && !deLaPagina(req) && !alArmador5++) return { status: 503, headers: { 'Retry-After': '1' } };
+      return null;
+    };
+    const us = S + '/fx/suelto/leer/1';
+    const ps = await b.cdp.open(us);
+    await ps.waitFor(`document.readyState === 'complete' && [...document.images].every(i => i.complete)`, 'el capítulo', 30000);
+    await pedir(b, us, 'save');
+    await ps.waitFor(`document.querySelectorAll('#mr-save .mr-thumb').length >= 5 && !/Recorriendo|Buscando/.test(document.querySelector('#mr-save-count').textContent)`, 'el diálogo', 40000);
+    await sleep(800);
+    const aviso = await ps.eval(`document.querySelector('#mr-save-warn-text').textContent`);
+    await ps.eval(`document.querySelector('#mr-save-go').click()`);
+    await ps.waitFor(`/success|error/.test(document.querySelector('#mr-save-status').className)`, 'el guardado', 60000);
+    const resultado = await ps.eval(`document.querySelector('#mr-save-status').textContent`);
+    const anotado = Object.values((await b.storage('savedChapters')) || {}).some(v => /\/fx\/suelto\/leer\/1$/.test(v.url || ''));
+    eq('guardando de a uno: una página no cargó porque el sitio pidió esperar; el diálogo lo dice, se guarda lo que bajó con el motivo, no queda anotado como guardado, y el sitio no se frena (eso es de los lotes; tampoco con el 503 que recibió el armador)',
+      `${aviso.split(' · ')[0]} · ${await pdfDe(pdf('Serie Suelto', 1), 5000)} · ${resultado.split('\n').filter(l => /no cargó|no lo marqué/.test(l)).join(' / ')} · anotado: ${anotado} · el armador pidió la 5 ${alArmador5} veces · frenado: ${await frenado()}`,
+      '⚠️ 1 página no cargó: el sitio pidió esperar (HTTP 503) · 5 × 420x640 · ⚠️ 1 página del capítulo no cargó (el sitio pidió esperar: HTTP 503) / ⚠️ Faltaron páginas: no lo marqué como guardado. Probá guardarlo de nuevo. · anotado: false · el armador pidió la 5 2 veces · frenado: {}');
+    await ps.close();
+    estado.imagen = null;
+
+    // 6) Un lector de fondo que muestra una página por vez (como Issuu): el diálogo lo dice. Un
+    //    capítulo de una sola página <img>, no.
+    const DIALOGO = `() => { const ui = ${UI}; const d = ui.querySelector('#mr-save');
+      return { dialogo: !!d, cuenta: ui.querySelector('#mr-save-count')?.textContent || '', listo: !!d && !/Recorriendo|Buscando/.test(ui.querySelector('#mr-save-count')?.textContent || '') }; }`;
+    const ue = S + '/fx/fondo-marco.html?una=1';
+    const pe = await b.cdp.open(ue);
+    await pe.waitFor(`document.readyState === 'complete'`, 'la página', 30000);
+    await esperarMarcos(b, ue, `() => [...document.querySelectorAll('section.page')].filter(s => /url\\(/.test(getComputedStyle(s).backgroundImage)).length`, r => r[1] === 1, 15000);
+    await sleep(800);
+    await pedir(b, ue, 'save');
+    const re = await esperarMarcos(b, ue, DIALOGO, rr => rr.some(m => m?.listo), 40000);
+    const de = re.find(m => m?.dialogo) || {};
+    await pe.close();
+    const uu = S + '/fx/unica/leer/1?pags=1';
+    const pu = await b.cdp.open(uu);
+    await pu.waitFor(`document.readyState === 'complete' && [...document.images].every(i => i.complete)`, 'el capítulo', 30000);
+    await pedir(b, uu, 'save');
+    await pu.waitFor(`document.querySelectorAll('#mr-save .mr-thumb').length >= 1 && !/Recorriendo|Buscando/.test(document.querySelector('#mr-save-count').textContent)`, 'el diálogo', 40000);
+    const cu = await pu.eval(`document.querySelector('#mr-save-count').textContent`);
+    await pu.close();
+    eq('un lector de fondo con una sola página a la vista: el diálogo dice que muestra una por vez y que se guarda la que está a la vista; un capítulo de una sola página <img> no lo dice',
+      `${(de.cuenta || 'sin diálogo').split(' · ').slice(0, 3).join(' · ')} | ${cu.split(' · ').slice(0, 2).join(' · ')}`,
+      '1 de 1 páginas · páginas dibujadas de fondo · el lector muestra una página por vez: se guarda la que está a la vista | 1 de 1 páginas · clic en una miniatura para incluirla o quitarla');
+    // Un lector de fondo de dos páginas al que le falla una (responde 503): no es "una por vez", y el
+    // diálogo dice que una no cargó y por qué
+    estado.imagen = (u, req) => (u === '/fx/img/numerada/2.png' && deLaPagina(req) ? { status: 503 } : null);
+    const DIALOGO2 = `() => { const ui = ${UI}; const d = ui.querySelector('#mr-save');
+      return { dialogo: !!d, cuenta: ui.querySelector('#mr-save-count')?.textContent || '', aviso: ui.querySelector('#mr-save-warn-text')?.textContent || '',
+        listo: !!d && !/Recorriendo|Buscando/.test(ui.querySelector('#mr-save-count')?.textContent || '') }; }`;
+    const uf = S + '/fx/fondo-marco.html';
+    const pf = await b.cdp.open(uf);
+    await pf.waitFor(`document.readyState === 'complete'`, 'la página', 30000);
+    await esperarMarcos(b, uf, `() => [...document.querySelectorAll('section.page')].filter(s => /url\\(/.test(getComputedStyle(s).backgroundImage)).length`, r => r[1] === 2, 15000);
+    await sleep(800);
+    await pedir(b, uf, 'save');
+    const rf = await esperarMarcos(b, uf, DIALOGO2, rr => rr.some(m => m?.listo), 40000);
+    const df = rf.find(m => m?.dialogo) || {};
+    await pf.close();
+    estado.imagen = null;
+    eq('  un lector de fondo de dos páginas al que le falló una (503): no dice "una por vez", y avisa que una no cargó y por qué',
+      `${(df.cuenta || 'sin diálogo').split(' · ').slice(0, 2).join(' · ')} · una por vez: ${/una página por vez/.test(df.cuenta || '')} · ${(df.aviso || '').split(' · ')[0]}`,
+      '1 de 1 páginas · páginas dibujadas de fondo · una por vez: false · ⚠️ 1 página no cargó: el sitio pidió esperar (HTTP 503)');
+
+    await b.ext.eval(`chrome.storage.local.remove(['cola', 'esperaSitio', 'ritmo', 'avisoBotones']); chrome.notifications.clear('mr-lote')`);
   },
 
   // ═══ 8. Carpeta base de las descargas ═══

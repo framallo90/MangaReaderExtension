@@ -19,7 +19,9 @@
      tapas de otras obras alrededor, cada una en su carpeta. La detección por <img> se quedaba
      con las tapas; las páginas tienen que salir del fondo, en orden, y sin ninguna tapa.
      Con ?tapasDeFondo=1 las tapas son tarjetas con la imagen de fondo (como en muchos sitios): hay
-     más tapas juntas (9 arriba) que páginas, y aun así el bloque de las páginas es el lector. -->
+     más tapas juntas (9 arriba) que páginas, y aun así el bloque de las páginas es el lector.
+     Con ?carpetaComun=N (2.11.4) las primeras N tapas comparten carpeta (como las subidas de un mes):
+     sigue siendo un capítulo mientras esa carpeta no junte la mitad de las imágenes. -->
 <header><div class="logo"></div><div class="franja"></div></header>
 <div class="tapas" id="arriba"></div>
 <div id="lector"></div>
@@ -27,7 +29,9 @@
 <footer></footer>
 <script>
   const deFondo = /tapasDeFondo/.test(location.search);
-  const tapa = (k) => '<a href="/obra/' + k + '">' + (deFondo ? '<div class="tapa" style="background-image: url(/fx/img/tapa-' + k + '/portada.jpg)"></div>' : '<img src="/fx/img/tapa-' + k + '/portada.jpg">') + '</a>';
+  const comun = +(new URLSearchParams(location.search).get('carpetaComun') || 0);
+  const imagen = (k) => (k <= comun ? '/fx/img/subidas/tapa-' + k + '.jpg' : '/fx/img/tapa-' + k + '/portada.jpg');
+  const tapa = (k) => '<a href="/obra/' + k + '">' + (deFondo ? '<div class="tapa" style="background-image: url(' + imagen(k) + ')"></div>' : '<img src="' + imagen(k) + '">') + '</a>';
   document.getElementById('arriba').innerHTML = Array.from({ length: 9 }, (_, i) => tapa(i + 1)).join('');
   document.getElementById('abajo').innerHTML = Array.from({ length: 9 }, (_, i) => tapa(i + 10)).join('');
   document.getElementById('lector').innerHTML = Array.from({ length: 8 }, (_, i) =>

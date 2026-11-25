@@ -44,7 +44,8 @@ const UI = `(document.querySelector('#mr-host')?.shadowRoot || document)`;
 // Qué hay en un marco: su dirección, imágenes grandes, lo que cuenta la extensión y su diálogo de guardar
 const MARCO = `() => { const ui = ${UI}, n = ui.querySelector('#mr-save-next');
   return { url: location.href, grandes: [...document.images].filter(i => i.naturalWidth >= 250 && i.naturalHeight >= 250).length,
-    cuenta: typeof window.__mangaReaderCuenta === 'function' ? window.__mangaReaderCuenta() : -1,
+    // (desde la 2.11.4 la cuenta trae también las páginas: { n, urls, cargadas, … }; antes, solo el número)
+    cuenta: typeof window.__mangaReaderCuenta === 'function' ? ((c) => (typeof c === 'number' ? c : c && typeof c.n === 'number' ? (c.urls ? `${c.n} (${c.urls.length} páginas, ${(c.cargadas || []).filter(u => c.urls.includes(u)).length} cargadas)` : c.n) : -1))(window.__mangaReaderCuenta()) : -1,
     iframes: document.querySelectorAll('iframe').length,
     dialogo: !!ui.querySelector('#mr-save-name'), nombre: ui.querySelector('#mr-save-name')?.value || '',
     conteo: ui.querySelector('#mr-save-count')?.textContent || '', siguiente: n ? !n.hidden : false,

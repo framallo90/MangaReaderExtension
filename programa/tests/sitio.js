@@ -25,6 +25,8 @@
 //   /fx/fondo.html    la misma página de prueba de la extensión (tests/fixtures): un lector que dibuja
 //                     8 páginas de fondo, con 18 tapas de otras obras alrededor (?tapasDeFondo=1: las
 //                     tapas también de fondo)
+//   /fx/catalogo-fondo.html  un catálogo con 12 tapas juntas en una carpeta y un lector de fondo de 4
+//                     páginas en la misma página: es un listado
 const http = require('http'), fs = require('fs'), path = require('path');
 const FIXTURES = path.join(__dirname, '..', '..', 'tests', 'fixtures');
 const JPG = fs.readFileSync(path.join(FIXTURES, 'pagina.jpg'));     // 420×640
@@ -329,8 +331,10 @@ function iniciar({ tapas = false } = {}) {
     if (/^\/img\/avisos\/1\/\w+\.jpg$/.test(u)) return enviar('image/jpeg', JPG);
     m = u.match(/^\/ver\/900000([1-3])$/);
     if (m) return html(pagina('Lector', menu + imagenes('beta/' + m[1], false)));
-    // La página de prueba de fondos de la extensión, y sus imágenes (las páginas numeradas, las tapas, el logo)
-    if (u === '/fx/fondo.html') return html(fs.readFileSync(path.join(FIXTURES, 'fondo.html'), 'utf8'));
+    // La página de prueba de fondos de la extensión, y sus imágenes (las páginas numeradas, las tapas, el logo).
+    // Y un catálogo de verdad con un lector de fondo en la misma página (2.11.4)
+    m = u.match(/^\/fx\/(fondo|catalogo-fondo)\.html$/);
+    if (m) return html(fs.readFileSync(path.join(FIXTURES, m[1] + '.html'), 'utf8'));
     if (/^\/fx\/img\/[\w-]+\/[\w.-]+$/.test(u)) return enviar('image/jpeg', JPG);
     if (/^\/img\/alfa\/\d\/\d\.jpg$/.test(u) || u === '/tapa.jpg') return enviar('image/jpeg', JPG);
     if (/^\/img\/beta\/\d\/\d\.jpg$/.test(u)) {

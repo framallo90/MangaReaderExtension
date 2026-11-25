@@ -10,7 +10,9 @@ const SCRIPTS = MANIFEST.content_scripts[0].js;
 // Hasta la 2.10 se inyectaba también la hoja de estilos; desde la 2.11 va adentro del shadow root
 const CSS = (MANIFEST.content_scripts[0].css || []).map(f => `css ${f} | `).join('');
 const { eq, fin } = probador();
-const ev = () => { const ls = []; return { addListener: f => ls.push(f), removeListener: f => { const i = ls.indexOf(f); if (i >= 0) ls.splice(i, 1); }, emit: (...a) => [...ls].forEach(f => f(...a)), count: () => ls.length }; };
+// (filtros: con qué filtro se registró cada oyente, por ejemplo los tipos de pedido de webRequest)
+const ev = () => { const ls = [], filtros = []; return { addListener: (f, filtro) => { ls.push(f); filtros.push(filtro); }, removeListener: f => { const i = ls.indexOf(f); if (i >= 0) ls.splice(i, 1); },
+  emit: (...a) => [...ls].forEach(f => f(...a)), count: () => ls.length, hasListener: f => ls.includes(f), filtros }; };
 const wait = (ms) => new Promise(r => setTimeout(r, ms));
 
 // Desde la 2.11 el script corre en todos los marcos de la pestaña y el service worker elige a cuál
@@ -20,7 +22,8 @@ const MARCOS = (MANIFEST.content_scripts[0].all_frames === true);
 // build: lo que responde el documento offscreen · results: cómo termina cada descarga, por URL
 // ('complete' por defecto, 'interrupted', 'hang') · onTabMessage: lo que responde la pestaña
 // marcos: lo que cuenta cada marco de la pestaña, [[frameId, candidatas]…] (-1: no tiene el script);
-// puede ser una función, para que cambie de una vez a la otra
+// puede ser una función, para que cambie de una vez a la otra. Desde la 2.11.4 cada marco dice
+// además sus páginas y cuáles cargaron: [frameId, candidatas, urls, cargadas]
 // guardado: lo que hay en chrome.storage.local al empezar
 function setup({ build, results = {}, invalidName = false, onTabMessage, marcos = [[0, 0]], guardado = {} } = {}) {
   const onChanged = ev(); let nextId = 1, jobN = 0, offscreen = 0;
@@ -91,7 +94,9 @@ function setup({ build, results = {}, invalidName = false, onTabMessage, marcos 
         if (o.func && !o.target.allFrames) return [{ frameId: 0, result: t.codigo || 200 }];
         if (o.func) {                                     // la cuenta de candidatas, marco por marco
           tabLog.push(`cuenta ${o.target.tabId}`);
-          return (typeof marcos === 'function' ? marcos(o.target.tabId) : marcos).map(([frameId, result]) => ({ frameId, result }));
+          // (extra: lo demás que dice el marco desde la 2.11.4, como pedidas y adaptado)
+          return (typeof marcos === 'function' ? marcos(o.target.tabId) : marcos).map(([frameId, result, urls, cargadas, extra]) =>
+            ({ frameId, result: urls ? { n: result, urls, cargadas: cargadas || [], ...(extra || {}) } : result }));
         }
         tabLog.push('js ' + o.files.join('+') + (o.target.allFrames ? ' en todos los marcos' : ''));
       },
@@ -100,11 +105,12 @@ function setup({ build, results = {}, invalidName = false, onTabMessage, marcos 
   // El tiempo corre 500 veces más rápido para que la prueba no tarde (20 s → 40 ms),
   // conservando el orden de las esperas
   // (importScripts: así carga el service worker sus archivos compartidos, desde la 2.11)
-  const ctx = { chrome, console, clearTimeout, setInterval, clearInterval, URL,
+  const ctx = { chrome, console, clearTimeout, setInterval, clearInterval, URL, URLSearchParams,
     importScripts: (...fs_) => { for (const f of fs_) vm.runInContext(fs.readFileSync(path.join(process.argv[2], f), 'utf8'), ctx); },
     setTimeout: (f, ms) => setTimeout(f, Math.ceil((ms || 0) / 500)), crypto: { randomUUID: () => 'job-' + (++jobN) } };
   vm.createContext(ctx);
-  vm.runInContext(src + '\n;Object.assign(globalThis, { blobs, jobs, workers, owners });', ctx);
+  // (imagenesEnEspera: lo que anotó de las imágenes que pidieron esperar, desde la 2.11.4)
+  vm.runInContext(src + '\n;Object.assign(globalThis, { blobs, jobs, workers, owners, imagenesEnEspera: typeof imagenesEnEspera === "undefined" ? null : imagenesEnEspera });', ctx);
   return Object.assign(t, { ctx, log, revoked, tabLog, onChanged, finishDownload, datos, escrituras });
 }
 // Un pedido como los que manda la pestaña (chrome.runtime.sendMessage): devuelve lo que se le contesta
@@ -369,6 +375,136 @@ const brief = (r) => `páginas=${r.pages} fallidas=[${r.failed}] archivos=[${r.f
     eq('  pero si el pedido no viene de un capítulo de un lote (guardar de a uno), no se frena nada', await imagenes({ tab: { id: 99 }, frameId: 0 }), 'HTTP 503: el sitio pidió esperar · frena nada');
   }
 
+  // ── (2.11.4) Las imágenes que carga la página del capítulo ──
+  // La pestaña del capítulo carga sus páginas y webRequest ve cada respuesta (`imagenes`: [dirección,
+  // código, Retry-After]). El marco cuenta sus páginas y dice cuáles cargaron. Devuelve qué pasó con
+  // el capítulo, cuánto quedó frenado el sitio, qué se le pidió al marco, con qué tipos escuchaba
+  // webRequest mientras el capítulo estuvo abierto y qué quedó después.
+  if (process.env.FORZAR || /function imagenesQuePidieronEsperar\(/.test(src)) {       // (FORZAR=1: también contra una versión anterior, para ver qué no andaba)
+    const C = 'https://s.com/cap/5/';
+    const PAGINAS = [1, 2, 3, 4, 5, 6].map(k => `${C}${k}.jpg`);
+    const BANNER = 'https://s.com/publicidad/banner.jpg';
+    // marcos: si se da, lo que cuenta cada marco (en vez de uno solo con urls y cargadas) · extra: lo
+    // demás que dice el marco (pedidas, adaptado)
+    const capitulo = async ({ imagenes = [], despues = [], urls = PAGINAS, cargadas, n = 6, extra = null, marcos = null, yaGuardado = false, saltear = true, cola = null, enElMarco = null } = {}) => {
+      // (por defecto cargaron todas las que no respondieron 429 o 503)
+      if (!cargadas) cargadas = urls.filter(u => !imagenes.some(([v, s]) => v === u && (s === 429 || s === 503)));
+      const alMarco = [];
+      let t;
+      t = setup({ marcos: marcos || [[0, n, urls, cargadas, extra]], guardado: cola ? { cola } : {}, onTabMessage: async (id, m) => {
+        alMarco.push(m.action);
+        if (m.action === 'yaGuardado') return { ok: true, guardado: yaGuardado, name: 'S/S 0005' };
+        if (m.action === 'autoSave' && enElMarco) return enElMarco(t, id);
+        return { ok: true, complete: true, pages: 6, name: 'S/S 0005', lines: [] };
+      } });
+      const oyente = t.ctx.chrome.webRequest.onHeadersReceived;
+      // (una respuesta: [dirección, código, Retry-After, pedido, pestaña]; el pedido sirve para seguir una redirección)
+      const responde = (id, [url, statusCode, ra, requestId, tabId]) => oyente.emit({ tabId: tabId ?? id, url, statusCode, type: 'image', requestId,
+        responseHeaders: ra == null ? [] : [{ name: 'Retry-After', value: ra }] });
+      let tipos = '';
+      t.alAbrir = (id) => {
+        tipos = ((oyente.filtros[oyente.filtros.length - 1] || {}).types || []).join('+');
+        oyente.emit({ tabId: id, statusCode: 200, type: 'main_frame', responseHeaders: [] });
+        for (const x of imagenes) responde(id, x);
+        for (const x of despues) responde(id, x);
+      };
+      t.responde = responde;
+      const antes = Date.now();
+      let r;
+      try {
+        const x = await t.ctx.batchChapter({ ...CHAP, saltear, ...(cola ? { cola: cola.id } : {}) }, SENDER);
+        r = x.yaEstaba ? `ya estaba (${x.name})` : `guardado (${x.pages} páginas)`;
+      } catch (e) { r = e.message; }
+      await wait(20);
+      const hasta = (t.datos.esperaSitio || {})['s.com'];
+      return { r, frena: hasta ? Math.round((hasta - antes) / 1000) + ' s' : 'nada', marco: alMarco.join(',') || 'nada', tipos, despues: oyente.count(),
+        anotadas: t.ctx.imagenesEnEspera ? t.ctx.imagenesEnEspera.size : -1, cola: t.datos.cola };
+    };
+    const como = (x) => `${x.r} · frena ${x.frena} · al marco: ${x.marco}`;
+
+    let x = await capitulo({ imagenes: [[`${C}3.jpg`, 503, '6']] });
+    eq('una página del capítulo (la 3) responde 503 con Retry-After: 6 al cargarla la página: no se le pide al marco que guarde, el sitio queda frenado 6 s y el capítulo falla con el motivo',
+      como(x), 'HTTP 503: el sitio pidió esperar · frena 6 s · al marco: yaGuardado');
+    eq('  mientras el capítulo estuvo abierto webRequest escuchaba la página y sus imágenes; al cerrarlo se dejó de escuchar y no quedó nada anotado',
+      `${x.tipos} · oyentes después: ${x.despues} · anotadas: ${x.anotadas}`, 'main_frame+image · oyentes después: 0 · anotadas: 0');
+    eq('  sin Retry-After, un minuto; con 429, lo mismo',
+      `${(await capitulo({ imagenes: [[`${C}2.jpg`, 503]] })).frena} | ${como(await capitulo({ imagenes: [[`${C}4.jpg`, 429]] }))}`, '60 s | HTTP 429: el sitio pidió esperar · frena 60 s · al marco: yaGuardado');
+    eq('una imagen de otra carpeta (un banner) responde 503: no corta ni frena, y el capítulo se guarda entero',
+      como(await capitulo({ imagenes: [[BANNER, 503, '6']] })), 'guardado (6 páginas) · frena nada · al marco: autoSave');
+    const COLA = { id: 'q1', fecha: 1, serie: 'S', formatos: { pdf: true }, sitio: 's.com', origen: 'https://s.com/serie', plantilla: '', items: [{ url: CHAP.url, numero: 5, titulo: '', volumen: '', estado: 'pendiente', error: '' }] };
+    x = await capitulo({ imagenes: [[`${C}3.jpg`, 503, '6']], yaGuardado: true, cola: COLA });
+    eq('si el capítulo ya estaba guardado sigue siendo "ya estaba" (sin pedirle que guarde), el sitio igual queda frenado y en la cola queda listo',
+      `${como(x)} · cola: ${x.cola.items.map(i => `${i.numero} ${i.estado}`).join(', ')}`, 'ya estaba (S/S 0005) · frena 6 s · al marco: yaGuardado · cola: 5 listo');
+    eq('  sin "Saltear los que ya guardé" no se pregunta: el capítulo falla igual (se quería bajar de nuevo)',
+      como(await capitulo({ imagenes: [[`${C}3.jpg`, 503, '6']], yaGuardado: true, saltear: false })), 'HTTP 503: el sitio pidió esperar · frena 6 s · al marco: nada');
+    eq('la misma imagen que después cargó no cuenta como faltante: si el marco la tiene cargada',
+      como(await capitulo({ imagenes: [[`${C}3.jpg`, 503, '6']], cargadas: PAGINAS })), 'guardado (6 páginas) · frena nada · al marco: autoSave');
+    eq('  y si la página la volvió a pedir y esta vez respondió bien',
+      como(await capitulo({ imagenes: [[`${C}3.jpg`, 503, '6']], despues: [[`${C}3.jpg`, 200]] })), 'guardado (6 páginas) · frena nada · al marco: autoSave');
+    eq('sin ninguna página en el marco, cualquier imagen que pidió esperar cuenta (también un banner)',
+      como(await capitulo({ imagenes: [[BANNER, 503]], urls: [], cargadas: [], n: 0 })), 'HTTP 503: el sitio pidió esperar · frena 60 s · al marco: yaGuardado');
+    // Una página que se pide recién al guardar (al medir las que no habían cargado): la pregunta la hace
+    // el marco antes de guardar, y el service worker decide con la misma regla
+    const pregunta = (urls) => async (t, id) => {
+      t.responde(id, [`${C}6.jpg`, 503, '9']);
+      const r = await pedido(t, { action: 'imagenEnEspera', urls }, { tab: { id }, frameId: 0 });
+      return r.status ? { ok: false, error: `HTTP ${r.status}: el sitio pidió esperar` } : { ok: true, complete: true, pages: urls.length, name: 'S/S 0005', lines: [] };
+    };
+    eq('una página que responde 503 recién al guardar (al medirla): el marco pregunta antes de guardar, no se guarda y el sitio queda frenado lo que pidió',
+      como(await capitulo({ enElMarco: pregunta(PAGINAS.slice(0, 5)) })), 'HTTP 503: el sitio pidió esperar · frena 9 s · al marco: autoSave');
+    // La pregunta solo vale desde la pestaña de un capítulo de un lote. Mientras un lote tiene abierto
+    // el suyo (la 50), otra pestaña (la 99) tiene una imagen que responde 503 y pregunta: no frena nada
+    {
+      let respuesta = null;
+      const desdeOtra = async (t) => {
+        t.responde(50, [`${C}6.jpg`, 503, '9', undefined, 99]);
+        // (una versión que no entiende la pregunta no contesta: se espera un rato y sigue)
+        respuesta = await Promise.race([pedido(t, { action: 'imagenEnEspera', urls: PAGINAS.slice(0, 5) }, { tab: { id: 99 }, frameId: 0 }), wait(300).then(() => 'sin respuesta')]);
+        return { ok: true, complete: true, pages: 6, name: 'S/S 0005', lines: [] };
+      };
+      const x2 = await capitulo({ enElMarco: desdeOtra });
+      eq('  esa pregunta desde una pestaña que no es la de un capítulo de un lote (con una imagen suya en 503, mientras corre un lote) no frena nada',
+        `${JSON.stringify(respuesta)} · ${x2.r} · frena ${x2.frena}`, '{"ok":true} · guardado (6 páginas) · frena nada');
+    }
+
+    // Lo que encontró la revisión de la 2.11.4, caso por caso
+    const sin3 = PAGINAS.filter(u => !u.endsWith('/3.jpg'));
+    eq('un marco que cuenta páginas pero no dice cuáles (el script de una versión anterior) no se corta acá: decide autoSave, con las páginas medidas',
+      como(await capitulo({ imagenes: [[BANNER, 503]], marcos: [[0, 6]] })), 'guardado (6 páginas) · frena nada · al marco: autoSave');
+    {
+      // La última cuenta de los marcos falla: vale la anterior, que tiene las páginas. (El marco
+      // cuenta 2, así la espera dura las 15 vueltas, y la 15.ª es la que falla.)
+      let vueltas = 0;
+      const marcos = () => { if (++vueltas === 15) throw new Error('Frame with ID 0 was removed.'); return [[0, 2, PAGINAS, sin3]]; };
+      eq('  si la última cuenta de los marcos falla, vale la anterior: un banner de otra carpeta sigue sin cortar, y la página 3 corta',
+        `${como(await capitulo({ imagenes: [[BANNER, 503]], marcos }))} | ${(vueltas = 0, como(await capitulo({ imagenes: [[`${C}3.jpg`, 503, '6']], marcos })))}`,
+        'guardado (6 páginas) · frena nada · al marco: autoSave | HTTP 503: el sitio pidió esperar · frena 6 s · al marco: yaGuardado');
+    }
+    const UNA = [1, 2, 3, 4, 5, 6].map(k => `https://s.com/p/${k}/img.jpg`);
+    eq('con un adaptador y una carpeta por página, la página 3 que responde 503 es una de las páginas: corta (no vale "la carpeta de la mayoría")',
+      como(await capitulo({ imagenes: [[UNA[2], 503, '6']], urls: UNA, extra: { adaptado: true } })), 'HTTP 503: el sitio pidió esperar · frena 6 s · al marco: yaGuardado');
+    eq('dos páginas responden 503, la primera pide 10 s y la segunda 30: el sitio queda frenado lo que pidió la que más pidió',
+      como(await capitulo({ imagenes: [[`${C}3.jpg`, 503, '10'], [`${C}5.jpg`, 429, '30']] })), 'HTTP 429: el sitio pidió esperar · frena 30 s · al marco: yaGuardado');
+    eq('la página 3 se redirige a otro servidor, que responde 503: cuenta por la dirección que pidió la página (se sigue el pedido)',
+      como(await capitulo({ imagenes: [[`${C}3.jpg`, 302, null, 77], ['https://cdn.s.com/x/3.jpg?t=abc', 503, '6', 77]], cargadas: sin3 })), 'HTTP 503: el sitio pidió esperar · frena 6 s · al marco: yaGuardado');
+    eq('  con srcset el navegador pidió otra dirección (en otra carpeta), que respondió 503: cuenta, porque el marco dice cuál pidió',
+      como(await capitulo({ imagenes: [['https://s.com/cap/5/hd/3.jpg', 503, '6']], cargadas: sin3, extra: { pedidas: ['https://s.com/cap/5/hd/3.jpg'] } })), 'HTTP 503: el sitio pidió esperar · frena 6 s · al marco: yaGuardado');
+    // El lector vuelve a pedir la 3 con algo agregado ("?t=1") y esta vez carga; la 7 todavía no cargó
+    const conT = [...sin3.slice(0, 2), `${C}3.jpg?t=1`, ...sin3.slice(2), `${C}7.jpg`];
+    eq('la página 3 respondió 503 y el lector la volvió a pedir con "?t=1", y cargó: no faltó, aunque otra página todavía no cargó',
+      como(await capitulo({ imagenes: [[`${C}3.jpg`, 503, '6']], urls: conT, cargadas: conT.slice(0, 6) })), 'guardado (6 páginas) · frena nada · al marco: autoSave');
+    eq('  y si webRequest vio que "3.jpg?t=1" respondió bien, la falla de "3.jpg" se borra',
+      como(await capitulo({ imagenes: [[`${C}3.jpg`, 503, '6']], despues: [[`${C}3.jpg?t=1`, 200]], urls: [...PAGINAS, `${C}7.jpg`], cargadas: sin3 })), 'guardado (6 páginas) · frena nada · al marco: autoSave');
+    eq('  pero otra página de la misma ruta con otra consulta no la borra ("imagen.php?p=1" no es "?p=3")',
+      como(await capitulo({ imagenes: [['https://s.com/imagen.php?cap=5&p=3', 503, '6']], despues: [['https://s.com/imagen.php?cap=5&p=1', 200]],
+        urls: [1, 2, 3, 4].map(k => `https://s.com/imagen.php?cap=5&p=${k}`), cargadas: [1, 2, 4].map(k => `https://s.com/imagen.php?cap=5&p=${k}`) })),
+      'HTTP 503: el sitio pidió esperar · frena 6 s · al marco: yaGuardado');
+    eq('con el lector en un iframe (el marco 3, con una página que todavía no cargó) y un aviso roto en la página de arriba: decide el marco del lector, y el aviso no es una de sus páginas',
+      como(await capitulo({ imagenes: [['https://s.com/ads/a.jpg', 503, '6']], marcos: [[0, 1, ['https://s.com/ads/a.jpg'], []], [3, 6, [...PAGINAS, `${C}7.jpg`], PAGINAS]] })), 'guardado (6 páginas) · frena nada · al marco: autoSave');
+    eq('lo anotado es por pestaña: la página 3 de este capítulo respondió 503, pero en otra pestaña: este no se corta',
+      como(await capitulo({ imagenes: [[`${C}3.jpg`, 503, '6', undefined, 99]], cargadas: sin3 })), 'guardado (6 páginas) · frena nada · al marco: autoSave');
+  }
+
   // ── La cola de un lote, guardada en chrome.storage (2.11) ──
   if (/function colaNueva\(/.test(src)) {
     const como = (c) => (!c ? 'sin cola' : c.items.map(i => `${i.numero} ${i.estado}${i.error ? ' (' + i.error + ')' : ''}`).join(', '));
@@ -447,6 +583,54 @@ const brief = (r) => `páginas=${r.pages} fallidas=[${r.failed}] archivos=[${r.f
       y.datos.ultimaDescarga = 5;
       await clic(y, 0);
       eq('  y ese botón es el de la carpeta', y.mostradas.join(','), '5');
+      if (process.env.FORZAR || typeof y.ctx.alTocarAviso === 'function') {          // (2.11.4; FORZAR=1: también contra una versión anterior)
+        eq('los botones los atiende alTocarAviso, el mismo oyente que llama Chrome cuando se toca uno (acá se lo llama igual: con la notificación y el número del botón)',
+          `${x.ctx.chrome.notifications.onButtonClicked.hasListener(x.ctx.alTocarAviso)} · ${y.ctx.chrome.notifications.onButtonClicked.hasListener(y.ctx.alTocarAviso)}`, 'true · true');
+        // La notificación se mostró con un solo botón ("Mostrar la carpeta") y después la cola cambió
+        // (otro lote quedó con fallas): tocar ese botón sigue mostrando la carpeta, no reintenta
+        y.datos.cola = { id: 'otra', fecha: 1, origen: 'https://s.com/serie', items: [{ url: 'u', numero: 9, estado: 'fallo', error: 'x' }] };
+        y.tabLog.length = 0;
+        y.abiertas = [{ id: 9, url: 'https://s.com/serie' }];
+        await clic(y, 0);
+        eq('  cada botón hace lo que dice aunque la cola haya cambiado desde que se mostró: "Mostrar la carpeta" no reintenta',
+          `${y.mostradas.join(',')} · ${y.tabLog.filter(l => !l.startsWith('cuenta')).join(' | ') || 'no le habló a ninguna pestaña'}`, '5,5 · no le habló a ninguna pestaña');
+        // Y al revés: se mostró con "Reintentar" y, antes de tocarlo, se reintentó desde la ventana y
+        // salió todo (la cola ya se cerró): "Reintentar" no tiene nada que hacer, y no abre la carpeta
+        x.datos.cola = null;
+        x.tabLog.length = 0;
+        x.abiertas = [{ id: 9, url: 'https://s.com/serie' }];
+        const antes = x.mostradas.length;
+        await clic(x, 0);
+        eq('  y "Reintentar" no abre la carpeta', `${x.tabLog.filter(l => !l.startsWith('cuenta')).join(' | ') || 'ninguna pestaña'} · carpetas abiertas: ${x.mostradas.length - antes}`, 'ninguna pestaña · carpetas abiertas: 0');
+
+        // El "Reintentar" de la notificación llega a la pestaña de la serie como el del diálogo: con reintentar
+        const toque = async ({ abiertas, cargando = 0, falla = 0, colaDeOtro = false } = {}) => {
+          const vistos = [];
+          let gets = 0, cuentas = 0;
+          const z2 = setup({ marcos: () => { if (++cuentas <= falla) throw new Error('Frame with ID 0 was removed.'); return [[0, 0]]; },
+            onTabMessage: (id, m) => { vistos.push(`${id} ${m.action}${m.reintentar ? ' reintentar' : ''}`); return { ok: true }; } });
+          const q = await pedido(z2, NUEVA);
+          for (const k of [1, 2, 3, 4]) await pedido(z2, { action: 'colaMarca', id: q.id, numero: k, estado: k === 2 ? 'fallo' : 'listo', error: 'x' });
+          await pedido(z2, { action: 'colaFin', id: q.id, motivo: 'listo' });
+          await wait(10);
+          // (otro lote, cancelado sin avisar, reemplazó la cola: la notificación que queda es la del primero)
+          if (colaDeOtro) { await pedido(z2, { ...NUEVA, origen: 'https://b.com/serie', sitio: 'b.com' }); }
+          z2.abiertas = abiertas;
+          // (cargando: las veces que la pestaña dice "loading", como una descartada que se vuelve a cargar)
+          z2.ctx.chrome.tabs.get = async (id) => ({ id, status: ++gets <= cargando ? 'loading' : 'complete' });
+          z2.ctx.chrome.notifications.onButtonClicked.emit('mr-lote', 0);
+          await wait(80);
+          return `${z2.tabLog.filter(l => /^(update|create)/.test(l)).join(' | ') || 'no abrió nada'} · ${vistos.join(' | ') || 'ningún pedido'}`;
+        };
+        eq('  "Reintentar" le pide a la pestaña de la serie lo mismo que el botón del diálogo: abrir el diálogo y retomar lo que falló (reintentar: true)',
+          await toque({ abiertas: [{ id: 9, url: 'https://s.com/serie' }] }), 'update 9 · 9 batch reintentar');
+        eq('  la pestaña se reconoce aunque su dirección traiga datos de seguimiento (como la reconoce la extensión)',
+          await toque({ abiertas: [{ id: 9, url: 'https://s.com/serie?utm_source=boletin' }] }), 'update 9 · 9 batch reintentar');
+        eq('  una pestaña descartada (o que se está recargando) se espera hasta que termine de cargar, y si el primer pedido no llega se prueba otra vez',
+          await toque({ abiertas: [{ id: 9, url: 'https://s.com/serie', discarded: true }], cargando: 3, falla: 1 }), 'update 9 · 9 batch reintentar');
+        eq('  la notificación de un lote cuya cola reemplazó otro (que se canceló sin avisar) no retoma la de ese otro',
+          await toque({ abiertas: [{ id: 9, url: 'https://s.com/serie' }, { id: 12, url: 'https://b.com/serie' }], colaDeOtro: true }), 'no abrió nada · ningún pedido');
+      }
       await pedido(y, { action: 'insigniaLimpiar' });
       eq('la insignia se limpia al cerrar el diálogo', JSON.stringify(y.insignias[y.insignias.length - 1]), '""');
       // Cancelado por quien lo está mirando: no hace falta avisarle

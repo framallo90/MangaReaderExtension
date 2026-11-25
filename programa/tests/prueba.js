@@ -268,6 +268,18 @@ module.exports = async function probar(api) {
       `${deFondo.capitulo?.serie} ${deFondo.capitulo?.numero} · ${deFondo.capitulo?.imagenes} páginas`, 'Serie Fondo 3 · 8 páginas');
     eq('  sus páginas: las 8, en orden, y ninguna tapa', numeradas(await api.paginasDe(S + '/fx/fondo.html')), '1.png 2.png 3.png 4.png 5.png 6.png 7.png 8.png');
     eq('  y con las tapas también dibujadas de fondo, lo mismo', numeradas(await api.paginasDe(S + '/fx/fondo.html?tapasDeFondo=1')), '1.png 2.png 3.png 4.png 5.png 6.png 7.png 8.png');
+    // (Con la extensión 2.11.4) Un catálogo de verdad con un lector de fondo en la misma página: sus 12
+    // tapas están juntas en una carpeta y mandan ellas (el lector de fondo decide solo cuando no). Antes
+    // se miraba primero el lector de fondo y el catálogo pasaba por un capítulo.
+    const catalogo = await api.analizar(S + '/fx/catalogo-fondo.html');
+    eq('un catálogo con sus 12 tapas juntas en una carpeta y un lector de fondo de 4 páginas en la misma página: es un listado, con sus títulos',
+      `${catalogo.capitulo} · ${(lista(catalogo, 'titulos')?.items || []).map(i => i.texto).join(', ') || JSON.stringify(catalogo.listas.map(l => l.tipo + ' ' + l.items.length))}`,
+      'null · ' + Array.from({ length: 12 }, (_, i) => `Obra ${i + 1}`).join(', '));
+    // …y la página de fondos sigue siendo un capítulo aunque algunas tapas compartan carpeta (3 de 18,
+    // como las subidas de un mes): las imágenes deciden solo si su carpeta junta la mitad, como en la extensión
+    const conCarpetaComun = await api.analizar(S + '/fx/fondo.html?carpetaComun=3');
+    eq('  la página de fondos con 3 de sus 18 tapas en una misma carpeta: sigue siendo un capítulo, con sus 8 páginas',
+      `${conCarpetaComun.capitulo?.serie} ${conCarpetaComun.capitulo?.numero} · ${conCarpetaComun.capitulo?.imagenes} páginas`, 'Serie Fondo 3 · 8 páginas');
     api.encolar([{ url: S + '/fx/fondo.html', texto: 'Capítulo 3' }], { carpeta: tmp, formatos: soloPdf });
     eq('  bajarla: un PDF con las 8', estados(await api.colaVacia()) + ' · ' + pdfPages(path.join(tmp, 'Serie Fondo', 'Serie Fondo 0003.pdf')), 'Serie Fondo/Serie Fondo 0003: listo (8 páginas) · 8 × 420x640');
     api.limpiar();
