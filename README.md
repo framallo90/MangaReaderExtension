@@ -5,7 +5,7 @@ Dos herramientas para guardar capítulos de manga y cómics como **PDF**, **CBZ*
 | | Qué es | Versión | Dónde está |
 |---|---|---|---|
 | 🧩 **La extensión** | Se usa desde Chrome, sobre la página que tenés abierta | 2.11.4 | `manga-reader-ext(ver 24-11-2026-3)/manga-reader-ext` |
-| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.11.1 | `programa/` |
+| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.11.2 | `programa/` |
 
 Funcionan por separado y comparten el mismo código para detectar páginas, armar nombres y generar los archivos. Son de uso personal, están en español y todo corre en tu máquina, sin servidor.
 
@@ -248,8 +248,9 @@ Para ver un sitio entero de una vez está **Ver todo el sitio**, al lado de Anal
 - Mientras recorre el listado muestra cuántas páginas y cuántos títulos lleva. **Cancelar** corta y deja lo juntado.
 - Lee hasta el **tope** de páginas (60; se cambia ahí mismo). Si el listado es más largo, dice que quedó incompleta y por qué, y **Seguir desde donde quedó** continúa.
 - Arriba están el **buscador** y los **filtros**: lo que ya tengo, lo que me falta, con tapa, sin tapa, desaparecidas y, si el sitio los dice, tipo e idioma. Se combinan, y quedan puestos para la próxima vez.
-- **Tocar una tapa** abre sus capítulos, como siempre; un botón vuelve a la galería.
-- Con la **casilla** de cada tapa se marcan series: **Buscar lo nuevo** dice qué capítulos hay que no tenés, y **Encolar lo nuevo** los baja todos.
+- **Tocar una tapa** abre sus capítulos, como siempre; un botón vuelve a la galería. El nombre de ese título se pone en "Serie"; si habías escrito otro a mano, queda en un chip al lado ("escrito: …") y con un clic vuelve.
+- Con la **casilla** de cada tapa se marcan series: **Buscar lo nuevo** dice qué capítulos hay que no tenés, y **Encolar lo nuevo** los baja todos. Las marcas se guardan solas.
+- Con más de 600 títulos, **Mostrar 600 más** agrega la tanda siguiente al final.
 - La galería queda **guardada**: la próxima vez aparece al instante, con su fecha. **Refrescar** la recorre de nuevo; lo que ya no está en el sitio queda marcado como desaparecido.
 
 Para no pegar siempre las mismas direcciones está **⭐ Favoritos**. Al abrirlo aparecen el cuadro para pegar y, debajo, tu lista:
@@ -265,6 +266,20 @@ Lo que todavía le falta y cómo está armado: [programa/README.md](programa/REA
 # Actualizaciones
 
 Lo más nuevo arriba. El historial completo de la extensión está en la sección 15 de [DOCUMENTACION.md](DOCUMENTACION.md).
+
+### 26-11-2026 · Programa 0.11.2
+
+Lo que quedaba abierto de la galería, cerrado punto por punto.
+
+- **Las marcas se guardan juntas:** cada casilla escribía en el disco la galería entera (10,8 MB con 33.000 títulos: diez marcas eran 10 escrituras y 107,7 MB). Ahora es una sola escritura, un segundo y medio después de la última marca. Se escribe antes si hace falta: al cerrar el programa, al empezar un recorrido y al pasar a otro sitio.
+- **"Mostrar 600 más" agrega las tarjetas al final** en vez de volver a dibujar todas: con 6.000 a la vista tardaba 420 ms y ahora 37, y las que ya estaban no se tocan. La casilla de una tapa tampoco redibuja la grilla: con 6.600 a la vista tardaba medio segundo, y ahora 19 ms.
+- **Desde la galería, el título que tocás manda:** su nombre se pone siempre en "Serie". Si habías escrito otro a mano, queda en un chip ("escrito: One Piece") y con un clic vuelve. Desde la exploración por nivel, la regla de siempre: lo escrito a mano no se pisa.
+- **Lo que fallaba contra el paquete (41 de 42)** era una comprobación que esperaba capítulos bajados por otra parte de la suite: era de la prueba, no de la galería ni del ejecutable. Ahora la sección se basta sola, y `node tests/seccion.js` (nuevo) la corre sola; con `--ejecutable=`, contra el instalado.
+- **Instalada y probada instalada:** el instalador de la 0.11.2 se instaló en limpio y, sobre el instalado, pasaron la sección de la galería (53 de 53), los botones del aviso apretados de verdad (4 de 4), la galería con 33.000 títulos y la corrida de 300 páginas. Después se desinstaló. El instalador queda en `programa/dist/`.
+- **Un 503 y un 429 en la quinta página de un listado, con el proxy de prueba:** la galería corta, dice el motivo y deja el sitio frenado. Al retomar no pierde ni repite ningún título, y no vuelve a pedir las páginas que ya tenía.
+- **Una corrida larga** (`node tests/galeria-larga.js`, nuevo): un catálogo de prueba de 300 páginas con 12 títulos cada una, de punta a punta, en 23 min 38 s (12,7 páginas por minuto), sin repetir ni perder ninguno de los 3.600. La primera vez la ventana terminó usando 2,5 veces la memoria del principio, porque la galería se volvía a dibujar entera con cada página. Ahora suma las tarjetas al final, y terminó en 1,86 veces.
+- **Pruebas:** 306 comprobaciones del programa en 12 min 20 s (eran 292).
+- **Sigue abierto:** un 429 o un 503 que mande un sitio por su cuenta, y una corrida de horas contra un sitio real (la de 300 páginas es un recorte, con un catálogo de prueba).
 
 ### 26-11-2026 · Programa 0.11.1
 

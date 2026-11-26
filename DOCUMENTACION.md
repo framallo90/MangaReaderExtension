@@ -1075,6 +1075,46 @@ Seis cosas que la 0.10.3 dejó escritas como pendientes. De cada una: qué pasab
 
 Lo que hace, sus topes, lo que no recorre y cómo se probó (las comprobaciones automáticas y las corridas contra sitios de verdad, con fecha y hora) está todo junto en la [sección 16](#16-la-galería-del-sitio-en-el-programa-0110).
 
+### Programa 0.11.2: el instalador, instalado, y lo que se corrió ahí (26-11-2026)
+
+Los siete puntos de la 0.11.2, con sus resultados, están en la [sección 16.12](#1612-la-0112-cerrar-lo-que-quedó-de-la-galería-26-11-2026). Acá, la instalación y los pasos para repetirla a mano. Horas de Argentina, Windows 11 (10.0.26200).
+
+**Si el instalador se puede instalar en esta máquina** se comprobó antes de tocar nada, a las 09:01, con el de la 0.11.1 que ya estaba armado: instaló en silencio (`/S`) en 9 s, el arranque de humo del instalado dio "HUMO OK", y se desinstaló (09:02). Se puede.
+
+**La 0.11.2, en limpio:**
+
+| Hora | Qué | Resultado |
+|---|---|---|
+| 10:27:06 | `npm run instalador` | `dist/Manga-Reader-Instalador-0.11.2.exe`, 116 MB, en 39 s |
+| 10:28:04 | Estado antes de instalar | Nada del programa: ni carpeta, ni clave de desinstalación, ni accesos directos, ni claves de avisos (`tests/limpiar-avisos.ps1 -Mirar`: "estado limpio") |
+| 10:28:04 a 10:28:11 | Instalación en silencio (`/S`), para el usuario actual | En `%LOCALAPPDATA%\Programs\Manga Reader\`, versión 0.11.2, con `Manga Reader.lnk` en el menú Inicio y en el escritorio |
+| 10:28:22 | `"Manga Reader.exe" --humo` | "HUMO OK · interfaz: object · 57 botones · armador: function" (un botón más que antes: el chip de lo escrito a mano) |
+| 10:28:23 a 10:33:24 | La sección de la galería, sola: `node tests/seccion.js --ejecutable="…\Manga Reader.exe"` | **53 de 53** (las 52 de la sección y "sin errores en la consola"), en 5 min 1 s |
+| 10:43:16 a 10:44:40 | Los botones del aviso, apretados de verdad (lo de `npm run avisos`, sobre el instalado): `"…\Manga Reader.exe" --prueba --avisos --pruebas=<repositorio>\programa\tests` | **4 de 4**, en 1 min 24 s. El primer aviso después de instalar salió en pantalla y se apretó al primer intento; "Reintentar 1 que falló" (clic a los 3,9 s del 503, reintento a los 60,1 s); "Limpiar terminados"; "Abrir carpeta" |
+| 10:44:53 | La galería con 33.000 títulos: `EJECUTABLE="…\Manga Reader.exe" node tests/galeria-grande.js` | Diez marcas de a una: 1 escritura (10,8 MB). "Mostrar 600 más" con 6.000 a la vista: 46 ms, y las 6.000 que estaban son los mismos nodos. Una casilla con 6.600 a la vista: 19 ms. Cerrar enseguida después de marcar otras diez: salió a los 159 ms, y están las veinte |
+| 10:45:15 a 11:09:02 | La corrida de 300 páginas: `EJECUTABLE="…\Manga Reader.exe" node tests/galeria-larga.js` | **7 de 7.** Completa, 3.600 títulos sin repetir ni perder, 23 min 38 s (12,7 páginas por minuto), la ventana de 28,6 a 53,1 MB (1,86 veces). Detalle en 16.12, punto 7 |
+| 15:16:29 a 15:16:55 | Desinstalar (`Uninstall Manga Reader.exe /currentuser /S`) y `tests/limpiar-avisos.ps1 -Ejecutable "…\Manga Reader.exe"` | Se fueron la carpeta, la clave de desinstalación y los dos accesos directos. La limpieza borró lo que habían dejado los avisos (la clave CLSID de los botones y el ajuste de avisos del programa). Después, `-Mirar`: "estado limpio", como antes de instalar. Los datos del programa (`%APPDATA%\manga-reader-programa`) no se tocaron |
+
+**Las dos corridas de avisos que fallaron antes, y por qué** (10:33:35 y 10:36:43): la primera dio 2 de 4 y la segunda 0 de 4. No era el programa ni el instalador: **la pantalla estaba apagada**. Nadie tocaba la máquina desde las 09:07, y con la pantalla apagada Windows no muestra los avisos: los manda derecho al centro de notificaciones. La prueba los encontraba ahí, sin lugar en la pantalla (el botón con el rectángulo vacío), y fallaba con un error sin sentido ("No se puede convertir el valor NaN"). A las 10:41 se leyó el estado de la pantalla (apagada), a las 10:42 se la prendió moviendo el puntero un píxel y devolviéndolo, y la corrida de las 10:43 dio 4 de 4. La prueba quedó corregida en dos cosas:
+
+- **`clic-aviso.ps1`:** un aviso que está pero sin lugar en la pantalla cuenta como que no apareció, y lo dice ("NO APARECIÓ EN PANTALLA: … pasa con la pantalla apagada o con No molestar"). `avisos.js` lo pasa tal cual.
+- **`avisos.js`:** antes de esperar el aviso siguiente, espera a que el anterior se haya ido de la pantalla (`sinAvisoEnPantalla`; en la corrida buena tardó 1,8 y 1,6 s). El anterior tiene los mismos botones, y si el que aprieta arranca antes lo encuentra a él.
+
+**A mano, con el programa instalado** (los avisos tienen sus propios pasos en "Programa 0.10.4", más arriba; estos son los de la galería):
+
+1. En `programa/`, `npm run instalador`, y correr `dist/Manga-Reader-Instalador-0.11.2.exe`. No está firmado: "Más información → Ejecutar de todas formas".
+2. Abrir **Manga Reader** desde el menú Inicio, pegar la dirección de un sitio con listado y tocar **Ver todo el sitio**. Esperar a que termine (o cancelar con algunas páginas leídas).
+3. **Las marcas se guardan juntas.** Abrir `%APPDATA%\manga-reader-programa` en el Explorador, con la columna "Fecha de modificación" a la vista. Marcar diez series seguidas con la casilla de sus tapas: `galerias.json` tiene que cambiar de hora una sola vez, un segundo y medio después de la última marca (F5 para refrescar la carpeta).
+4. **Al cerrar no se pierde nada.** Marcar una serie más y cerrar el programa en el acto. Abrirlo de nuevo y tocar **Ver todo el sitio** con la misma dirección: la serie sigue marcada.
+5. **"Mostrar 600 más"** (si la galería tiene más de 600 títulos): las tarjetas nuevas aparecen al final y la lista no salta ni parpadea.
+6. **El título que tocás manda.** Escribir un nombre cualquiera en "Serie" y tocar una tapa: en "Serie" queda el nombre de ese título y, debajo, el chip "escrito: …" con lo que habías escrito. Tocar el chip: vuelve lo escrito y el chip se va. Volver a la galería y tocar otra tapa: otra vez el nombre del título, y el chip de nuevo.
+7. **Desde la exploración por nivel no cambia.** Con un nombre escrito a mano, analizar el listado con **Analizar** y entrar a un título desde la lista: "Serie" queda como estaba, sin chip.
+8. **Lo mismo, automático, sobre el instalado** (desde `programa/`, en Git Bash; en el símbolo del sistema la variable se pone antes con `set EJECUTABLE=…`):
+   - `node tests/seccion.js --ejecutable="%LOCALAPPDATA%\Programs\Manga Reader\Manga Reader.exe"` (la sección de la galería: 5 min).
+   - `"%LOCALAPPDATA%\Programs\Manga Reader\Manga Reader.exe" --prueba --avisos --pruebas=<repositorio>\programa\tests` (los botones del aviso: muestra avisos en la pantalla y abre y cierra una ventana del Explorador; la pantalla tiene que estar prendida y sin "No molestar").
+   - `EJECUTABLE="…\Manga Reader.exe" node tests/galeria-grande.js` y `EJECUTABLE="…\Manga Reader.exe" node tests/galeria-larga.js` (la galería grande, 2 min, y la corrida de 300 páginas, 24 min).
+9. **Para dejar la máquina como estaba:** `"%LOCALAPPDATA%\Programs\Manga Reader\Uninstall Manga Reader.exe" /currentuser /S` y, en `programa/`, `powershell -ExecutionPolicy Bypass -File tests/limpiar-avisos.ps1 -Ejecutable "%LOCALAPPDATA%\Programs\Manga Reader\Manga Reader.exe"`. Los datos (`%APPDATA%\manga-reader-programa`) no se borran.
+
 ### Lote largo (`node tests/lote_largo.js`)
 
 Una serie de prueba servida en esta máquina, con la cantidad de capítulos que se pida, para ver si el lote aguanta más de unos minutos. No es parte de `e2e.js` porque tarda.
@@ -1126,6 +1166,14 @@ El 22-11-2026, con la 2.8.4 y con ventana (pestañas en segundo plano como en el
   - **Instalar con el asistente.** La instalación fue en silencio (`/S`), para el usuario actual y en la carpeta de siempre; elegir otra carpeta o instalar para todos los usuarios no se probó. El instalador sigue sin firma.
   - **Cortar un intento mientras busca las páginas** (el recorrido de la página, antes de bajar): es el mismo mecanismo que mientras la página abre (el pedido a la ventana falla cuando se cierra), pero no tiene una comprobación propia. Y Cancelar y Reintentar se prueban llamando a su manejador, no con un clic en la ventana.
   - **`MR_PROXY` con el programa ya abierto, entre uno instalado y uno abierto con `npm start`:** la prueba usa dos del mismo.
+
+- **De la galería del programa (0.11.0 a 0.11.2):** lo que cada versión dejó y cómo se cerró está en 16.10, 16.11 y 16.12. Al 26-11-2026:
+  - ~~La galería con decenas de miles de títulos en pantalla, una corrida real con el tope de fábrica, "Seguir desde donde quedó" y "Buscar lo nuevo" contra un sitio real~~: la 0.11.1 (16.11).
+  - ~~La sección de la galería contra el paquete daba 41 de 42 sin decir cuál fallaba; el instalador no se había instalado; "Mostrar 600 más" redibujaba todo; al tocar una tapa quedaba la serie escrita a mano; un 429 o un 503 lejos del principio del listado y con el proxy; un recorrido de más de 66 páginas~~: la 0.11.2 (16.12).
+  - **Un 429 o un 503 que mande un sitio por su cuenta** en medio de un listado. Los de las pruebas los pone el proxy o el sitio de prueba.
+  - **Una corrida de horas de verdad contra un sitio real.** La de 300 páginas de la 0.11.2 es un recorte, con un catálogo servido en esta máquina; contra un sitio real, lo más largo son 66 páginas.
+  - **Una marca hecha en el último segundo y medio antes de que el programa muera sin cerrarse** (administrador de tareas, corte de luz) se pierde: las marcas se escriben juntas (16.12, punto 1). Cerrándolo, no.
+  - **Los avisos de Windows con la pantalla apagada** no salen en pantalla (van al centro de notificaciones): es de Windows, y la prueba de avisos ahora lo dice en vez de fallar raro.
 
 #### A mano: los botones de la notificación del lote
 
@@ -1356,8 +1404,9 @@ La galería se guarda por sitio (su origen: `https://sitio.com`), con su fecha, 
 
 ### 16.6 Trabajar desde la galería
 
-- **Tocar una tapa** abre ese título con la exploración de siempre, con su nombre puesto como serie. Un botón vuelve a la galería. Si en "Serie" había un nombre escrito a mano, queda ese: la serie escrita a mano no se pisa, igual que al entrar a un título desde una lista.
-- **Marcar series** (la casilla de cada tapa, o "Marcar las que se ven" con los filtros puestos). Las marcas quedan guardadas.
+- **Tocar una tapa** abre ese título con la exploración de siempre. Un botón vuelve a la galería.
+- **El título que tocás manda** (desde la 0.11.2): su nombre se pone siempre en "Serie". Si había otro escrito a mano, no se pierde: queda en un chip debajo del campo ("escrito: One Piece"), y un clic lo vuelve a poner. Hasta la 0.11.1 lo escrito a mano no se pisaba, y los capítulos del título tocado se guardaban con ese nombre. Entrando a un título desde una lista de la exploración por nivel no cambió nada: ahí lo escrito a mano sigue sin pisarse.
+- **Marcar series** (la casilla de cada tapa, o "Marcar las que se ven" con los filtros puestos). Las marcas quedan guardadas: desde la 0.11.2 se escriben juntas, un segundo y medio después de la última, y antes si hace falta (al cerrar el programa, al empezar un recorrido, al pasar a otro sitio).
 - **Buscar lo nuevo** abre la página de cada serie marcada, de a una, con la pausa y el freno de siempre, y dice qué capítulos hay que no tenés (los posteriores al último que tenés, como en "Siguiendo").
 - **Encolar lo nuevo** pone en la cola lo de todas las marcadas, cada una con su serie. Baja la cola de siempre, con su freno.
 
@@ -1373,7 +1422,7 @@ La galería se guarda por sitio (su origen: `https://sitio.com`), con su fecha, 
 | La página seguía creciendo al bajar | "Quedó incompleta: la página seguía cargando más títulos al bajar cuando dejé de bajar: puede faltar el final" |
 | Dos páginas seguidas sin nada nuevo | Completa, y dice: "Paré porque dos páginas seguidas no traían ningún título nuevo" |
 | Sin listado | "Este sitio no tiene un listado recorrible: abrí N páginas…", y la exploración de siempre |
-| Tarjetas en pantalla | De a 600, con "Mostrar más": la galería de un catálogo grande tiene decenas de miles |
+| Tarjetas en pantalla | De a 600, con "Mostrar más": la galería de un catálogo grande tiene decenas de miles. Cada tanda se agrega al final (0.11.2), sin volver a dibujar las que ya estaban |
 
 ### 16.8 Qué no recorre, y por qué
 
@@ -1390,20 +1439,21 @@ La galería se guarda por sitio (su origen: `https://sitio.com`), con su fecha, 
 
 - **`galerias.json`** (carpeta de datos del programa): `{ sitio: { sitio, inicio, listaIds, conTapas, fecha, refresco, paginas, estado, motivo, siguiente, titulos } }`. Cada título: `{ url, nombre, detalle, imagen, pagina, tipo, idioma, alta, vista, desaparecida, marcada }`. `pagina` es la del listado donde se vio (de ahí sale el Referer de su tapa); `vista`, el recorrido en el que apareció por última vez.
 - **`config.galeria`:** `{ tope, filtros: { tengo, tapa, tipo, idioma, desaparecidas } }`.
-- **Lo que pide la interfaz** (`mr.galeria` en `preload_ui.js`): `de(dirección)` (la guardada, sin recorrer), `recorrer({ url, tope, modo: 'nueva' | 'refrescar' | 'seguir' })`, `cancelar()`, `marcar({ sitio, urls, marcada })` (desde la 0.11.1 devuelve solo las direcciones que quedaron así, no la galería entera), `buscarNuevo(sitio)`, `encolarNuevo(sitio)`, `marcas(sitio)` (solo lo que ya tenés de cada título), `olvidar(sitio)`. El avance llega por el evento `galeria`, con los títulos que sumó cada página.
+- **Lo que pide la interfaz** (`mr.galeria` en `preload_ui.js`): `de(dirección)` (la guardada, sin recorrer), `recorrer({ url, tope, modo: 'nueva' | 'refrescar' | 'seguir' })`, `cancelar()`, `marcar({ sitio, urls, marcada })` (desde la 0.11.1 devuelve solo las direcciones que quedaron así, no la galería entera; desde la 0.11.2 no escribe el archivo en el momento: ver 16.12), `buscarNuevo(sitio)`, `encolarNuevo(sitio)`, `marcas(sitio)` (solo lo que ya tenés de cada título), `olvidar(sitio)`. El avance llega por el evento `galeria`, con los títulos que sumó cada página.
 - **En la página:** `tarjetasDelListado` (las tarjetas de la grilla) y `paginasNumeradas` (si el listado sigue en páginas numeradas), en `src/pagina/galeria.js`. `scripts/generar.js` lo pone después de `explorar.js`.
-- **Constantes** (`src/galeria.js`): `TOPE_DEFECTO` 60 · `TOPE_MAX` 5.000 · `PASOS_PARA_SUBIR` 8 · `SIN_NUEVOS_PARA_CORTAR` 2 · `GUARDAR_CADA` 5. En la interfaz, `GAL_TANDA` 600.
+- **Constantes** (`src/galeria.js`): `TOPE_DEFECTO` 60 · `TOPE_MAX` 5.000 · `PASOS_PARA_SUBIR` 8 · `SIN_NUEVOS_PARA_CORTAR` 2 · `GUARDAR_CADA` 5 · `GUARDAR_TRAS` 1.500 ms (0.11.2: cuánto después de la última marca se escriben las marcas). En la interfaz, `GAL_TANDA` 600.
+- **Cómo se dibuja la galería** (`ui.js`, desde la 0.11.2): `dibujarGaleria` arma la lista de títulos que pasan los filtros y `galCompletarTarjetas` pone las tarjetas que faltan al final. Una tarjeta del dibujo anterior que muestra lo mismo se vuelve a usar (`galFirma`: todo lo que la tarjeta dice, menos la casilla). "Mostrar más" (`mostrarMasEnGaleria`) y cada página de un recorrido (`sumarAGaleria`) agregan tarjetas sin dibujar nada de nuevo; una marca cambia solo su casilla y la cuenta.
 
 ### 16.10 Cómo se probó
 
-**En `npm run prueba`** (292 comprobaciones en total desde la 0.11.1, en 10 min 42 s; la 0.11.0 tenía 291 en 10 min 47 s, y la 0.10.4, 234):
+**En `npm run prueba`** (306 comprobaciones en total desde la 0.11.2, en 12 min 20 s; la 0.11.1 tenía 292 en 10 min 42 s; la 0.11.0, 291 en 10 min 47 s, y la 0.10.4, 234). Lo que sumó la 0.11.2 está en 16.12: acá abajo, lo de la 0.11.0 y la 0.11.1.
 
-- **En Node, con un sitio de mentira** (`node tests/galeria.js`, 16; la 0.11.1 sumó que marcar devuelva solo las direcciones que cambió): la dirección de un título, subir por la dirección, qué es cada página, el tipo y el idioma; cómo se suman a los títulos de la exploración las otras tarjetas de la grilla; que la galería se guarde en el disco y se vuelva a leer (en las pruebas el programa no escribe nada); que un refresco cortado por el tope no marque desaparecidas y, al seguirlo hasta el final, sí; que un título que vuelve deje de estarlo; y un recorrido largo interrumpido (el programa que se cierra de golpe y el que sale ordenado).
-- **Contra el sitio de prueba** (`iniciar({ galeria: true })`, un sitio por caso; 42), por la interfaz y por el programa:
+- **En Node, con un sitio de mentira** (`node tests/galeria.js`, 20 desde la 0.11.2; la 0.11.1 sumó que marcar devuelva solo las direcciones que cambió): la dirección de un título, subir por la dirección, qué es cada página, el tipo y el idioma; cómo se suman a los títulos de la exploración las otras tarjetas de la grilla; que la galería se guarde en el disco y se vuelva a leer (en las pruebas el programa no escribe nada); que un refresco cortado por el tope no marque desaparecidas y, al seguirlo hasta el final, sí; que un título que vuelve deje de estarlo; y un recorrido largo interrumpido (el programa que se cierra de golpe y el que sale ordenado).
+- **Contra el sitio de prueba** (`iniciar({ galeria: true })`, un sitio por caso; 42 hasta la 0.11.1 y 52 desde la 0.11.2), por la interfaz y por el programa:
   - Un listado de 3 páginas con "Siguiente": los 10 títulos de las tres, en orden y sin repetir; se ve la galería y no la ruta, las pestañas ni la lista.
   - Las tapas: 2 pedidos de cada una (la página y el programa), el del programa con el Referer de la página del listado donde la vio; ninguna rechazada por no traerlo; y también con la grilla a más de 400 px del borde de arriba. Una que no existe: la inicial.
   - Volver con otra dirección del mismo sitio: la guardada, sin ningún pedido. Una dirección que lleva a un sitio del que ya hay galería: no la pisa.
-  - Tocar una tapa (sus capítulos, su nombre como serie, y el botón para volver; con una serie escrita a mano de antes, queda la escrita); marcar dos series, "Buscar lo nuevo" (4 capítulos nuevos en 2 series) y "Encolar lo nuevo" (los 4 bajan por la cola); lo bajado queda marcado, y "Lo que me falta" lo saca.
+  - Tocar una tapa (sus capítulos, su nombre como serie, y el botón para volver; con una serie escrita a mano de antes quedaba la escrita, y desde la 0.11.2 queda la del título, con lo escrito en un chip: 16.12); marcar dos series, "Buscar lo nuevo" (4 capítulos nuevos en 2 series) y "Encolar lo nuevo" (los 4 bajan por la cola); lo bajado queda marcado, y "Lo que me falta" lo saca.
   - Una sola página: termina. Un título que el sitio deja de mostrar: al refrescar queda "desaparecida" y no se borra; cuando vuelve, se le saca.
   - El buscador y cada filtro por separado (8) y combinados (5). Los filtros y el tope, guardados y puestos al volver.
   - Números de página con `rel="next"` en el que sigue: avanza por las tres. "Cargar más": los 12, no los 4 primeros. Una barra de solo números: incompleta, con el motivo. La portada de un sitio con link a su listado completo, que carga al bajar: los 15.
@@ -1434,7 +1484,7 @@ La galería se guarda por sitio (su origen: `https://sitio.com`), con su fecha, 
 3. Las tapas no se pedían si la grilla quedaba a más de 400 px del borde de arriba: la imagen sin cargar estaba oculta de una forma que le borraba la posición, y lo que se mira para pedirla es si su lugar quedó a la vista. Apareció al correr la suite entera (con la grilla a 576 px llegaban 0 de 10; ahora, las 10).
 4. La ventana del programa de prueba aparecía en la pantalla, y en la primera corrida alguien la usó y la cerró en el medio. Ahora esas pruebas abren el programa sin mostrar la ventana.
 
-**Lo que la 0.11.0 dejó sin probar** lo cubrió la 0.11.1 al día siguiente (16.11): la galería con decenas de miles de títulos en pantalla, una corrida real con el tope de fábrica, "Seguir desde donde quedó" y "Buscar lo nuevo" contra un sitio real, y el programa empaquetado. **Sigue sin probarse:** un recorrido de horas de punta a punta (el más largo es de 66 páginas) y un sitio real que conteste 429 o 503 en medio del listado (se probó con el sitio de prueba).
+**Lo que la 0.11.0 dejó sin probar** lo cubrió la 0.11.1 al día siguiente (16.11): la galería con decenas de miles de títulos en pantalla, una corrida real con el tope de fábrica, "Seguir desde donde quedó" y "Buscar lo nuevo" contra un sitio real, y el programa empaquetado. Lo que la 0.11.1 dejó a su vez lo cerró la 0.11.2 (16.12), donde está la lista de lo abierto como queda hoy: un 429 o un 503 que mande un sitio por su cuenta, y una corrida de horas de verdad contra un sitio real.
 
 ### 16.11 La 0.11.1: lo que había quedado sin probar (26-11-2026)
 
@@ -1470,7 +1520,7 @@ Lo que no está en negrita no cambió de una versión a la otra: la diferencia e
 | "Seguir desde donde quedó", con el tope en 6 | 144 títulos más, ninguno repetido, en 31 s: 1.579 en 66 páginas. Otra vez incompleta por el tope |
 | Marcar 2 series y "Buscar lo nuevo" | Abrió la página de cada una (16,5 s en total) y dijo "Hay 139 capítulos nuevos en 2 series" (31 y 108: con una carpeta de datos vacía todos son nuevos), con el botón "Encolar lo nuevo (139 capítulos)" a la vista. No se tocó: no se bajó nada |
 
-**El programa empaquetado.** `npm run instalador` arma `programa/dist/Manga-Reader-Instalador-0.11.1.exe` (116 MB; 41 s). Del paquete que ese instalador copia (`dist/win-unpacked`), a las 07:37: la prueba de humo (`"Manga Reader.exe" --humo`) dio "HUMO OK"; `app.asar` trae `src/galeria.js`, `src/pagina/galeria.js` y un `generado/pagina.js` con los dos pedidos de la galería. Y la sección de la galería de `prueba.js`, corrida sola contra ese ejecutable (`--prueba --pruebas=<carpeta>`, 07:37, 3 min 18 s), dio lo mismo que sola contra el programa sin empaquetar: 41 de sus 42 comprobaciones y ningún error en la consola (la que falta necesita lo que bajan las secciones anteriores de la suite). No se instaló: el instalador es el mismo de la 0.10.4, que sí se instaló y se probó instalado (sección 11).
+**El programa empaquetado.** `npm run instalador` arma `programa/dist/Manga-Reader-Instalador-0.11.1.exe` (116 MB; 41 s). Del paquete que ese instalador copia (`dist/win-unpacked`), a las 07:37: la prueba de humo (`"Manga Reader.exe" --humo`) dio "HUMO OK"; `app.asar` trae `src/galeria.js`, `src/pagina/galeria.js` y un `generado/pagina.js` con los dos pedidos de la galería. Y la sección de la galería de `prueba.js`, corrida sola contra ese ejecutable (`--prueba --pruebas=<carpeta>`, 07:37, 3 min 18 s), dio lo mismo que sola contra el programa sin empaquetar: 41 de sus 42 comprobaciones y ningún error en la consola (la que falta necesita lo que bajan las secciones anteriores de la suite; cuál era y cómo quedó, en el punto 3 de 16.12). No se instaló: el instalador es el mismo de la 0.10.4, que sí se instaló y se probó instalado (sección 11).
 
 **Las suites, con el repositorio como quedó.** Las de navegador de la extensión no se habían vuelto a correr desde la 2.11.4 (la extensión no cambió); se corrieron de nuevo, de a una:
 
@@ -1487,3 +1537,109 @@ Lo que no está en negrita no cambió de una versión a la otra: la diferencia e
 | `SOLO=imagenes node tests/e2e_211.js` | 12 | 1 min 19 s | 07:50 |
 
 Todas en verde.
+
+### 16.12 La 0.11.2: cerrar lo que quedó de la galería (26-11-2026)
+
+Siete puntos que la 0.11.1 dejó abiertos o a medio decir. De cada uno: qué pasaba, qué quedó y con qué se comprobó. Todo el 26-11-2026, hora de Argentina, en Windows 11 (10.0.26200) con Electron 45.4.1. `npm run prueba` quedó en **306 comprobaciones, en 12 min 20 s** (eran 292, en 10 min 42 s). Sin dependencias nuevas.
+
+**1. Cada marca escribía `galerias.json` entero.** El archivo es la galería completa de cada sitio: con 33.000 títulos pesa 10,8 MB. Medido a las 09:05 sobre el código de la 0.11.1, contando las escrituras del programa: marcar diez series de a una fueron **10 escrituras y 107,7 MB**.
+
+- **Ahora** las marcas se guardan juntas: una sola escritura, un segundo y medio después de la última marca (`GUARDAR_TRAS`, en `src/galeria.js`). Cada marca nueva vuelve a empezar la cuenta.
+- **Se escribe antes, sin esperar,** cuando esperar puede perder algo: al cerrar el programa (`alSalir`, que ya guardaba un recorrido en curso; también al tocar "Cerrar y abrir de nuevo con el proxy", que sale sin pasar por el aviso de salida), al empezar un recorrido y al pasar a otro sitio (abrir su galería, marcar, buscar lo nuevo o encolar en él). Cualquier otra escritura de la galería (cada 5 páginas de un recorrido, al terminarlo, al olvidar una) lleva también las marcas que esperaban.
+- **En Node** (`node tests/galeria.js`, 4 nuevas; cuentan cada `fs.writeFileSync` sobre el archivo, no su tamaño): diez marcas seguidas, 0 escrituras mientras se marca y 1 a 1,5 s de la última, con las diez en el disco; otras diez y salir enseguida, 1 escritura en ese momento y ninguna después, y al abrir de nuevo están las veinte; al empezar un recorrido, lo que esperaba se escribe antes de pedirle nada al sitio; al pasar a otro sitio, se escribe lo del anterior.
+- **Sobre el programa de verdad** (`node tests/galeria-grande.js`, que ahora mira el proceso principal por el inspector de Node y anota cada escritura de `galerias.json`), a las 10:13, con la galería de 33.000 títulos: diez marcas de a una, **0 escrituras mientras se marcaba y 1 en total (10,8 MB)**, con las diez en el disco. Otras diez y cerrar la ventana en el acto: el programa salió a los 164 ms, sin haber escrito ninguna antes de cerrar, y en `galerias.json` están las veinte. Sobre el instalado (10:44), lo mismo: salió a los 159 ms, con las veinte.
+- **Lo que no cubre:** si el programa muere sin cerrarse (desde el administrador de tareas, un corte de luz) dentro del segundo y medio que sigue a una marca, esa marca se pierde. Antes no se perdía, a costa de escribir 10,8 MB por casilla.
+
+**2. "Mostrar 600 más" volvía a dibujar todas las tarjetas.** Con cada tanda tardaba más.
+
+- **Ahora** agrega las que siguen al final (`mostrarMasEnGaleria`) y no toca las que ya estaban.
+- **Comprobación** (`node tests/galeria-grande.js`; antes de cada toque guarda los nodos de las tarjetas que hay y después los compara uno por uno con los que quedaron):
+
+| "Mostrar 600 más" con… | 0.11.1 (09:05) | 0.11.2 (10:13) | 0.11.2 instalada (10:44) |
+|---|---|---|---|
+| 600 tarjetas a la vista | 59 ms | 25 ms | |
+| 3.000 | 220 ms | 28 ms | |
+| 5.400 | 497 ms | 39 ms | |
+| **6.000** | **420 ms** | **37 ms** | **46 ms** (lo pedido: menos de 200) |
+| Tarjetas que ya estaban y siguen siendo el mismo nodo | 0 de 6.000 | 6.000 de 6.000 | 6.000 de 6.000 |
+
+- En `npm run prueba`, con la tanda achicada a 4: quedan las 10 tarjetas, las 4 que estaban son los mismos nodos y el botón se va.
+- **De paso, la casilla de una tapa:** marcar una serie también volvía a dibujar toda la grilla. Con 600 tarjetas no se nota, pero con 6.600 a la vista cada casilla tardaba medio segundo (490 y 563 ms, medido a las 09:16 con el arreglo de arriba ya puesto). Ahora una marca cambia la casilla de esas tarjetas y la cuenta de marcadas, sin dibujar nada más: **19 ms** al marcar y 17 al desmarcar. En `npm run prueba`: "Marcar las que se ven", una casilla y "Desmarcar todas" dejan las casillas y la cuenta bien, y las tarjetas son los mismos nodos.
+
+**3. El paquete había dado 41 de 42 y no estaba dicho cuál fallaba.** Era "y trae marcado lo que ya tenés bajado o en tu colección (Alfa y Beta, que ya se bajaron)": daba "ninguno marcado".
+
+- **No era de la galería ni del ejecutable: era de la prueba.** Esa comprobación espera que Alfa y Beta estén bajados, y los baja la sección "Bajar capítulos", al principio de la suite. La sección de la galería corrida sola no los tenía. Contra el programa sin empaquetar falla igual: la misma copia recortada dio ese "ninguno marcado" el 25-11 a las 22:24 (y desde las 21:06, en las cinco corridas sueltas de esa noche). Con la suite entera no falla. El paquete y el instalado no tienen nada distinto ahí.
+- **Ahora la sección se basta sola:** si Alfa y Beta no están bajados, los baja ella y al terminar los saca del registro. Con la suite entera no cambia nada.
+- **`node tests/seccion.js`** (nuevo) corre esa sección sola: arma la copia recortada en una carpeta temporal y abre el programa con `--prueba --pruebas=<esa carpeta>`. Con `--ejecutable="<…>\Manga Reader.exe"` la corre contra el instalado o el empaquetado. **53 de 53** (las 52 de la sección y "sin errores en la consola"), las tres veces: contra el programa de desarrollo a las 09:20 (5 min 1 s) y a las 15:16 (con el código final, 5 min 44 s), y contra el instalado a las 10:28 (5 min 1 s).
+
+**4. El instalador, instalado.** Se pudo instalar en esta máquina: se comprobó antes de tocar el código (09:01, con el de la 0.11.1). La tabla con cada paso, sus horas y los pasos a mano están en la sección 11, "Programa 0.11.2: el instalador, instalado". En resumen: el instalador de la 0.11.2 se armó a las 10:27 (116 MB, 39 s) y se instaló en silencio a las 10:28, en una máquina sin nada del programa. Sobre el instalado: la prueba de humo, la sección de la galería (53 de 53, 10:28 a 10:33), los botones del aviso apretados de verdad (4 de 4, 10:43), la galería con 33.000 títulos (10:44) y la corrida de 300 páginas (7 de 7, 10:45 a 11:09). Se desinstaló a las 15:16, y Windows quedó como estaba.
+
+- **Lo que apareció en el camino:** las dos primeras corridas de los avisos sobre el instalado fallaron (2 de 4 y 0 de 4) porque la pantalla estaba apagada, y así Windows no muestra avisos. No era del programa. La prueba ahora lo dice con esas palabras, y espera a que el aviso anterior se vaya antes de esperar el siguiente (sección 11).
+
+**5. Desde la galería, el título que tocás manda.** Si en "Serie" había quedado un nombre escrito a mano, al tocar una tapa no se pisaba (la regla de la exploración), y los capítulos de ese título se guardaban con el nombre viejo.
+
+- **Ahora,** al tocar una tapa, el nombre de ese título se pone siempre en "Serie", como puesto por el programa (`serieDelTitulo`, en `ui.js`).
+- **Lo escrito a mano no se pierde:** queda en un chip debajo del campo ("escrito: One Piece"). Un clic lo vuelve a poner, como escrito a mano, y el chip se va. Mientras no se use, sigue ahí aunque se toquen más tapas. Si antes de tocar otra tapa se escribe otro nombre a mano, el chip pasa a ser ese. Sin nada escrito a mano, no hay chip.
+- **Desde la exploración por nivel no cambió nada:** entrar a un título desde una lista sigue sin pisar la serie escrita a mano (`proponerSerie`, sin tocar).
+- **Comprobación** (`npm run prueba`, 5 en la sección de la galería): sin nada escrito, la serie es la del título y no hay chip; con "A mano" escrito, tocar otra tapa deja "Barco" en el campo y el chip "escrito: A mano"; el clic en el chip repone "A mano" y lo saca; vale cada vez, y el chip sigue después de dos tapas más; con "A mano" escrito, entrar a un título por la lista de la exploración lo deja como está, sin chip. La comprobación de la 0.11.0 que decía lo contrario ("con una serie escrita a mano, tocar una tapa no la pisa") se reemplazó por estas.
+
+**6. Un 429 o un 503 en medio de un listado, con el proxy.** Estaba probado con el sitio de prueba contestando el 503 en la página 2 de 3. No con el proxy (un 503 o un 429 de verdad, delante del sitio) ni lejos del principio.
+
+- **Comprobación** (`npm run prueba`, 4 nuevas; el programa usa el proxy como con `MR_PROXY`, y el proxy corta una vez el pedido de la quinta página de un listado de doce):
+  - **503 con `Retry-After: 2`, por la interfaz:** la galería corta ahí y lo dice ("Quedó incompleta: el sitio pidió esperar (HTTP 503) en la página 5 del listado. Tiene lo que se juntó hasta ahí (12 títulos en 4 páginas)"), con los 12 títulos de las cuatro primeras páginas y el sitio frenado entre 1 y 2 s. El proxy contestó `1 2 3 4 5 (503)`.
+  - **Al tocar "Seguir desde donde quedó":** espera el freno, vuelve a pedir la quinta a los 2 s o más del 503 y llega al final: 36 títulos, 36 distintos; los 12 primeros son los mismos y en el mismo orden. El proxy contestó `1 2 3 4 5 (503) 5 6 7 8 9 10 11 12`: las cuatro primeras no se volvieron a pedir.
+  - **429 sin cabecera:** corta igual, con su motivo y los 12 títulos, y el sitio queda frenado un minuto (entre 55 y 60 s al mirarlo).
+  - **Al retomar con el freno puesto:** a 1,5 s no le había pedido nada al sitio. La prueba le saca el freno para no esperar el minuto; ahí vuelve a pedir la quinta y termina: 36 títulos, 36 distintos, los 12 primeros iguales.
+- No hizo falta cambiar el programa: se comportó así de entrada.
+
+**7. Una corrida larga.** `node tests/galeria-larga.js` (nuevo; con `EJECUTABLE=` se corre contra el instalado). El sitio de prueba sirve un catálogo de 300 páginas con 12 títulos cada una (3.600, todos distintos, con "Siguiente"). El programa de verdad lo recorre sin mostrar la ventana, con el tope en 400 (no se alcanza) y con sus pausas de siempre.
+
+- **La primera corrida falló** (09:32 a 09:56, programa de desarrollo). Terminó completa, sin repetir ni perder títulos y con cada página pedida una vez, en 23 min 31 s (12,8 páginas por minuto). Pero la ventana terminó con 71,3 MB, **2,47 veces** los 28,9 MB del principio.
+- **Por qué:** con cada página del listado, la galería se volvía a dibujar entera: en 300 páginas, las mismas 600 tarjetas unas 250 veces. Medido aparte (entre las 10:03 y las 10:08, cada caso en un programa nuevo): 100 tarjetas suman 7,4 MB al proceso de la ventana, y 600, 27,1 MB; dibujar las 600 dos veces, 30,7 MB. Cada redibujo deja algo que el proceso no devuelve.
+- **El arreglo, en dos partes** (`ui.js`). Mientras recorre, cada página agrega al final las tarjetas de sus títulos (las que entran en las 600 que se muestran) en vez de volver a dibujar (`sumarAGaleria`). Si la página trae un tipo o un idioma nuevo, la galería sí se dibuja entera, porque cambian los filtros que se ofrecen. Y cuando se dibuja entera (al terminar el recorrido, al volver a ella, al ponerla al día después de una bajada), se vuelven a usar las tarjetas que no cambiaron. Con la primera parte sola, 60 páginas daban 1,97 veces (10:03); con las dos, 1,67 (10:12).
+- **La corrida con el arreglo, sobre el programa instalado** (10:45:15 a 11:09:02):
+
+| | |
+|---|---|
+| Terminó | Completa, sin motivo de corte: 300 páginas de 300, con el tope en 400 |
+| Tardó | **23 min 38 s: 12,7 páginas por minuto** (4,73 s por página: la pausa de la cola y lo que tarda cada página en armarse) |
+| Títulos | 3.600, con 3.600 direcciones distintas, en el orden del catálogo: ninguno repetido ni perdido |
+| Pedidos | Cada una de las 300 páginas, una vez y en orden |
+| **Memoria de la ventana** (su proceso) | 28,6 MB al principio, 53,1 MB al final: **1,86 veces**. A lo largo del recorrido se quedó entre 46,5 y 48,9 MB desde la página 50 (cuando ya están las 600 tarjetas) hasta la 275 |
+| Su JavaScript solo | 0,8 MB al principio y 2,7 MB al final (3,4 veces): son los 3.600 títulos, 550 bytes cada uno |
+| La misma galería, abierta de nuevo desde el disco | 55,7 MB el proceso y 2,5 MB el JavaScript: el final del recorrido usaba 0,95 y 1,07 veces eso. No se fue juntando nada |
+| Al cerrar | Salió a los 135 ms. `galerias.json` (1,3 MB, escrito 60 veces: cada 5 páginas y al terminar) tiene los 3.600 |
+| Ventanas | Ninguna página quedó abierta |
+
+- **Qué memoria se mide.** "La memoria de la ventana" es la de su proceso, la que muestra el administrador de tareas: ahí están su dibujo y su JavaScript. El JavaScript solo arranca casi vacío (0,8 MB) y crece con el catálogo mismo: con 3.600 títulos pasa del doble sin que sobre nada. Por eso la prueba compara también contra la misma galería recién abierta: eso es lo que dice si algo se juntó en el camino.
+- **Es un recorte:** 24 minutos y 300 páginas contra un catálogo servido en esta máquina, sin internet de por medio y sin un sitio que tarde o cambie entre una página y otra.
+
+**Las suites, con el repositorio como quedó.** La extensión no cambió: sus suites de navegador no se volvieron a correr (las últimas, el mismo día de 07:40 a 07:50, en 16.11).
+
+| Suite | Comprobaciones | Tardó | Empezó |
+|---|---|---|---|
+| Programa: `npm run prueba` | 306 (eran 292) | 12 min 20 s | 10:14 |
+| Programa, la galería en Node: `node tests/galeria.js` | 20 (eran 16) | 4,4 s (las nuevas esperan el segundo y medio de las marcas) | 15:17 |
+| La sección de la galería, sola: `node tests/seccion.js` | 53 | 5 min 44 s | 15:16 |
+| Lo mismo, sobre el instalado | 53 | 5 min 1 s | 10:28 |
+| Los botones del aviso, sobre el instalado | 4 | 1 min 24 s | 10:43 |
+| `npm run proxy-abierto` (se tocó la salida por su botón) | 4 | 9 s | 10:26 |
+| `node tests/galeria-grande.js` (33.000 títulos) | 14, y nada de lo que se hace a mano pasa de 1 s | | 10:13, y sobre el instalado a las 10:44 |
+| `node tests/galeria-larga.js`, sobre el instalado | 7 | 23 min 47 s | 10:45 |
+| Extensión en Node: `bash tests/correr.sh` | 601 | 12 s | 10:48 |
+
+Todas en verde.
+
+**Lo que estaba abierto:**
+
+- ~~La sección de la galería contra el paquete daba 41 de 42, sin decir cuál fallaba~~ (punto 3: era de la prueba).
+- ~~El instalador no se había instalado~~ (punto 4).
+- ~~"Mostrar 600 más" redibuja todas las tarjetas~~ (punto 2).
+- ~~Al tocar una tapa, una serie escrita a mano de antes no se pisa~~ (punto 5).
+- ~~Un 429 o un 503 en medio de un listado, más allá de la página 2 y con el proxy~~ (punto 6).
+- ~~Un recorrido de más de 66 páginas~~ (punto 7, con un catálogo de prueba).
+
+**Lo que sigue abierto:**
+
+- **Un 429 o un 503 que mande un sitio por su cuenta.** Los de estas pruebas los pone el proxy o el sitio de prueba: dicen qué hace el programa con esa respuesta, no qué manda un sitio cuando de verdad se satura.
+- **Una corrida de horas de verdad.** La de 300 páginas es un recorte: 24 minutos contra un catálogo servido en esta máquina. La Biblioteca de zonatmo.org son unas 1.360 páginas y más de dos horas; contra un sitio real, lo más largo sigue siendo 66 páginas (16.11).
