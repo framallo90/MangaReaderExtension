@@ -10,9 +10,10 @@ const APP = path.join(__dirname, '..');
 
 // Abre el programa con su carpeta de datos y el puerto de depuración. Devuelve el proceso, la
 // dirección del protocolo de depuración (la que imprime Chromium al arrancar), cuándo salió y lo
-// que escribió en la consola.
+// que escribió en la consola. La ventana no se muestra (MR_OCULTA), para no ponérsela en la pantalla
+// a quien esté usando la máquina: se lee y se toca igual. Con VENTANA=1 se muestra.
 function abrir(datos, entorno = {}) {
-  const env = { ...process.env, MR_DATOS: datos, ...entorno };
+  const env = { ...process.env, MR_DATOS: datos, ...(process.env.VENTANA ? {} : { MR_OCULTA: '1' }), ...entorno };
   delete env.ELECTRON_RUN_AS_NODE;
   const p = spawn(ELECTRON, [APP, '--remote-debugging-port=0'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   let salida = '';
@@ -43,14 +44,26 @@ async function conectar(wsUrl) {
     else await dormir(200);
   }
   if (!sesion) throw new Error('No encontré la ventana del programa');
+  // (si el programa se cierra, lo que estaba esperando una respuesta falla en vez de quedar colgado)
+  ws.addEventListener('close', () => { for (const p of esperando.values()) p.rej(new Error('El programa se cerró')); esperando.clear(); });
   const en = async (expr) => {
+    if (ws.readyState !== 1) throw new Error('El programa se cerró');
     const r = await enviar('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true }, sesion);
     if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text);
     return r.result.value;
   };
-  // Hasta que la ventana terminó de cargar y tiene el puente con el programa (mr)
-  await en(`new Promise(r => { const mirar = () => document.readyState === 'complete' && window.mr ? r(true) : setTimeout(mirar, 100); mirar(); })`);
-  return { en, cerrar: () => ws.close() };
+  // Hasta que la ventana terminó de cargar y tiene el puente con el programa (mr). Si la pregunta
+  // llega mientras la página todavía se está cargando, se pierde ("Execution context was destroyed"):
+  // se vuelve a hacer.
+  for (let i = 0, lista = false; !lista; i++) {
+    lista = await en(`document.readyState === 'complete' && !!window.mr`).catch((e) => { if (i > 150 || /se cerró/.test(e.message)) throw e; return false; });
+    if (!lista) await dormir(100);
+  }
+  // Una captura de la ventana (PNG en base64). Una ventana oculta no dibuja y el pedido no vuelve
+  // nunca (pasó el 25-11-2026: colgó la corrida 8 minutos): se espera hasta 8 s. Para capturar, VENTANA=1.
+  const captura = () => Promise.race([enviar('Page.captureScreenshot', { format: 'png' }, sesion).then(r => r.data),
+    dormir(8000).then(() => { throw new Error('la ventana no dibuja (está oculta: con VENTANA=1 se muestra)'); })]);
+  return { en, captura, cerrar: () => ws.close() };
 }
 
 module.exports = { abrir, conectar, dormir, ELECTRON, APP };

@@ -4,8 +4,8 @@
 // tiene que pasar por el proxy.
 //
 // Los programas se abren con tests/ventana.js: carpeta de datos aparte (MR_DATOS) y la ventana leída y
-// tocada por el protocolo de depuración de Chromium, como lo haría una persona. Muestra la ventana del
-// programa en la pantalla mientras corre.
+// tocada por el protocolo de depuración de Chromium, como lo haría una persona. La ventana no se
+// muestra en la pantalla (con VENTANA=1, sí).
 // Uso: npm run proxy-abierto
 const fs = require('fs'), os = require('os'), path = require('path');
 require('../scripts/generar.js');                 // (como scripts/abrir.js: generado/ con la última versión de la extensión)

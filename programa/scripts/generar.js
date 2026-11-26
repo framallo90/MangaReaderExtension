@@ -6,7 +6,8 @@
 //
 // Genera:
 //   generado/pagina.js    preload de las ventanas ocultas donde se abren las páginas web:
-//                         las funciones de content.js + src/pagina/explorar.js
+//                         las funciones de content.js + src/pagina/explorar.js + src/pagina/galeria.js
+//                         (lo de la galería del sitio, que suma un pedido sin cambiar el explorador)
 //   generado/nucleo.js    las funciones que no necesitan una página (links pegados, nombres)
 //   generado/offscreen.js el armado de PDF, CBZ e imágenes, tal cual
 //   generado/sitios.js    la lectura de una lista de links pegada (para los favoritos), tal cual
@@ -44,7 +45,7 @@ const FUNCIONES_PAGINA = ['absUrl', 'srcsetBest', 'lazyUrl', 'imgUrl', 'probeSiz
   'lectorDeFondoEnMarcos', 'elegirFondo', 'cuentaDeFondo', 'destinoDeTapa', 'esGrillaDeTapas', 'serieDeFondo', 'fondosDelAdaptador', 'marcoHijo',
   'linkDeTarjeta', 'linkQueNoEsPagina', 'marcoGrande', 'fondoValeAca', 'hayMarcoGrande'];
 
-const aviso = `// GENERADO por scripts/generar.js a partir de ${version}. No editar: los cambios van en la extensión\n// o en src/pagina/explorar.js.\n`;
+const aviso = `// GENERADO por scripts/generar.js a partir de ${version}. No editar: los cambios van en la extensión\n// o en src/pagina/ (explorar.js y galeria.js).\n`;
 const pagina = `${aviso}(function () {
 ${sagas}
 
@@ -57,6 +58,8 @@ ${LINEAS_PAGINA.map(una).join('\n')}
 ${bloques(FUNCIONES_PAGINA)}
 
 ${fs.readFileSync(path.join(__dirname, '..', 'src', 'pagina', 'explorar.js'), 'utf8')}
+
+${fs.readFileSync(path.join(__dirname, '..', 'src', 'pagina', 'galeria.js'), 'utf8')}
 
   // Pedidos del programa: llegan por mensaje y se contestan igual
   const { ipcRenderer } = require('electron');

@@ -6,6 +6,7 @@ const fs = require('fs'), os = require('os'), path = require('path');
 const { iniciar } = require('./sitio');
 const { iniciarProxy } = require('./proxy');
 const { probarFreno } = require('./freno');
+const { probarGaleria } = require('./galeria');
 const { pdfPages, zipNames } = require('../../tests/navegador');
 const dormir = (ms) => new Promise(r => setTimeout(r, ms));
 // Un freno de un minuto, leído en ms o en segundos ("sigo en 58 s")
@@ -33,6 +34,9 @@ module.exports = async function probar(api) {
   try {
     console.log('\n── El freno (la regla de la extensión, en Node)');
     probarFreno(eq);
+
+    console.log('\n── La galería del sitio: las reglas del recorrido (en Node, con un sitio de mentira)');
+    await probarGaleria(eq);
 
     console.log('\n── Explorar: catálogo → serie → capítulo');
     const cat = await api.analizar(S + '/');
@@ -958,6 +962,290 @@ module.exports = async function probar(api) {
     // (estas series no quedan para las pruebas que siguen, que cuentan lo que hay en el registro)
     for (const s of ['proxy', 'directo', 'cache', 'lento']) api.quitarDelRegistro(s);
     for (const d of ['Proxy', 'Directo', 'Corte', 'Cache', 'Lento']) fs.rmSync(path.join(tmp, d), { recursive: true, force: true });
+
+    // ── (0.11.0) La galería del sitio ──
+    // "Ver todo el sitio": todos los títulos del listado de un sitio, con su tapa. Cada prueba usa su
+    // propio sitio (iniciar({ galeria: true })), porque la galería se guarda por sitio.
+    console.log('\n── La galería del sitio');
+    const sitiosG = [];
+    const sitioG = async () => { const s = await iniciar({ galeria: true }); sitiosG.push(s); return s; };
+    const galEn = (r) => (r.galeria ? `${r.galeria.estado}${r.galeria.motivo ? ' (' + r.galeria.motivo + ')' : ''} · ${r.galeria.paginas} pág. · ${r.galeria.titulos.length}: ${r.galeria.titulos.map(t => t.nombre).join(', ')}`
+      : r.sinListado ? `sin listado (${r.paginasAbiertas} páginas abiertas)` : r.cancelada ? 'cancelada' : '?');
+    const sinFecha = (t) => String(t).replace(/\d{2}\/\d{2}\/\d{4},? \d{2}:\d{2}/g, 'FECHA');
+    const tarjetas = () => en(`[...document.querySelectorAll('#galLista .gal-tarjeta .gal-nombre')].map(e => e.textContent).join(', ')`);
+    const marcasG = () => en(`[...document.querySelectorAll('#galLista .gal-tarjeta')].filter(t => t.querySelector('.gal-marca')).map(t => t.querySelector('.gal-nombre').textContent + ' ' + t.querySelector('.gal-marca').textContent).join(' | ')`);
+    const galAviso = async () => sinFecha(await en(`document.querySelector('#galEstado').textContent`));
+    const verTodo = (url) => en(`document.querySelector('#url').value = ${JSON.stringify(url)}; document.querySelector('#verTodo').click(); true`);
+    const galQuieta = (que) => hasta(`!document.querySelector('#galeria').hidden && document.querySelector('#galCancelar').hidden && /^(Es del|⚠️ Quedó|Esta es|Ya había)/.test(document.querySelector('#galEstado').textContent)`, que, 120000);
+    const tocarTarjeta = (nombre, que = '') => en(`[...document.querySelectorAll('#galLista .gal-tarjeta')].find(t => t.querySelector('.gal-nombre').textContent === ${JSON.stringify(nombre)})${que}.click(); true`);
+    // Pone el buscador y los filtros de la galería, y devuelve lo que queda a la vista y la cuenta
+    const filtrarGal = (f = {}) => en(`(() => { const pon = (id, v, ev) => { const e = document.getElementById(id); if (e.type === 'checkbox') e.checked = v; else e.value = v; e.dispatchEvent(new Event(ev)); };
+      pon('galBuscar', ${JSON.stringify(f.q || '')}, 'input'); pon('galTengo', ${JSON.stringify(f.tengo || '')}, 'change'); pon('galTapa', ${JSON.stringify(f.tapa || '')}, 'change');
+      pon('galTipo', ${JSON.stringify(f.tipo || '')}, 'change'); pon('galIdioma', ${JSON.stringify(f.idioma || '')}, 'change'); pon('galDesaparecidas', ${!!f.idas}, 'change');
+      return ([...document.querySelectorAll('#galLista .gal-tarjeta .gal-nombre')].map(e => e.textContent).join(', ') || '(ninguno)') + (document.querySelector('#galCuenta').textContent ? ' · ' + document.querySelector('#galCuenta').textContent : ''); })()`);
+
+    // Un listado de 3 páginas con "Siguiente", desde la interfaz
+    const g1 = await sitioG();
+    // (el encabezado, agrandado a propósito: la grilla queda a más de 400 px del borde de arriba, como
+    // con un panel abierto. Ahí se ve si las tapas se piden por el lugar de su tarjeta: con la imagen
+    // sin cargar oculta con display: none, su posición daba cero y no se pedía ninguna)
+    await en(`document.querySelector('header').style.paddingBottom = '330px'; true`);
+    // (la serie que una sección anterior dejó escrita a mano se saca, y al final se repone: al entrar
+    // a un título, la escrita a mano no se pisa, y acá hay que ver la que pone el programa)
+    const escribirSerie = (v) => en(`(() => { const s = document.querySelector('#serie'); s.value = ${JSON.stringify(v)}; s.dispatchEvent(new Event('input')); return true; })()`);
+    const serieDeAntes = await en(`document.querySelector('#serie').value`);
+    await escribirSerie('');
+    await verTodo(g1.url + '/sig/');
+    await galQuieta('la galería del listado de 3 páginas');
+    eq('"Ver todo el sitio" en un listado de 3 páginas con "Siguiente": junta los títulos de las tres, en orden y sin repetir',
+      `${await tarjetas()} · pidió: ${g1.pedidos.listados.join(', ')}`, 'Abeja, Barco, Cometa, Dragón, Espada, Faro, Gato, Halcón, Isla, Jardín · pidió: sig 1, sig 2, sig 3');
+    eq('  se ve la galería y no los niveles (ni la ruta, ni pestañas, ni lista, ni herramientas), y dice de cuándo es y que está completa',
+      sinFecha(await en(`(() => { const v = (id) => getComputedStyle(document.getElementById(id)).display !== 'none'; return [v('galeria') ? 'galería' : 'sin galería', v('tabs') || v('lista') || v('herramientas') || v('estado') || v('ruta') ? 'niveles' : 'sin niveles',
+        document.querySelector('#galTitulo').textContent.replace(/:\\d+$/, ''), document.querySelector('#galDatos').textContent, document.querySelector('#galEstado').textContent].join(' · '); })()`)),
+      'galería · sin niveles · Galería de 127.0.0.1 · 10 títulos · 3 páginas · del FECHA · Es del FECHA: 10 títulos en 3 páginas. Se refresca cuando tocás Refrescar, no sola.');
+    await hasta(`document.querySelectorAll('#galLista .gal-tapa img[src^="data:"]').length === 10`, 'las 10 tapas de la galería');
+    const refG = (s, t) => [...new Set(s.pedidos.referers[`/t/${t}.png`] || [])].map(r => r.replace(s.url, '')).join(' y ') + ` (${(s.pedidos.referers[`/t/${t}.png`] || []).length})`;
+    eq('  cada título trae su tapa, y el programa la pide con el Referer de la página del listado donde la vio (la página y el programa: 2 pedidos de cada una); también con la grilla lejos del borde de arriba',
+      `abeja: ${refG(g1, 'abeja')} · espada: ${refG(g1, 'espada')} · isla: ${refG(g1, 'isla')} · rechazadas por no traer Referer: ${g1.pedidos.sinReferer} · la grilla, ${await en(`document.querySelector('#galLista').getBoundingClientRect().top > 400 ? 'a más de 400 px del borde' : 'a ' + Math.round(document.querySelector('#galLista').getBoundingClientRect().top) + ' px'`)}`,
+      'abeja: /sig/ (2) · espada: /sig/?p=2 (2) · isla: /sig/?p=3 (2) · rechazadas por no traer Referer: 0 · la grilla, a más de 400 px del borde');
+    await en(`document.querySelector('header').style.paddingBottom = ''; true`);
+    eq('  cada tarjeta dice el tipo y el idioma que dice el sitio, y con eso se arman esos dos filtros', await en(`[...document.querySelectorAll('#galLista .gal-tarjeta')].slice(0, 3).map(t => t.querySelector('.gal-nombre').textContent + ': ' + (t.querySelector('.gal-detalle')?.textContent || 'nada')).join(' | ') + ' · ' +
+      ['galTipo', 'galIdioma'].map(id => (document.getElementById(id).hidden ? 'oculto' : [...document.getElementById(id).options].map(o => o.textContent).join('/'))).join(' · ')`),
+      'Abeja: Manga Español | Barco: Manhwa Inglés | Cometa: nada · Tipo: todos/Manga/Manhwa · Idioma: todos/Español/Inglés');
+
+    await capturar('galeria');
+
+    // Queda guardada: volver no recorre nada
+    const pedidosG1 = g1.pedidos.listados.length;
+    await en(`document.querySelector('#galCerrar').click()`);
+    eq('  "Cerrar" vuelve a la exploración de siempre', await en(`document.querySelector('#galeria').hidden && !document.body.classList.contains('en-galeria')`), true);
+    await verTodo(g1.url + '/sig/barco/');
+    await galQuieta('la galería guardada');
+    eq('volver a "Ver todo el sitio" con otra dirección del mismo sitio: muestra la galería guardada, con su fecha, sin pedirle nada al sitio',
+      `${await galAviso()} · ${await tarjetas()} · pedidos nuevos: ${g1.pedidos.listados.length - pedidosG1 + (g1.pedidos.series || []).length}`,
+      'Esta es la galería guardada de este sitio. Es del FECHA: 10 títulos en 3 páginas. Se refresca cuando tocás Refrescar, no sola. · Abeja, Barco, Cometa, Dragón, Espada, Faro, Gato, Halcón, Isla, Jardín · pedidos nuevos: 0');
+
+    // Tocar una tapa: sus capítulos, con la exploración de siempre
+    await tocarTarjeta('Abeja');
+    await hasta(`document.querySelector('#galeria').hidden && document.querySelectorAll('#lista .fila').length === 2`, 'los capítulos de Abeja');
+    eq('tocar una tapa abre sus capítulos con la exploración de siempre, con su nombre como serie, y deja el botón para volver',
+      `${await titulos()} · serie: ${await en(`document.querySelector('#serie').value`)} · ${await en(`document.querySelector('#volverGaleria').hidden ? 'sin botón' : document.querySelector('#volverGaleria').textContent.replace(/:\\d+$/, '')`)}`,
+      'Capítulo 1, Capítulo 2 · serie: Abeja · ‹ Volver a la galería de 127.0.0.1');
+    await en(`document.querySelector('#volverGaleria').click()`);
+    await galQuieta('de vuelta en la galería');
+    eq('  y "Volver a la galería" la trae de nuevo, sin recorrer nada', `${await tarjetas()} · pedidos nuevos: ${g1.pedidos.listados.length - pedidosG1}`, 'Abeja, Barco, Cometa, Dragón, Espada, Faro, Gato, Halcón, Isla, Jardín · pedidos nuevos: 0');
+    // Con una serie escrita a mano, tocar una tapa no la pisa: es la regla de siempre de la exploración
+    // (se espera a que termine de analizar: la lista de antes también tenía dos renglones)
+    await escribirSerie('A mano');
+    await tocarTarjeta('Barco');
+    await hasta(`document.querySelector('#galeria').hidden && !document.querySelector('#analizar').disabled && /\\/sig\\/barco\\//.test(document.querySelector('#url').value) && document.querySelectorAll('#lista .fila').length === 2`, 'los capítulos de Barco');
+    eq('  con una serie escrita a mano, tocar una tapa no la pisa (la regla de siempre de la exploración)',
+      `${await titulos()} · serie: ${await en(`document.querySelector('#serie').value`)} · ${await en(`document.querySelector('#url').value.replace(/^.*?(\\/sig\\/)/, '$1')`)}`,
+      'Capítulo 1, Capítulo 2 · serie: A mano · /sig/barco/');
+    await escribirSerie('');
+    await en(`document.querySelector('#volverGaleria').click()`);
+    await galQuieta('de vuelta en la galería, otra vez');
+
+    // Marcar series, buscar lo nuevo de todas y encolarlo
+    await en(`(() => { for (const n of ['Abeja', 'Barco']) [...document.querySelectorAll('#galLista .gal-tarjeta')].find(t => t.querySelector('.gal-nombre').textContent === n).querySelector('input').click(); })()`);
+    await hasta(`document.querySelector('#galMarcadasCuenta').textContent === '2 series marcadas'`, 'las dos series marcadas');
+    await en(`document.querySelector('#galBuscarNuevo').click()`);
+    await hasta(`/^(Hay|No hay|⚠️)/.test(document.querySelector('#galNuevoMsg').textContent)`, 'lo nuevo de las marcadas', 60000);
+    eq('marcar dos series y "Buscar lo nuevo": abre la página de cada una y dice qué capítulos hay que no tenés',
+      `${await en(`document.querySelector('#galNuevoMsg').textContent`)} · ${await marcasG()} · ${await en(`document.querySelector('#galEncolar').hidden ? 'sin botón' : document.querySelector('#galEncolar').textContent`)} · abrió: ${(g1.pedidos.series || []).slice(-2).join(', ')}`,
+      'Hay 4 capítulos nuevos en 2 series. · Abeja 2 nuevos: 1–2 | Barco 2 nuevos: 1–2 · Encolar lo nuevo (4 capítulos) · abrió: /sig/abeja/, /sig/barco/');
+    await en(`document.querySelector('#galEncolar').click()`);
+    await hasta(`/a la cola/.test(document.querySelector('#galNuevoMsg').textContent)`, 'lo nuevo en la cola');
+    const msgEncolado = await en(`document.querySelector('#galNuevoMsg').textContent`);
+    const colaG = estados(await api.colaVacia(180000));
+    eq('  "Encolar lo nuevo" pone en la cola lo de todas las marcadas, cada una con su serie, y la cola de siempre lo baja',
+      `${msgEncolado} · ${colaG} · ${ls('Abeja')} · ${ls('Barco')}`,
+      '4 capítulos agregados a la cola, de 2 series. · Abeja/Abeja 0001: listo (6 páginas) ; Abeja/Abeja 0002: listo (6 páginas) ; Barco/Barco 0001: listo (6 páginas) ; Barco/Barco 0002: listo (6 páginas) · Abeja 0001.pdf | Abeja 0002.pdf · Barco 0001.pdf | Barco 0002.pdf');
+    api.limpiar();
+    await hasta(`document.querySelectorAll('#galLista .gal-marca.tengo').length === 2`, 'las marcas de lo que se bajó');
+    eq('  lo que ya está bajado aparece marcado en la galería', await marcasG(), 'Abeja ✔ 2 bajados | Barco ✔ 2 bajados');
+    eq('  el filtro "Lo que me falta" lo saca, y "Lo que ya tengo" deja solo eso', `${await filtrarGal({ tengo: 'falta' })} / ${await filtrarGal({ tengo: 'tengo' })}`,
+      'Cometa, Dragón, Espada, Faro, Gato, Halcón, Isla, Jardín · 8 de 10 / Abeja, Barco · 2 de 10');
+    await filtrarGal();
+    // Pegar otra vez una dirección del sitio no pisa la galería guardada (ni sus marcas)
+    eq('una dirección que lleva a un sitio del que ya hay galería: no la pisa (quedan sus series marcadas)',
+      await (async () => { const r = await api.galerias.recorrer({ url: g1.url + '/sig/gato/1/' }); return `${r.yaEstaba ? 'ya estaba' : 'nueva'} · ${r.galeria.titulos.length} · marcadas: ${r.galeria.titulos.filter(t => t.marcada).map(t => t.nombre).join(', ')}`; })(),
+      'ya estaba · 10 · marcadas: Abeja, Barco');
+
+    // Una sola página, una tapa que no carga, y los filtros (por separado y combinados)
+    const g2 = await sitioG();
+    api.encolar([{ url: `${g2.url}/una/nogal/1/`, texto: 'Capítulo 1', numero: 1 }], { carpeta: tmp, serie: 'Nogal', formatos: soloPdf });
+    await api.colaVacia();
+    api.limpiar();
+    await verTodo(g2.url + '/una/');
+    await galQuieta('la galería de una sola página');
+    eq('un listado de una sola página: termina, completa', `${await galAviso()} · ${await tarjetas()} · pidió: ${g2.pedidos.listados.join(', ')}`,
+      'Es del FECHA: 5 títulos en 1 página. Se refresca cuando tocás Refrescar, no sola. · Mate, Nogal, Olmo, Pino, Roble · pidió: una 1');
+    await hasta(`document.querySelectorAll('#galLista .gal-tapa img[src^="data:"]').length === 4`, 'las 4 tapas que existen');
+    eq('  una tapa que no carga: queda el recuadro con la inicial, sin inventar ninguna (las otras, con la suya)',
+      await en(`[...document.querySelectorAll('#galLista .gal-tarjeta')].map(t => t.querySelector('.gal-nombre').textContent + ':' + (t.querySelector('.gal-tapa img').getAttribute('src') ? 'tapa' : 'inicial ' + t.querySelector('.gal-inicial').textContent)).join(' ')`),
+      'Mate:tapa Nogal:tapa Olmo:tapa Pino:tapa Roble:inicial R');
+    // Un título deja de aparecer en el sitio: al refrescar queda marcado, no se borra
+    g2.ocultos.add('Olmo');
+    await en(`document.querySelector('#galRefrescar').click()`);
+    await hasta(`document.querySelectorAll('#galLista .gal-marca.ida').length === 1 && document.querySelector('#galCancelar').hidden`, 'el refresco con un título que ya no está', 60000);
+    eq('refrescar cuando un título ya no aparece: queda marcado como desaparecido y no se borra',
+      `${await tarjetas()} · ${await marcasG()} · ${await en(`document.querySelector('#galDatos').textContent.replace(/del .*?(?= ·|$)/, 'del FECHA')`)} · pidió: ${g2.pedidos.listados.join(', ')}`,
+      'Mate, Nogal, Olmo, Pino, Roble · Nogal ✔ 1 bajado | Olmo desaparecida · 5 títulos · 1 página · del FECHA · 1 desaparecida · pidió: una 1, una 1');
+    await hasta(`(document.querySelector('#galTapa').value = 'sin', document.querySelector('#galTapa').dispatchEvent(new Event('change')), document.querySelectorAll('#galLista .gal-tarjeta').length === 1)`, 'la tapa que no cargó, como "sin tapa"');
+    eq('buscador y filtros, cada uno por separado: por nombre · lo que ya tengo · lo que me falta · con tapa · sin tapa · tipo · idioma · desaparecidas',
+      [await filtrarGal({ q: 'o' }), await filtrarGal({ tengo: 'tengo' }), await filtrarGal({ tengo: 'falta' }), await filtrarGal({ tapa: 'con' }), await filtrarGal({ tapa: 'sin' }),
+       await filtrarGal({ tipo: 'Manga' }), await filtrarGal({ idioma: 'Inglés' }), await filtrarGal({ idas: true })].join(' / '),
+      'Nogal, Olmo, Pino, Roble · 4 de 5 / Nogal · 1 de 5 / Mate, Olmo, Pino, Roble · 4 de 5 / Mate, Nogal, Olmo, Pino · 4 de 5 / Roble · 1 de 5 / Mate, Pino · 2 de 5 / Nogal, Roble · 2 de 5 / Olmo · 1 de 5');
+    eq('  y combinados: me falta + con tapa + Manga · lo mismo + "pi" · me falta + sin tapa · ya tengo + Inglés · ya tengo + desaparecidas',
+      [await filtrarGal({ tengo: 'falta', tapa: 'con', tipo: 'Manga' }), await filtrarGal({ tengo: 'falta', tapa: 'con', tipo: 'Manga', q: 'pi' }), await filtrarGal({ tengo: 'falta', tapa: 'sin' }),
+       await filtrarGal({ tengo: 'tengo', idioma: 'Inglés' }), await filtrarGal({ tengo: 'tengo', idas: true })].join(' / '),
+      'Mate, Pino · 2 de 5 / Pino · 1 de 5 / Roble · 1 de 5 / Nogal · 1 de 5 / (ninguno) · 0 de 5');
+    // Los filtros y el tope se acuerdan: quedan en la configuración y siguen puestos al volver
+    await filtrarGal({ tengo: 'falta', tapa: 'con' });
+    await en(`(() => { const t = document.querySelector('#galTope'); t.value = '7'; t.dispatchEvent(new Event('change')); })()`);
+    await dormir(300);
+    await en(`document.querySelector('#galCerrar').click()`);
+    await verTodo(g2.url + '/una/');
+    await galQuieta('la galería, otra vez');
+    eq('los filtros y el tope se acuerdan entre visitas: quedan en la configuración y siguen puestos al volver a abrir la galería',
+      `${JSON.stringify(api.config().galeria)} · ${await en(`[document.querySelector('#galTengo').value, document.querySelector('#galTapa').value, document.querySelector('#galTope').value].join(' ')`)} · ${await tarjetas()}`,
+      '{"tope":7,"filtros":{"tengo":"falta","tapa":"con","tipo":"","idioma":"","desaparecidas":false}} · falta con 7 · Mate, Olmo, Pino');
+    await filtrarGal();
+    await en(`(() => { const t = document.querySelector('#galTope'); t.value = '60'; t.dispatchEvent(new Event('change')); })()`);
+    // …y si el título vuelve a aparecer, se le saca la marca
+    g2.ocultos.clear();
+    eq('  un título que vuelve a aparecer en un refresco deja de estar desaparecido',
+      await (async () => { const r = await api.galerias.recorrer({ url: g2.url + '/una/', modo: 'refrescar' }); return `${r.galeria.titulos.length} · desaparecidas: ${r.galeria.titulos.filter(t => t.desaparecida).length}`; })(), '5 · desaparecidas: 0');
+
+    // Las otras formas de paginar que la exploración ya lee, y la que no
+    const g3 = await sitioG();
+    eq('un listado con números de página (el número que sigue lleva rel="next"): avanza por las tres', galEn(await api.galerias.recorrer({ url: g3.url + '/num/' })) + ` · pidió: ${g3.pedidos.listados.join(', ')}`,
+      'completa · 3 pág. · 10: Koala, Lince, Mono, Nutria, Oso, Pato, Quetzal, Rana, Sapo, Tigre · pidió: num 1, num 2, num 3');
+    const g4 = await sitioG();
+    eq('un listado con "Cargar más": toca el botón hasta que no quedan (no se queda en los 4 primeros)', galEn(await api.galerias.recorrer({ url: g4.url + '/mas/' })),
+      'completa · 1 pág. · 12: Ancla, Brújula, Canoa, Dique, Estela, Fragata, Goleta, Hélice, Islote, Jarcia, Kayak, Lancha');
+    const g5 = await sitioG();
+    eq('una barra de solo números, sin nada que marque la siguiente: la exploración no la sigue, y la galería no dice que terminó', galEn(await api.galerias.recorrer({ url: g5.url + '/solo/' })) + ` · pidió: ${g5.pedidos.listados.join(', ')}`,
+      'incompleta (el listado sigue en páginas numeradas (por lo menos hasta la 3), pero no tiene un enlace a la página siguiente que la exploración sepa seguir) · 1 pág. · 3: Uva, Vino, Yerba · pidió: solo 1');
+    // Uno que carga al bajar, entrando por la portada del sitio (que tiene el link a su listado completo)
+    const rDir = await api.galerias.recorrer({ url: S + '/' });
+    eq('la portada de un sitio con link a su listado completo: va a ese, que carga al bajar, y no se queda en la primera tanda', galEn(rDir),
+      'completa · 1 pág. · 15: Alfa, Beta, Delta, Épsilon, Zeta, Eta, Theta, Iota, Kappa, Lambda, Mu, Nu, Xi, Ómicron, Pi');
+    // (lo que la suite ya bajó de Alfa y de Beta, más arriba; y las mismas marcas que da la lista de títulos de siempre)
+    const marcaDe = (m) => (m && !m.parecida ? (m.bajados ? `${m.bajados} bajados` : 'en tu colección') : '');
+    const deLaGaleria = rDir.galeria.titulos.map(t => [t.nombre, marcaDe(t.tengo)]).filter(([, m]) => m).map(x => x.join(' ')).join(', ');
+    const deLaLista = api.revisarTitulos({ nombres: rDir.galeria.titulos.map(t => t.nombre) }).map((m, k) => [rDir.galeria.titulos[k].nombre, marcaDe(m)]).filter(([, m]) => m).map(x => x.join(' ')).join(', ');
+    eq('  y trae marcado lo que ya tenés bajado o en tu colección (Alfa y Beta, que ya se bajaron), igual que la lista de títulos de siempre',
+      `${/Alfa \d+ bajados/.test(deLaGaleria) && /Beta \d+ bajados/.test(deLaGaleria) ? 'Alfa y Beta marcados' : deLaGaleria || 'ninguno marcado'} · ${deLaGaleria === deLaLista ? 'igual que la lista' : `distinto: ${deLaLista}`}`,
+      'Alfa y Beta marcados · igual que la lista');
+    api.galerias.olvidar(S);
+
+    // Destacados fijos en todas las páginas, y un listado que da vueltas
+    const g6 = await sitioG();
+    eq('un listado que repite 3 destacados en todas las páginas: no los duplica y no corta por eso', galEn(await api.galerias.recorrer({ url: g6.url + '/dest/' })) + ` · pidió: ${g6.pedidos.listados.join(', ')}`,
+      'completa · 3 pág. · 15: Sol, Luna, Marte, Ámbar, Bronce, Cobre, Diamante, Esmeralda, Fósforo, Granito, Hierro, Iridio, Jade, Kriptón, Litio · pidió: dest 1, dest 2, dest 3');
+    const g7 = await sitioG();
+    eq('dos páginas seguidas sin ningún título nuevo (un listado que da vueltas): para ahí y lo dice', galEn(await api.galerias.recorrer({ url: g7.url + '/repite/' })) + ` · pidió: ${g7.pedidos.listados.join(', ')}`,
+      'completa (paré porque dos páginas seguidas no traían ningún título nuevo) · 3 pág. · 4: Eco, Espejo, Reflejo, Sombra · pidió: repite 1, repite 2, repite 3');
+
+    // Un catálogo que mezcla carpetas en la misma grilla, como los que ponen el tipo en la dirección.
+    // La exploración arma una lista por carpeta (y con uno o dos títulos, ninguna): con una sola de
+    // esas listas la galería traía una parte chica del catálogo (25-11-2026, zonatmo.org: solo los manhwas)
+    const g14 = await sitioG();
+    const mixto = await api.galerias.recorrer({ url: g14.url + '/mixto/' });
+    eq('un catálogo que mezcla carpetas en una misma grilla (/mixto/manhwa/…, /mixto/manga/…, /mixto/novela/…), con dos destacados arriba en otro bloque: trae todas las tarjetas, en el orden de la página, y nada del bloque de "grupos" del costado',
+      `${galEn(mixto)} · tipos: ${[...new Set(mixto.galeria.titulos.map(t => t.tipo))].join(', ')} · pidió: ${g14.pedidos.listados.join(', ')}`,
+      'completa · 2 pág. · 14: Zafiro, Yunque, Alba, Fiordo, Brisa, Kiosco, Cima, Glaciar, Duna, Hoz, Eclipse, Istmo, Lumbre, Jungla · tipos: Manhwa, Manga, Novela · pidió: mixto 1, mixto 2');
+
+    // El tope, seguir desde donde quedó y cancelar
+    const g8 = await sitioG();
+    const tope1 = await api.galerias.recorrer({ url: g8.url + '/largo/', tope: 3 });
+    eq('tope alcanzado: queda con lo que juntó, dice que está incompleta y por qué, y se puede seguir',
+      `${tope1.galeria.estado} (${tope1.galeria.motivo}) · ${tope1.galeria.titulos.length} títulos · se puede seguir: ${tope1.galeria.sePuedeSeguir} · pidió: ${g8.pedidos.listados.join(', ')}`,
+      'incompleta (llegué al tope de 3 páginas por corrida y el listado sigue) · 9 títulos · se puede seguir: true · pidió: largo 1, largo 2, largo 3');
+    const tope2 = await api.galerias.recorrer({ url: g8.url + '/largo/', tope: 2, modo: 'seguir' });
+    eq('  "Seguir desde donde quedó" continúa en la página siguiente, sin volver a leer las anteriores', `${tope2.galeria.titulos.length} títulos · ${tope2.galeria.paginas} páginas · pidió: ${g8.pedidos.listados.join(', ')}`,
+      '15 títulos · 5 páginas · pidió: largo 1, largo 2, largo 3, largo 4, largo 5');
+    // Desde la interfaz: mientras recorre se ve el avance (páginas y títulos) y no los niveles; Cancelar corta
+    const g9 = await sitioG();
+    await en(`document.querySelector('#galCerrar').click()`);
+    await verTodo(g9.url + '/largo/');
+    // (todo se lee en una sola mirada, cuando van 2 páginas: el recorrido sigue andando)
+    const avanceG = await hasta(`(() => { const e = document.querySelector('#galEstado').textContent, n = [...document.querySelectorAll('#galLista .gal-nombre')].map(x => x.textContent);
+      if (!/^Recorriendo el listado: 2 páginas, 6 títulos/.test(e) || n.length !== 6) return '';
+      const v = (id) => getComputedStyle(document.getElementById(id)).display !== 'none';
+      return [e.replace(/ ·.*$|…$/, ''), n.join(', '), v('tabs') || v('lista') || v('herramientas') || v('estado') || v('ruta') ? 'niveles' : 'sin niveles',
+        'Cancelar ' + (document.querySelector('#galCancelar').hidden ? 'oculto' : 'a la vista'), 'Analizar ' + (document.querySelector('#analizar').disabled ? 'apagado' : 'prendido')].join(' · '); })()`, 'el avance de la galería: 2 páginas y 6 títulos', 60000);
+    eq('mientras recorre se ve el avance (páginas y títulos) y la galería que se va llenando, sin los niveles; con el botón Cancelar', avanceG,
+      'Recorriendo el listado: 2 páginas, 6 títulos · Río Azul, Río Blanco, Río Claro, Monte Azul, Monte Blanco, Monte Claro · sin niveles · Cancelar a la vista · Analizar apagado');
+    await esperarQue(() => (g9.pedidos.listados || []).length >= 3, 'la tercera página del listado largo', 60000);
+    const t9 = Date.now();
+    await en(`document.querySelector('#galCancelar').click()`);
+    await galQuieta('la galería cancelada');
+    const ms9 = Date.now() - t9, pedidas9 = g9.pedidos.listados.length;
+    eq('"Cancelar" en el medio: corta enseguida, cierra la página que estaba abierta y deja lo juntado, y dice por qué quedó incompleta',
+      `${(await galAviso()).replace(/\(\d+ títulos en \d+ páginas\)/, '(N títulos en M páginas)')} · ${await en(`document.querySelectorAll('#galLista .gal-tarjeta').length >= 6 ? '6 títulos o más' : 'menos de 6'`)} · ${ms9 < 2500 ? 'en menos de 2,5 s' : ms9 + ' ms'} · ventanas abiertas: ${api.ventanasDePaginas().length} · páginas pedidas: ${pedidas9} de 12`,
+      '⚠️ Quedó incompleta: la cancelaste. Tiene lo que se juntó hasta ahí (N títulos en M páginas). Con "Seguir desde donde quedó" continúa. · 6 títulos o más · en menos de 2,5 s · ventanas abiertas: 0 · páginas pedidas: 3 de 12');
+    // El tope se cambia en la galería, y "Seguir desde donde quedó" lee hasta ese tope
+    await en(`(() => { const t = document.querySelector('#galTope'); t.value = '2'; t.dispatchEvent(new Event('change')); document.querySelector('#galSeguir').click(); })()`);
+    await hasta(`/llegué al tope/.test(document.querySelector('#galEstado').textContent) && document.querySelector('#galCancelar').hidden`, 'el tope de 2 páginas', 60000);
+    eq('  con el tope en 2, "Seguir desde donde quedó" lee dos páginas más y vuelve a decir que quedó incompleta, por el tope',
+      `${(await galAviso()).replace(/\(\d+ títulos en \d+ páginas\)/, '(N títulos en M páginas)')} · pidió en esta corrida: ${g9.pedidos.listados.slice(pedidas9).join(', ')} · títulos: ${await en(`document.querySelectorAll('#galLista .gal-tarjeta').length`)}`,
+      '⚠️ Quedó incompleta: llegué al tope de 2 páginas por corrida y el listado sigue. Tiene lo que se juntó hasta ahí (N títulos en M páginas). Con "Seguir desde donde quedó" continúa. · pidió en esta corrida: largo 3, largo 4 · títulos: 12');
+    await en(`(() => { const t = document.querySelector('#galTope'); t.value = '60'; t.dispatchEvent(new Event('change')); })()`);
+
+    // Un 503 en una página del listado: frena el sitio y se puede retomar
+    const g10 = await sitioG();
+    const ocupadoG = await api.galerias.recorrer({ url: g10.url + '/ocupado/' });
+    const frenoG = api.esperaDe(g10.url);
+    eq('un 503 en la página 2 del listado (Retry-After: 2): queda incompleta con el motivo y lo juntado, y el sitio frenado lo que pidió',
+      `${ocupadoG.galeria.estado} (${ocupadoG.galeria.motivo}) · ${ocupadoG.galeria.titulos.map(t => t.nombre).join(', ')} · freno ${frenoG > 1000 && frenoG <= 2000 ? 'de entre 1 y 2 s' : frenoG + ' ms'}`,
+      'incompleta (el sitio pidió esperar (HTTP 503) en la página 2 del listado) · Nube, Lluvia, Viento · freno de entre 1 y 2 s');
+    const retomada = await api.galerias.recorrer({ url: g10.url + '/ocupado/', modo: 'seguir' });
+    const h2 = g10.pedidos.horas['ocupado 2'];
+    eq('  al retomar espera el freno (la página 2 se vuelve a pedir recién a los 2 s del 503) y termina',
+      `${galEn(retomada)} · ${h2.length} pedidos de la página 2 · ${h2[1] - h2[0] >= 1950 ? 'a los 2 s o más' : 'a los ' + (h2[1] - h2[0]) + ' ms'} · pidió: ${g10.pedidos.listados.join(', ')}`,
+      'completa · 3 pág. · 8: Nube, Lluvia, Viento, Trueno, Rayo, Niebla, Granizo, Helada · 2 pedidos de la página 2 · a los 2 s o más · pidió: ocupado 1, ocupado 2, ocupado 2, ocupado 3');
+
+    // Por dónde empieza: desde un capítulo sube sola; si no hay listado, lo dice y cae a la exploración de siempre
+    const g11 = await sitioG();
+    eq('desde la dirección de un capítulo: sube a su serie y de ahí al listado del sitio, y lo recorre (la primera página no se pide dos veces)',
+      galEn(await api.galerias.recorrer({ url: g11.url + '/sig/faro/2/' })) + ` · abrió: ${Object.keys(g11.pedidos.capitulos).join(', ')} → ${g11.pedidos.series.join(', ')} → ${g11.pedidos.listados.join(', ')}`,
+      'completa · 3 pág. · 10: Abeja, Barco, Cometa, Dragón, Espada, Faro, Gato, Halcón, Isla, Jardín · abrió: /sig/faro/2/ → /sig/faro/ → sig 1, sig 2, sig 3');
+    eq('  y desde un capítulo cuya página trae el link al listado completo del sitio, va directo a ese', galEn(await api.galerias.recorrer({ url: S + '/leer/alfa-2/' })).split(': ')[0], 'completa · 1 pág. · 15');
+    api.galerias.olvidar(S);
+    const g12 = await sitioG();
+    await en(`document.querySelector('#galCerrar').click()`);
+    await verTodo(g12.url + '/suelta/1/');
+    await hasta(`document.querySelector('#galeria').hidden && /listado recorrible/.test(document.querySelector('#estado').textContent)`, 'el aviso de que no hay listado', 60000);
+    eq('un sitio sin listado recorrible: lo dice con esas palabras, no se queda girando y cae a la exploración de siempre con la página pegada',
+      `${await avisoEnPantalla()} · ${await en(`document.querySelector('#capitulo').hidden ? 'sin capítulo' : document.querySelector('#capNombre').textContent`)} · ${await en(`document.querySelector('#verTodo').disabled ? 'ocupado' : 'libre'`)} · galería guardada: ${api.galerias.de(g12.url) ? 'sí' : 'no'}`,
+      '⚠️ Este sitio no tiene un listado recorrible: abrí 3 páginas, subiendo desde la que pegaste, y ninguna es un listado de títulos. Te muestro esa página con la exploración de siempre. · Suelta/Suelta 0001 · libre · galería guardada: no');
+    eq('  (límite conocido) un listado con tapas del tamaño de una página cuyos títulos cuelgan de su propia dirección: la exploración lo toma por un capítulo, y la galería no lo recorre',
+      galEn(await api.galerias.recorrer({ url: g12.url + '/grandes/' })), 'sin listado (2 páginas abiertas)');
+
+    // Un sitio que no da tapas: la galería funciona igual
+    const g13 = await sitioG();
+    await api.galerias.recorrer({ url: g13.url + '/sintapas/' });
+    await verTodo(g13.url + '/sintapas/');
+    await galQuieta('la galería sin tapas');
+    eq('un sitio que no da tapas: la galería funciona igual, con la inicial de cada título; y sin tipo ni idioma, esos filtros no se ofrecen',
+      `${await en(`[...document.querySelectorAll('#galLista .gal-tarjeta')].map(t => t.querySelector('.gal-nombre').textContent + ':' + (t.querySelector('.gal-tapa img').getAttribute('src') ? 'tapa' : t.querySelector('.gal-inicial').textContent)).join(' ')`)} · ${await filtrarGal({ tapa: 'con' })} · ${await en(`document.querySelector('#galTipo').hidden && document.querySelector('#galIdioma').hidden ? 'sin filtros de tipo ni idioma' : 'con filtros'`)}`,
+      'Lápiz:L Tinta:T Papel:P Pluma:P Goma:G · (ninguno) · 0 de 5 · sin filtros de tipo ni idioma');
+    await filtrarGal();
+    // Olvidar: pide un segundo toque
+    await en(`document.querySelector('#galOlvidar').click()`);
+    const armado = await en(`document.querySelector('#galOlvidar').textContent`);
+    await en(`document.querySelector('#galOlvidar').click()`);
+    await hasta(`document.querySelector('#galeria').hidden`, 'la galería olvidada');
+    eq('"Olvidar" pide un segundo toque y borra la galería guardada de ese sitio', `${armado} · ${api.galerias.de(g13.url) ? 'sigue' : 'ya no está'} · ${(await avisoEnPantalla()).replace(/:\d+/, '')}`,
+      '¿Olvidarla? Tocá de nuevo · ya no está · Olvidé la galería de 127.0.0.1. Con "Ver todo el sitio" se arma de nuevo.');
+    for (const s of sitiosG) await s.cerrar();
+    await escribirSerie(serieDeAntes);                // (como estaba antes de esta sección)
+    // (estas series no quedan para las pruebas que siguen, que cuentan lo que hay en el registro)
+    for (const s of ['abeja', 'barco', 'nogal']) api.quitarDelRegistro(s);
+    for (const d of ['Abeja', 'Barco', 'Nogal']) fs.rmSync(path.join(tmp, d), { recursive: true, force: true });
 
     // Favoritos: filtros por tipo y por idioma (los dos se detectan al pegar la lista, por sus títulos de grupo)
     await pegarEnFavoritos(`Zeta: ${S}/serie/zeta/\nManga en español:\nGama: ${S}/serie/gama/\nCómics en inglés:\nDelta: ${S}/serie/delta/`);

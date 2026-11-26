@@ -7,8 +7,8 @@
 //
 // Uso: node tests/proxy-real.js <dirección del capítulo> [argumentos de tests/proxy.js]
 //   node tests/proxy-real.js https://one-piece-fans2.com/manga/es/todos/01 --codigo 503 --solo imagenes --desde 3 --veces 2
-// El número del capítulo sale del final de la dirección. Muestra la ventana del programa mientras
-// corre (no hay que tocarla: se maneja por el protocolo de depuración, con tests/ventana.js).
+// El número del capítulo sale del final de la dirección. La ventana del programa no se muestra
+// (con VENTANA=1, sí): se maneja por el protocolo de depuración, con tests/ventana.js.
 const fs = require('fs'), os = require('os'), path = require('path');
 const { spawn } = require('child_process');
 require('../scripts/generar.js');                 // (como scripts/abrir.js: generado/ con la última versión de la extensión)

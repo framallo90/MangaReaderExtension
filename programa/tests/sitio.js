@@ -27,7 +27,7 @@
 //                     tapas también de fondo)
 //   /fx/catalogo-fondo.html  un catálogo con 12 tapas juntas en una carpeta y un lector de fondo de 4
 //                     páginas en la misma página: es un listado
-const http = require('http'), fs = require('fs'), path = require('path');
+const http = require('http'), fs = require('fs'), path = require('path'), zlib = require('zlib');
 const FIXTURES = path.join(__dirname, '..', '..', 'tests', 'fixtures');
 const JPG = fs.readFileSync(path.join(FIXTURES, 'pagina.jpg'));     // 420×640
 
@@ -215,8 +215,110 @@ const lectorTapas = (n) => pagina(`Obra Uno Capítulo ${n} | Sitio de tapas`, me
   [1, 2, 3, 4, 5, 6].map(k => `<a href="${n === 5 ? '/lector/6' : `/lector/${n}/pagina/${k}`}"><img width="420" height="640" style="display:block" src="/tapas/paginas/${n}/${k}.jpg"></a>`).join('\n') +
   (n === 5 ? `<h3>También te puede gustar</h3>${grilla(OBRAS.slice(1, 4))}` : ''));
 
-function iniciar({ tapas = false } = {}) {
+// ── Otro sitio: listados para la galería (0.11.0) ──
+// Con iniciar({ galeria: true }). La galería se guarda por sitio, así que cada prueba levanta el
+// suyo (otro puerto). Cada listado vive en su carpeta, con sus títulos adentro y dos capítulos por
+// título, como en un sitio con las direcciones en escalera:
+//   /sig/            listado · /sig/?p=2  su página 2 · /sig/abeja/  la serie · /sig/abeja/1/  un capítulo
+// Los listados (cada tarjeta es un link con la tapa, el nombre y, algunas, el tipo y el idioma):
+//   /sig/       3 páginas con un link "Siguiente"
+//   /num/       3 páginas con una barra de números; el número de la página que sigue lleva rel="next"
+//   /solo/      3 páginas con una barra de solo números: nada dice cuál es la siguiente
+//   /mas/       una página que muestra 4 y un botón "Cargar más" que suma de a 4, hasta 12
+//   /una/       una sola página, con 5 (la tapa de uno no existe: /t/rota.jpg responde 404)
+//   /dest/      3 páginas, y en todas los mismos 3 destacados arriba
+//   /largo/     12 páginas de 3, con "Siguiente"
+//   /ocupado/   3 páginas; la 2.ª responde 503 con Retry-After: 2 la primera vez que se la pide
+//   /repite/    4 páginas que muestran siempre los mismos 4 títulos
+//   /sintapas/  una página con 5 títulos sin ninguna imagen
+//   /grandes/   una página con 5 títulos cuyas tapas tienen el tamaño de una página (420×640): como
+//               además cuelgan de la dirección del listado, la exploración la toma por un capítulo
+//   /mixto/     2 páginas de un catálogo que mezcla carpetas en una misma grilla, como los que ponen el
+//               tipo en la dirección (/mixto/manhwa/alba/, /mixto/manga/fiordo/, /mixto/novela/kiosco/):
+//               la exploración arma una lista por carpeta (y con uno o dos títulos, ninguna). Arriba,
+//               dos destacados en un bloque aparte (se repiten en las dos páginas); al costado, un
+//               bloque de "grupos" con su imagen, que no son títulos del listado
+//   /           la portada: no tiene ningún listado
+//   /suelta/    una serie que no cuelga de ningún listado (/suelta/1/ es un capítulo)
+//   /t/<x>.png  las tapas, del tamaño de una miniatura (200×300): su servidor exige el Referer del sitio
+// `ocultos` (lo que devuelve iniciar): los títulos que el sitio deja de mostrar, para probar un refresco.
+const RIOS = ['Río', 'Monte', 'Valle', 'Lago', 'Cabo', 'Golfo', 'Bahía', 'Cerro', 'Sierra', 'Pampa', 'Selva', 'Costa'];
+const LISTADOS = {
+  sig: { paso: 'siguiente', paginas: [['Abeja', 'Barco', 'Cometa', 'Dragón'], ['Espada', 'Faro', 'Gato', 'Halcón'], ['Isla', 'Jardín']] },
+  num: { paso: 'numeros con rel', paginas: [['Koala', 'Lince', 'Mono', 'Nutria'], ['Oso', 'Pato', 'Quetzal', 'Rana'], ['Sapo', 'Tigre']] },
+  solo: { paso: 'numeros', paginas: [['Uva', 'Vino', 'Yerba'], ['Zapallo', 'Acelga', 'Batata'], ['Cebolla', 'Durazno']] },
+  mas: { paso: 'cargar', paginas: [['Ancla', 'Brújula', 'Canoa', 'Dique', 'Estela', 'Fragata', 'Goleta', 'Hélice', 'Islote', 'Jarcia', 'Kayak', 'Lancha']] },
+  una: { paso: '', paginas: [['Mate', 'Nogal', 'Olmo', 'Pino', 'Roble']] },
+  dest: { paso: 'siguiente', destacados: ['Sol', 'Luna', 'Marte'], paginas: [['Ámbar', 'Bronce', 'Cobre', 'Diamante'], ['Esmeralda', 'Fósforo', 'Granito', 'Hierro'], ['Iridio', 'Jade', 'Kriptón', 'Litio']] },
+  largo: { paso: 'siguiente', paginas: RIOS.map(r => ['Azul', 'Blanco', 'Claro'].map(c => `${r} ${c}`)) },
+  ocupado: { paso: 'siguiente', paginas: [['Nube', 'Lluvia', 'Viento'], ['Trueno', 'Rayo', 'Niebla'], ['Granizo', 'Helada']] },
+  repite: { paso: 'siguiente', paginas: [1, 2, 3, 4].map(() => ['Eco', 'Espejo', 'Reflejo', 'Sombra']) },
+  sintapas: { paso: '', sinTapas: true, paginas: [['Lápiz', 'Tinta', 'Papel', 'Pluma', 'Goma']] },
+  grandes: { paso: '', tapasGrandes: true, paginas: [['Torre', 'Muralla', 'Puente', 'Fuerte', 'Castillo']] },
+};
+// Una tapa como las de un catálogo: una miniatura (PNG gris de 200×300), no una imagen del tamaño de una página
+function pngGris(w, h, tono) {
+  const trozo = (tipo, datos) => {
+    const largo = Buffer.alloc(4); largo.writeUInt32BE(datos.length);
+    const cuerpo = Buffer.concat([Buffer.from(tipo, 'latin1'), datos]);
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(zlib.crc32(cuerpo));
+    return Buffer.concat([largo, cuerpo, crc]);
+  };
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8;
+  const filas = Buffer.alloc((w + 1) * h, tono);
+  for (let y = 0; y < h; y++) filas[y * (w + 1)] = 0;
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]), trozo('IHDR', ihdr), trozo('IDAT', zlib.deflateSync(filas)), trozo('IEND', Buffer.alloc(0))]);
+}
+const TAPA_CHICA = pngGris(200, 300, 170);
+const slugDe = (nombre) => nombre.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, '-');
+const menuGaleria = '<nav><a href="/">Inicio</a> <a href="/acerca/">Acerca</a></nav>';
+// La tarjeta de un título. De cada tres, una dice "Manga · Español", otra "Manhwa · Inglés" y la otra nada
+const tarjetaG = (listado, nombre, k, sinTapas) => {
+  const dir = `/${listado}/${slugDe(nombre)}/`;
+  if (sinTapas) return `<li><a href="${dir}">${nombre}</a></li>`;
+  const datos = k % 3 === 0 ? '<span>Manga</span> <span>Español</span>' : k % 3 === 1 ? '<span>Manhwa</span> <span>Inglés</span>' : '';
+  const tapa = LISTADOS[listado].tapasGrandes ? `/t/grande-${slugDe(nombre)}.jpg` : `/t/${listado === 'una' && nombre === 'Roble' ? 'rota' : slugDe(nombre)}.png`;
+  return `<a href="${dir}" style="display:inline-block;width:130px;margin:4px;vertical-align:top"><img src="${tapa}" width="120" height="180" alt=""><h3 style="margin:2px 0">${nombre}</h3>${datos}</a>`;
+};
+function listadoG(listado, n, ocultos) {
+  const L = LISTADOS[listado], total = L.paginas.length, dir = (p) => `/${listado}/${p > 1 ? '?p=' + p : ''}`;
+  // (el tipo de cada tarjeta sale de su lugar en el listado entero: que un título se oculte no les cambia nada a los demás)
+  const tarjetas = (lista, desde = 0) => lista.map((x, k) => (ocultos.has(x) ? '' : tarjetaG(listado, x, desde + k, L.sinTapas))).join('');
+  let paso = '';
+  if (L.paso === 'siguiente') paso = (n > 1 ? `<a href="${dir(n - 1)}">Anterior</a> ` : '') + (n < total ? `<a href="${dir(n + 1)}">Siguiente</a>` : '');
+  else if (L.paso.startsWith('numeros')) paso = L.paginas.map((_, k) => (k + 1 === n ? `<b>${n}</b>` : `<a href="${dir(k + 1)}"${L.paso.endsWith('rel') && k === n ? ' rel="next"' : ''}>${k + 1}</a>`)).join(' ');
+  const destacados = L.destacados ? `<h2>Destacados</h2><div>${tarjetas(L.destacados)}</div><h2>Todos</h2>` : '';
+  if (L.paso === 'cargar') {
+    // Muestra 4 y suma de a 4 con cada toque del botón, que se va cuando no quedan más
+    const todas = L.paginas[0].map((x, k) => (ocultos.has(x) ? '' : tarjetaG(listado, x, k, false))).filter(Boolean);
+    return pagina('Sitio de galería – Cargar más', `${menuGaleria}<h1>Cargar más</h1><div id="lista">${todas.slice(0, 4).join('')}</div><button id="mas" type="button">Cargar más</button>
+<script>
+const faltan = ${JSON.stringify(todas.slice(4))};
+document.getElementById('mas').addEventListener('click', () => {
+  document.getElementById('lista').insertAdjacentHTML('beforeend', faltan.splice(0, 4).join(''));
+  if (!faltan.length) document.getElementById('mas').remove();
+});
+</script>`);
+  }
+  return pagina(`Sitio de galería – ${listado}` + (n > 1 ? ` (página ${n})` : ''), `${menuGaleria}<h1>Listado</h1>${destacados}<${L.sinTapas ? 'ul' : 'div'}>${tarjetas(L.paginas[n - 1], 3)}</${L.sinTapas ? 'ul' : 'div'}><p>${paso}</p>`);
+}
+// El catálogo que mezcla carpetas: [carpeta, nombre] de cada tarjeta, en el orden en que se ven
+const MIXTO = [[['manhwa', 'Alba'], ['manga', 'Fiordo'], ['manhwa', 'Brisa'], ['novela', 'Kiosco'], ['manhwa', 'Cima'], ['manga', 'Glaciar'], ['manhwa', 'Duna']],
+  [['manga', 'Hoz'], ['manhwa', 'Eclipse'], ['manga', 'Istmo'], ['novela', 'Lumbre'], ['manga', 'Jungla']]];
+const MIXTO_DESTACADOS = [['manhwa', 'Zafiro'], ['manhwa', 'Yunque']];
+const tarjetaMixta = ([tipo, nombre]) => `<a href="/mixto/${tipo}/${slugDe(nombre)}/" style="display:inline-block;width:130px;margin:4px;vertical-align:top"><img src="/t/${slugDe(nombre)}.png" width="120" height="180" alt=""><h3 style="margin:2px 0">${nombre}</h3><span>${tipo.toUpperCase()}</span></a>`;
+const mixtoG = (n) => pagina('Sitio de galería – Mixto' + (n > 1 ? ` (página ${n})` : ''), `${menuGaleria}<h1>Biblioteca</h1>
+<div class="destacados"><h2>Destacados</h2>${MIXTO_DESTACADOS.map(tarjetaMixta).join('')}</div>
+<div class="grilla">${MIXTO[n - 1].map(tarjetaMixta).join('')}</div>
+<aside><h3>Grupos</h3>${['Norte', 'Sur', 'Este'].map(x => `<a href="/grupo/${slugDe(x)}/" style="display:inline-block;margin:4px"><img src="/t/grupo-${slugDe(x)}.png" width="90" height="135" alt=""><b>Grupo ${x}</b></a>`).join('')}</aside>
+<p>${n < MIXTO.length ? `<a href="/mixto/?p=${n + 1}">Siguiente</a>` : `<a href="/mixto/?p=${n - 1}">Anterior</a>`}</p>`);
+const nombresG = (listado) => [...(LISTADOS[listado].destacados || []), ...LISTADOS[listado].paginas.flat()];
+const serieG = (base, nombre) => pagina(`${nombre} – capítulos | Sitio de galería`, `${menuGaleria}<h1>${nombre}</h1><a href="${base}1/">Capítulo 1</a> <a href="${base}2/">Capítulo 2</a>`);
+const capituloG = (nombre, n) => pagina(`${nombre} Capítulo ${n} | Sitio de galería`, menuGaleria + imagenes(`g/${slugDe(nombre)}/${n}`, false));
+
+function iniciar({ tapas = false, galeria = false } = {}) {
   const pedidos = { sinReferer: 0, capitulos: {}, portada: 0, horas: {} };
+  const ocultos = new Set();          // (galería) los títulos que el sitio deja de mostrar
   // (0.10.4) Lo que una prueba puede retener: mientras `lento.pagina` es true, la página de
   // /leer/lento-1/ no contesta; mientras `lento.armador` es true, las imágenes de /leer/lento-2/ no
   // contestan desde el segundo pedido de cada una (el primero es el de la página; el segundo, el del
@@ -247,6 +349,52 @@ function iniciar({ tapas = false } = {}) {
     // A qué hora llegó cada pedido de las páginas que piden esperar: las pruebas miden con eso cuánto se esperó
     const anotarHora = () => (pedidos.horas[u] = pedidos.horas[u] || []).push(Date.now());
     const html = (cuerpo) => enviar('text/html; charset=utf-8', cuerpo);
+    if (galeria) {
+      // (pedidos.listados: cada página de listado que se pidió, en orden · pedidos.referers: de dónde se pidió cada tapa)
+      const no = () => enviar('text/plain', 'no', 404);
+      if (u === '/') return html(pagina('Sitio de galería', `${menuGaleria}<h1>Inicio</h1><p>La portada de este sitio no tiene ningún listado.</p>`));
+      if (u === '/acerca/') return html(pagina('Sitio de galería – Acerca', `${menuGaleria}<p>Un sitio de prueba.</p>`));
+      let g = u.match(/^\/t\/([\w-]+)\.(png|jpg)$/);
+      if (g) {
+        pedidos.referers = pedidos.referers || {};
+        (pedidos.referers[u] = pedidos.referers[u] || []).push(req.headers.referer || '');
+        if (!String(req.headers.referer || '').startsWith(`http://${req.headers.host}/`)) { pedidos.sinReferer++; return enviar('text/plain', 'no', 403); }
+        return g[1] === 'rota' ? no() : g[2] === 'jpg' ? enviar('image/jpeg', JPG) : enviar('image/png', TAPA_CHICA);
+      }
+      if (/^\/img\/g\/[\w-]+\/\d\/\d\.jpg$/.test(u)) return enviar('image/jpeg', JPG);
+      // El catálogo que mezcla carpetas, sus series y sus capítulos
+      if (u === '/mixto/') {
+        const n = +(new URLSearchParams(consulta).get('p') || 1);
+        if (!MIXTO[n - 1]) return no();
+        (pedidos.listados = pedidos.listados || []).push(`mixto ${n}`);
+        return html(mixtoG(n));
+      }
+      g = u.match(/^\/mixto\/(\w+)\/([\w-]+)\/(?:([12])\/)?$/);
+      if (g) {
+        const suyo = [...MIXTO_DESTACADOS, ...MIXTO.flat()].find(([tipo, x]) => tipo === g[1] && slugDe(x) === g[2]);
+        if (!suyo) return no();
+        return g[3] ? html(capituloG(suyo[1], g[3])) : html(serieG(u, suyo[1]));
+      }
+      if (u === '/suelta/') return html(serieG('/suelta/', 'Suelta'));
+      g = u.match(/^\/suelta\/([12])\/$/);
+      if (g) return html(capituloG('Suelta', g[1]));
+      g = u.match(/^\/(\w+)\/$/);
+      if (g && LISTADOS[g[1]]) {
+        const n = +(new URLSearchParams(consulta).get('p') || 1);
+        if (!(n >= 1 && n <= LISTADOS[g[1]].paginas.length)) return no();
+        const clave = `${g[1]} ${n}`;
+        (pedidos.listados = pedidos.listados || []).push(clave);
+        (pedidos.horas[clave] = pedidos.horas[clave] || []).push(Date.now());
+        if (clave === 'ocupado 2' && pedidos.horas[clave].length === 1) return enviar('text/plain', 'ocupado', 503, { 'Retry-After': '2' });
+        return html(listadoG(g[1], n, ocultos));
+      }
+      g = u.match(/^\/(\w+)\/([\w-]+)\/(?:([12])\/)?$/);
+      const nombre = g && LISTADOS[g[1]] && nombresG(g[1]).find(x => slugDe(x) === g[2]);
+      if (!nombre) return no();
+      if (g[3]) { pedidos.capitulos[u] = (pedidos.capitulos[u] || 0) + 1; return html(capituloG(nombre, g[3])); }
+      (pedidos.series = pedidos.series || []).push(u);
+      return html(serieG(u, nombre));
+    }
     if (tapas) {
       if (u === '/') return html(portadaTapas);
       if (u === '/biblioteca' || u === '/directorio') return html(bibliotecaTapas);
@@ -371,7 +519,7 @@ function iniciar({ tapas = false } = {}) {
     enviar('text/plain', 'no', 404);
   });
   return new Promise((resolve) => srv.listen(0, '127.0.0.1', () => resolve({
-    url: `http://127.0.0.1:${srv.address().port}`, pedidos, lento,
+    url: `http://127.0.0.1:${srv.address().port}`, pedidos, lento, ocultos,
     // (closeAllConnections: una conexión que el navegador dejó abierta sin usar haría esperar para siempre)
     cerrar: () => new Promise(r => { srv.close(r); srv.closeAllConnections(); }),
   })));

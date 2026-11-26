@@ -40,6 +40,7 @@ function estado(texto, clase = '') {
 const esPortada = (url) => { try { return /^\/*$/.test(new URL(url).pathname); } catch { return false; } };
 async function ir(url, nivel = ruta.length, buscarCatalogo = false, nombre = '', aMano = false) {
   if (ocupado) return;
+  galeriaDetras();                                 // (si la galería del sitio estaba a la vista, queda detrás)
   ocupado = true;
   $('analizar').disabled = true;
   cerrarRevision();
@@ -98,6 +99,7 @@ function marcarSerie() {
 }
 
 function mostrar(r, tildarTodo = false) {
+  galeriaDetras();
   actual = r;
   anotarSitio(r);
   listaId = r.listas[0]?.id || '';
@@ -411,7 +413,10 @@ function ponerMiniatura(img, direccion) {
   if (typeof lista === 'string' && lista) img.src = lista;
   else if (direccion && lista !== '') img.dataset.tapa = direccion;
 }
-function pedirTapas(caja, pagina) {
+// `pagina` es de dónde salieron (para pedirlas como las pediría esa página). En la galería cada
+// tapa puede venir de una página distinta del listado: ahí la dice la imagen misma (data-pagina).
+// `alFallar` avisa cuando una no se pudo traer.
+function pedirTapas(caja, pagina, alFallar) {
   const marco = caja.getBoundingClientRect();
   for (const img of caja.querySelectorAll('img[data-tapa]')) {
     const r = img.getBoundingClientRect();
@@ -419,8 +424,8 @@ function pedirTapas(caja, pagina) {
     const de = img.dataset.tapa;
     delete img.dataset.tapa;
     let pedido = miniaturas.get(de);
-    if (pedido === undefined) miniaturas.set(de, pedido = mr.tapa(de, pagina).catch(() => '').then((d) => { miniaturas.set(de, d); return d; }));
-    Promise.resolve(pedido).then((d) => { if (d) img.src = d; });
+    if (pedido === undefined) miniaturas.set(de, pedido = mr.tapa(de, img.dataset.pagina || pagina).catch(() => '').then((d) => { miniaturas.set(de, d); return d; }));
+    Promise.resolve(pedido).then((d) => { if (d) img.src = d; else if (alFallar) alFallar(); });
   }
 }
 let avisoTapas = 0;
@@ -845,7 +850,306 @@ async function guardarSagas() {
   }
 }
 
+// ── La galería del sitio (0.11.0) ──
+// "Ver todo el sitio": todos los títulos del listado de un sitio, con su tapa, para buscar y
+// filtrar. La arma el programa recorriendo las páginas del listado con la exploración de siempre;
+// acá no se ven los niveles: se ve el avance y la galería. Queda guardada por sitio: al volver se
+// muestra la guardada, y se recorre de nuevo solo al tocar Refrescar.
+let gal = null;               // la galería a la vista o detrás (como la manda el programa)
+let galRecorriendo = false;   // hay un recorrido en curso
+let galBuscando = false;      // se está buscando lo nuevo de las marcadas
+// Los filtros se recuerdan entre visitas (van a la configuración); lo escrito en el buscador, no
+let galFiltros = { tengo: '', tapa: '', tipo: '', idioma: '', desaparecidas: false };
+const fechaCorta = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }); };
+const sitioCorto = (u) => { try { return new URL(u).host.replace(/^www\./, ''); } catch { return String(u || ''); } };
+const galTope = () => Math.min(Math.max(1, Math.floor(+$('galTope').value) || 60), 5000);
+const mayuscula = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '');
+function galEstado(texto, clase = '') {
+  $('galEstado').textContent = texto;
+  $('galEstado').className = 'estado' + (clase ? ' ' + clase : '');
+}
+// Tiene tapa si la página le puso una imagen y esa imagen no falló al pedirla
+const galConTapa = (t) => !!t.imagen && miniaturas.get(t.imagen) !== '';
+// "Ya tengo": bajaste algo de ese título con el programa o está en tu colección ("parecido" no cuenta)
+const galTengo = (t) => !!t.tengo && !t.tengo.parecida;
+// Tipo e idioma: los que dicen las tarjetas de esta galería. Un filtro recordado de otro sitio que acá no existe no se aplica
+const galValores = (campo) => [...new Set(gal.titulos.map(t => t[campo]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
+const galFiltro = (campo) => (galFiltros[campo] && galValores(campo).includes(galFiltros[campo]) ? galFiltros[campo] : '');
+function galVisibles() {
+  if (!gal) return [];
+  const q = $('galBuscar').value.trim().toLowerCase(), f = galFiltros, tipo = galFiltro('tipo'), idioma = galFiltro('idioma');
+  return gal.titulos.filter(t => (!q || t.nombre.toLowerCase().includes(q)) &&
+    (!f.tengo || (f.tengo === 'tengo') === galTengo(t)) &&
+    (!f.tapa || (f.tapa === 'con') === galConTapa(t)) &&
+    (!tipo || t.tipo === tipo) && (!idioma || t.idioma === idioma) &&
+    (!f.desaparecidas || !!t.desaparecida));
+}
+function guardarGaleriaConfig() { mr.guardarConfig({ galeria: { tope: galTope(), filtros: galFiltros } }).catch(() => {}); }
+
+function abrirGaleria(g) {
+  gal = g;
+  galTanda = GAL_TANDA;
+  cerrarRevision();
+  document.body.classList.add('en-galeria');
+  $('galeria').hidden = false;
+  $('volverGaleria').hidden = true;
+  dibujarGaleria();
+}
+// Saca la galería de la vista. Con `detras`, queda el botón para volver a ella
+function cerrarGaleria(detras = false) {
+  document.body.classList.remove('en-galeria');
+  $('galeria').hidden = true;
+  $('volverGaleria').hidden = !(detras && gal);
+  if (detras && gal) $('volverGaleria').textContent = `‹ Volver a la galería de ${sitioCorto(gal.sitio)}`;
+}
+// Al analizar otra cosa con la galería a la vista (una dirección, un favorito, links pegados)
+function galeriaDetras() { if (!$('galeria').hidden) cerrarGaleria(true); }
+
+// Las tarjetas se dibujan de a tandas: la galería de un catálogo grande tiene miles de títulos
+const GAL_TANDA = 600;
+let galTanda = GAL_TANDA;
+let galDibujo = 0;
+const dibujarGaleriaLuego = () => { clearTimeout(galDibujo); galDibujo = setTimeout(dibujarGaleria, 150); };
+function dibujarGaleria() {
+  if (!gal) return;
+  const total = gal.titulos.length, idas = gal.titulos.filter(t => t.desaparecida).length;
+  $('galTitulo').textContent = `Galería de ${sitioCorto(gal.sitio)}`;
+  $('galTitulo').title = `El listado se recorre desde ${gal.inicio}`;
+  $('galDatos').textContent = [plural(total, 'título', 'títulos'), plural(gal.paginas, 'página', 'páginas'), gal.fecha ? `del ${fechaCorta(gal.fecha)}` : '',
+    idas ? plural(idas, 'desaparecida', 'desaparecidas') : '', !galRecorriendo && gal.estado === 'incompleta' ? 'incompleta' : ''].filter(Boolean).join(' · ');
+  // Los botones del recorrido
+  $('galCancelar').hidden = !galRecorriendo;
+  $('galRefrescar').hidden = $('galOlvidar').hidden = galRecorriendo;
+  $('galSeguir').hidden = galRecorriendo || !gal.sePuedeSeguir;
+  $('galTope').disabled = $('galCerrar').disabled = galRecorriendo;
+  // Tipo e idioma: solo si las tarjetas del sitio los dicen
+  for (const [id, campo, todos] of [['galTipo', 'tipo', 'Tipo: todos'], ['galIdioma', 'idioma', 'Idioma: todos']]) {
+    const valores = galValores(campo);
+    $(id).hidden = !valores.length;
+    $(id).replaceChildren(el('option', { value: '', textContent: todos }), ...valores.map(v => el('option', { value: v, textContent: v })));
+    $(id).value = galFiltro(campo);
+  }
+  $('galTengo').value = galFiltros.tengo;
+  $('galTapa').value = galFiltros.tapa;
+  $('galDesaparecidas').checked = !!galFiltros.desaparecidas;
+
+  const ver = galVisibles(), aLaVista = ver.slice(0, galTanda), resto = ver.length - aLaVista.length;
+  $('galCuenta').textContent = [ver.length !== total ? `${ver.length} de ${total}` : '', resto ? `a la vista, los primeros ${aLaVista.length}` : ''].filter(Boolean).join(' · ');
+  // Las marcadas y lo nuevo que se les encontró
+  const marcadas = gal.titulos.filter(t => t.marcada);
+  const capsNuevos = marcadas.reduce((n, t) => n + (t.nuevo?.nuevos || 0), 0);
+  $('galMarcadasCuenta').textContent = marcadas.length ? plural(marcadas.length, 'serie marcada', 'series marcadas') : 'Marcá series con la casilla de su tapa, para buscar lo nuevo de todas juntas.';
+  $('galMarcarVisibles').disabled = !ver.length;
+  $('galDesmarcar').hidden = !marcadas.length;
+  $('galBuscarNuevo').disabled = !marcadas.length || galBuscando || galRecorriendo;
+  $('galEncolar').hidden = !capsNuevos;
+  $('galEncolar').textContent = `Encolar lo nuevo (${plural(capsNuevos, 'capítulo', 'capítulos')})`;
+  // ("N capítulos en la cola" se dice mientras la cola tiene algo pendiente; después manda lo que ya tenés)
+  const colaActiva = tareas.some(x => x.estado === 'en cola' || ACTIVOS.has(x.estado));
+
+  const mas = resto ? el('button', { type: 'button', className: 'gal-mas', textContent: `Mostrar ${Math.min(GAL_TANDA, resto)} más (quedan ${resto} sin mostrar)` }) : null;
+  if (mas) mas.addEventListener('click', () => { galTanda += GAL_TANDA; dibujarGaleria(); });
+  $('galLista').replaceChildren(...(ver.length ? aLaVista.map(t => {
+    const caja = el('input', { type: 'checkbox', checked: !!t.marcada, title: 'Marcar esta serie, para buscar lo nuevo' });
+    caja.addEventListener('click', (e) => e.stopPropagation());
+    caja.addEventListener('change', () => marcarEnGaleria([t.url], caja.checked));
+    // La tapa es la del sitio. Si el título no tiene o no cargó, queda el recuadro con la inicial: no se inventa ninguna
+    const img = el('img', { alt: '' });
+    if (t.imagen) { img.dataset.pagina = t.pagina || gal.inicio; ponerMiniatura(img, t.imagen); }
+    const tapa = el('div', { className: 'gal-tapa' }, el('span', { className: 'gal-inicial', textContent: (t.nombre.match(/[\p{L}\p{N}]/u) || ['?'])[0].toUpperCase() }), img);
+    const n = t.nuevo;
+    const marca = t.desaparecida ? el('span', { className: 'gal-marca ida', textContent: 'desaparecida', title: `No apareció en el recorrido del ${fechaCorta(t.desaparecida)}. No se borra: si vuelve a aparecer, se le saca la marca.` })
+      : n && n.error ? el('span', { className: 'gal-marca ida', textContent: '⚠️ ' + n.error, title: n.error })
+      : n && n.enCola && colaActiva ? el('span', { className: 'gal-marca nuevo', textContent: `${plural(n.enCola, 'capítulo', 'capítulos')} en la cola` })
+      : n && n.nuevos ? el('span', { className: 'gal-marca nuevo', textContent: `${plural(n.nuevos, 'nuevo', 'nuevos')}: ${n.rango}` })
+      : n && n.revisada && !n.enCola ? el('span', { className: 'gal-marca', textContent: `al día (${n.tengo} de ${n.cuantos})` })
+      : t.tengo && t.tengo.parecida ? el('span', { className: 'gal-marca parecida', textContent: '≈ parecido', title: `En tu colección hay «${t.tengo.parecida}»: puede ser lo mismo con otro nombre` })
+      : t.tengo ? el('span', { className: 'gal-marca tengo', textContent: t.tengo.bajados ? `✔ ${plural(t.tengo.bajados, 'bajado', 'bajados')}` : '✔ en tu colección',
+          title: [t.tengo.bajados ? `Ya bajaste ${plural(t.tengo.bajados, 'capítulo', 'capítulos')} de este título` : '', t.tengo.carpeta ? `Está en «${t.tengo.carpeta}»` : ''].filter(Boolean).join('. ') })
+      : null;
+    const tarjeta = el('div', { className: 'gal-tarjeta' + (galTengo(t) ? ' ya' : '') + (t.desaparecida ? ' ida' : ''), title: [t.nombre, t.detalle].filter(Boolean).join(' · ') },
+      caja, tapa, el('span', { className: 'gal-nombre', textContent: t.nombre }), t.detalle ? el('span', { className: 'gal-detalle', textContent: t.detalle }) : null, marca);
+    tarjeta.addEventListener('click', () => abrirDesdeGaleria(t));
+    return tarjeta;
+  }).concat(mas || []) : [el('div', { className: 'vacio', textContent: total ? 'Ningún título coincide con lo que buscás o con los filtros.' : galRecorriendo ? 'Todavía no hay títulos…' : 'Esta galería no tiene títulos.' })]));
+  pedirGalTapas();
+}
+// Las tapas se piden cuando quedan a la vista. Si una no carga y se está filtrando por tapa, se redibuja
+function pedirGalTapas() { if (gal) pedirTapas($('galLista'), gal.inicio, () => { if (galFiltros.tapa) dibujarGaleriaLuego(); }); }
+
+// El estado de la galería, dicho entero: de cuándo es, si está completa y, si no, por qué
+function decirGaleria(antes = '') {
+  if (!gal) return;
+  const cuanto = `${plural(gal.titulos.length, 'título', 'títulos')} en ${plural(gal.paginas, 'página', 'páginas')}`;
+  if (gal.estado === 'completa') galEstado(`${antes}Es del ${fechaCorta(gal.fecha)}: ${cuanto}.` + (gal.motivo ? ` ${mayuscula(gal.motivo)}.` : '') + ' Se refresca cuando tocás Refrescar, no sola.', 'bien');
+  else galEstado(`${antes}⚠️ Quedó incompleta: ${gal.motivo || 'el recorrido se cortó'}. Tiene lo que se juntó hasta ahí (${cuanto}).` +
+    (gal.sePuedeSeguir ? ' Con "Seguir desde donde quedó" continúa.' : ''), 'error');
+}
+
+// "Ver todo el sitio": si ya hay una galería guardada de ese sitio se muestra esa, sin recorrer
+// nada; si no, se recorre el listado, empezando por la dirección pegada.
+async function verTodoElSitio() {
+  let url = $('url').value.trim();
+  if (!url) return estado('Pegá arriba una dirección del sitio: su listado, una serie o un capítulo.', 'error');
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(url)) url = 'https://' + url;
+  if (ocupado || galRecorriendo) return;
+  try {
+    const guardada = await mr.galeria.de(url);
+    if (guardada) {
+      abrirGaleria(guardada);
+      return decirGaleria('Esta es la galería guardada de este sitio. ');
+    }
+  } catch (e) { return estado('⚠️ ' + e.message, 'error'); }
+  recorrerGaleria({ url, modo: 'nueva' });
+}
+async function recorrerGaleria(pedido) {
+  if (ocupado || galRecorriendo) return;
+  ocupado = galRecorriendo = true;
+  $('analizar').disabled = $('verTodo').disabled = true;
+  if (pedido.modo === 'nueva') abrirGaleria({ sitio: pedido.url, inicio: pedido.url, fecha: '', paginas: 0, estado: 'recorriendo', motivo: '', sePuedeSeguir: false, titulos: [] });
+  else dibujarGaleria();
+  galEstado(pedido.modo === 'nueva' ? 'Buscando el listado del sitio…' : 'Recorriendo el listado…', 'trabajando');
+  let r = null, falla = '';
+  try { r = await mr.galeria.recorrer({ ...pedido, tope: galTope() }); } catch (e) { falla = e.message; }
+  ocupado = galRecorriendo = false;
+  $('analizar').disabled = $('verTodo').disabled = false;
+  if (falla) {
+    if (pedido.modo !== 'nueva') { dibujarGaleria(); return galEstado('⚠️ ' + falla, 'error'); }
+    gal = null;
+    cerrarGaleria();
+    return estado('⚠️ ' + falla, 'error');
+  }
+  if (r.galeria) {
+    gal = r.galeria;
+    dibujarGaleria();
+    return decirGaleria(r.yaEstaba ? 'Ya había una galería guardada de este sitio: es esta. ' : '');
+  }
+  // No se armó ninguna galería
+  gal = null;
+  cerrarGaleria();
+  if (r.cancelada) return estado('Cancelaste antes de llegar al listado del sitio.');
+  // No hay listado: se cae a la exploración de siempre, con la página que se pegó (ya analizada), y se dice
+  if (r.primera) {
+    ruta = [{ url: r.primera.url, titulo: r.primera.titulo || r.primera.url }];
+    $('url').value = r.primera.url;
+    proponerSerie(r.primera.capitulo?.serie || '');
+    mostrar(r.primera);
+  }
+  estado(`⚠️ Este sitio no tiene un listado recorrible: abrí ${plural(r.paginasAbiertas || 1, 'página', 'páginas')}, subiendo desde la que pegaste, y ninguna es un listado de títulos.` +
+    (r.primera ? ' Te muestro esa página con la exploración de siempre.' : ''), 'error');
+}
+// Mientras recorre: el avance (páginas y títulos), y la galería que se va llenando
+mr.galeria.alAvanzar((ev) => {
+  if (ev.buscando !== undefined) {
+    if (ev.buscando && ev.detalle) $('galNuevoMsg').textContent = mayuscula(ev.detalle);
+    return;
+  }
+  if (!ev.recorriendo || !galRecorriendo || !gal) return;
+  galEstado(`Recorriendo el listado: ${plural(ev.paginas || 0, 'página', 'páginas')}, ${plural(ev.titulos || 0, 'título', 'títulos')}` + (ev.detalle ? ` · ${ev.detalle}` : '…'), 'trabajando');
+  // Llegan solo los títulos que sumó esa página (la galería entera, con miles, llega una vez, al final)
+  if (ev.inicio) { gal.sitio = ev.sitio; gal.inicio = ev.inicio; }
+  if (typeof ev.paginas === 'number') gal.paginas = ev.paginas;
+  if (ev.nuevos && ev.nuevos.length) { gal.titulos.push(...ev.nuevos); dibujarGaleriaLuego(); }
+});
+
+async function marcarEnGaleria(urls, marcada) {
+  if (!gal || !urls.length) return;
+  try { gal = await mr.galeria.marcar({ sitio: gal.sitio, urls, marcada }); dibujarGaleria(); } catch (e) { galEstado('⚠️ ' + e.message, 'error'); }
+}
+async function buscarNuevoEnGaleria() {
+  if (!gal || galBuscando || ocupado) return;
+  galBuscando = ocupado = true;
+  $('galNuevoMsg').textContent = 'Buscando…';
+  dibujarGaleria();
+  try {
+    const r = await mr.galeria.buscarNuevo(gal.sitio);
+    gal = r.galeria;
+    const marcadas = gal.titulos.filter(t => t.marcada), conNuevo = marcadas.filter(t => t.nuevo?.nuevos), mal = marcadas.filter(t => t.nuevo?.error).length;
+    const n = conNuevo.reduce((s, t) => s + t.nuevo.nuevos, 0);
+    $('galNuevoMsg').textContent = (n ? `Hay ${plural(n, 'capítulo nuevo', 'capítulos nuevos')} en ${plural(conNuevo.length, 'serie', 'series')}.` : 'No hay nada nuevo.') +
+      (mal ? ` ${plural(mal, 'serie no se pudo mirar', 'series no se pudieron mirar')}.` : '') + (r.corte ? ` Paré porque ${r.corte}.` : '');
+  } catch (e) {
+    $('galNuevoMsg').textContent = '⚠️ ' + e.message;
+  }
+  galBuscando = ocupado = false;
+  dibujarGaleria();
+}
+async function encolarNuevoDeGaleria() {
+  if (!gal) return;
+  try {
+    const r = await mr.galeria.encolarNuevo(gal.sitio);
+    gal = r.galeria;
+    $('galNuevoMsg').textContent = `${plural(r.encolados, 'capítulo agregado', 'capítulos agregados')} a la cola, de ${plural(r.series, 'serie', 'series')}.`;
+  } catch (e) {
+    $('galNuevoMsg').textContent = '⚠️ ' + e.message;
+  }
+  dibujarGaleria();
+}
+// Tocar una tapa abre ese título con la exploración de siempre; desde ahí se vuelve a la galería
+function abrirDesdeGaleria(t) {
+  if (ocupado) return;
+  $('url').value = t.url;
+  ir(t.url, 0, false, t.nombre);
+}
+async function volverALaGaleria() {
+  if (!gal) return;
+  try { gal = (await mr.galeria.de(gal.sitio)) || gal; } catch {}
+  abrirGaleria(gal);
+  decirGaleria();
+}
+// Lo que ya tenés cambia cuando termina de bajar un capítulo: con la galería a la vista, se piden de
+// nuevo sus marcas ("✔ 2 bajados"), que es lo único que cambia (no la galería entera)
+async function refrescarGaleria() {
+  if (!gal || galRecorriendo || $('galeria').hidden) return;
+  try {
+    const marcas = new Map(await mr.galeria.marcas(gal.sitio));
+    if (!gal || galRecorriendo || $('galeria').hidden) return;
+    for (const t of gal.titulos) t.tengo = marcas.get(t.url) || null;
+    dibujarGaleria();
+  } catch {}
+}
+let olvidarArmado = 0;        // "Olvidar" pide un segundo toque, como "Quitar todos"
+function olvidarGaleria() {
+  if (!gal) return;
+  clearTimeout(olvidarArmado);
+  if (!$('galOlvidar').dataset.armado) {
+    $('galOlvidar').dataset.armado = '1';
+    $('galOlvidar').textContent = '¿Olvidarla? Tocá de nuevo';
+    olvidarArmado = setTimeout(() => { delete $('galOlvidar').dataset.armado; $('galOlvidar').textContent = 'Olvidar'; }, 4000);
+    return;
+  }
+  delete $('galOlvidar').dataset.armado;
+  $('galOlvidar').textContent = 'Olvidar';
+  const sitio = gal.sitio;
+  mr.galeria.olvidar(sitio).then(() => {
+    gal = null;
+    cerrarGaleria();
+    estado(`Olvidé la galería de ${sitioCorto(sitio)}. Con "Ver todo el sitio" se arma de nuevo.`);
+  }).catch((e) => galEstado('⚠️ ' + e.message, 'error'));
+}
+
 // ── Eventos ──
+$('verTodo').addEventListener('click', verTodoElSitio);
+$('galCerrar').addEventListener('click', () => cerrarGaleria());
+$('volverGaleria').addEventListener('click', volverALaGaleria);
+$('galCancelar').addEventListener('click', () => { galEstado('Cancelando…', 'trabajando'); mr.galeria.cancelar().catch(() => {}); });
+$('galRefrescar').addEventListener('click', () => { if (gal) recorrerGaleria({ url: gal.inicio, modo: 'refrescar' }); });
+$('galSeguir').addEventListener('click', () => { if (gal) recorrerGaleria({ url: gal.inicio, modo: 'seguir' }); });
+$('galOlvidar').addEventListener('click', olvidarGaleria);
+$('galTope').addEventListener('change', guardarGaleriaConfig);
+$('galBuscar').addEventListener('input', () => { galTanda = GAL_TANDA; dibujarGaleria(); });
+for (const [id, campo] of [['galTengo', 'tengo'], ['galTapa', 'tapa'], ['galTipo', 'tipo'], ['galIdioma', 'idioma']]) {
+  $(id).addEventListener('change', () => { galFiltros[campo] = $(id).value; galTanda = GAL_TANDA; guardarGaleriaConfig(); dibujarGaleria(); });
+}
+$('galDesaparecidas').addEventListener('change', () => { galFiltros.desaparecidas = $('galDesaparecidas').checked; galTanda = GAL_TANDA; guardarGaleriaConfig(); dibujarGaleria(); });
+$('galMarcarVisibles').addEventListener('click', () => marcarEnGaleria(galVisibles().map(t => t.url), true));
+$('galDesmarcar').addEventListener('click', () => { if (gal) marcarEnGaleria(gal.titulos.filter(t => t.marcada).map(t => t.url), false); });
+$('galBuscarNuevo').addEventListener('click', buscarNuevoEnGaleria);
+$('galEncolar').addEventListener('click', encolarNuevoDeGaleria);
+let galAvisoTapas = 0;
+const alMoverGaleria = () => { clearTimeout(galAvisoTapas); galAvisoTapas = setTimeout(() => { if (!$('galeria').hidden) pedirGalTapas(); }, 120); };
+$('galLista').addEventListener('scroll', alMoverGaleria);
+addEventListener('resize', alMoverGaleria);
 $('buscar').addEventListener('submit', (e) => {
   e.preventDefault();
   let url = $('url').value.trim();
@@ -943,7 +1247,7 @@ mr.alCambiarCola((cola) => {
   dibujarCola();
   // Cuando termina un capítulo, se vuelve a mirar qué hay en la carpeta
   const n = cola.filter(t => t.estado === 'listo' || t.estado === 'incompleto').length;
-  if (n !== terminadas) { terminadas = n; mirarDisco(300); mirarTitulos(true); cargarHistorial(); }
+  if (n !== terminadas) { terminadas = n; mirarDisco(300); mirarTitulos(true); cargarHistorial(); refrescarGaleria(); }
 });
 mr.alAvanzar((texto) => { if (ocupado && !trayendoTodas) estado(texto, 'trabajando'); });
 mr.config().then((c) => {
@@ -952,6 +1256,9 @@ mr.config().then((c) => {
   verTapas = c.tapas !== false;
   $('plantilla').value = c.plantilla || '';
   $('sagas').value = c.sagasTexto || '';
+  // La galería: el tope de páginas por corrida y los filtros, como quedaron la última vez
+  $('galTope').value = c.galeria?.tope || 60;
+  galFiltros = { ...galFiltros, ...(c.galeria?.filtros || {}) };
   mostrarCarpeta(c.carpeta);
   mostrarRecientes(c.recientes);
   dibujarBibliotecas(c.bibliotecas);

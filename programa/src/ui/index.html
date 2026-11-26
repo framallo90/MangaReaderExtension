@@ -15,6 +15,7 @@
              placeholder="Pegá la dirección de una página: un catálogo, una serie o un capítulo">
       <datalist id="recientes"></datalist>
       <button class="main" id="analizar" type="submit">Analizar</button>
+      <button id="verTodo" type="button" title="La galería del sitio: todos los títulos de su listado, con su tapa, para buscar y filtrar. Sirve cualquier dirección del sitio: su listado, una serie o un capítulo">Ver todo el sitio</button>
       <button id="verPegar" type="button" title="Pegar una lista de links de capítulos">Pegar links</button>
       <button id="verGuardados" type="button" title="Tus favoritos: sitios, catálogos y series guardados">⭐ Favoritos</button>
       <button id="verSiguiendo" type="button" title="Las series que seguís: buscar lo nuevo y bajarlo">📌 Siguiendo</button>
@@ -84,6 +85,51 @@
       <div id="avisoCarpetas" hidden></div>
       <!-- (0.10.4) Se abrió el programa otra vez con el proxy de prueba, y esta ventana no lo usa -->
       <div id="avisoProxy" hidden><span id="avisoProxyTexto"></span> <button id="reabrirProxy" type="button">Cerrar y abrir de nuevo con el proxy</button></div>
+      <!-- (0.11.0) La galería del sitio: todos los títulos de su listado, con su tapa. Mientras está a la
+           vista, la exploración por niveles queda detrás -->
+      <div id="galeria" hidden>
+        <div class="barra" id="galCabecera">
+          <b id="galTitulo"></b>
+          <span id="galDatos" class="tenue"></span>
+          <span class="estira"></span>
+          <label title="Cuántas páginas del listado se leen, como mucho, en cada corrida. Si el listado es más largo, la galería queda incompleta y se puede seguir">Tope
+            <input id="galTope" type="number" min="1" max="5000" step="1" value="60"> páginas</label>
+          <button id="galSeguir" type="button" hidden title="Sigue leyendo el listado desde la página donde quedó">Seguir desde donde quedó</button>
+          <button id="galRefrescar" type="button" title="Recorre el listado de nuevo, desde el principio. Lo que ya no aparezca queda marcado como desaparecido, no se borra">Refrescar</button>
+          <button id="galCancelar" type="button" hidden>Cancelar</button>
+          <button id="galOlvidar" type="button" title="Borra la galería guardada de este sitio (no borra ningún archivo)">Olvidar</button>
+          <button id="galCerrar" type="button" title="Vuelve a la exploración de siempre. La galería queda guardada">Cerrar</button>
+        </div>
+        <div id="galEstado" class="estado"></div>
+        <div class="barra" id="galFiltros">
+          <input id="galBuscar" type="text" spellcheck="false" autocomplete="off" placeholder="Buscar por nombre…">
+          <select id="galTengo" title="Según lo que ya bajaste con el programa o tenés en tu colección">
+            <option value="">Lo tenga o no</option>
+            <option value="tengo">Lo que ya tengo</option>
+            <option value="falta">Lo que me falta</option>
+          </select>
+          <select id="galTapa">
+            <option value="">Con y sin tapa</option>
+            <option value="con">Con tapa</option>
+            <option value="sin">Sin tapa</option>
+          </select>
+          <select id="galTipo" hidden title="El tipo que dice la tarjeta de cada título"></select>
+          <select id="galIdioma" hidden title="El idioma que dice la tarjeta de cada título"></select>
+          <label title="Los títulos que estaban y no aparecieron en el último recorrido completo"><input type="checkbox" id="galDesaparecidas"> Desaparecidas</label>
+          <span id="galCuenta" class="tenue"></span>
+        </div>
+        <div class="barra" id="galMarcadas">
+          <span id="galMarcadasCuenta" class="tenue"></span>
+          <button id="galMarcarVisibles" type="button" title="Marca todas las series que quedan con el buscador y los filtros de arriba">Marcar las que se ven</button>
+          <button id="galDesmarcar" type="button" hidden>Desmarcar todas</button>
+          <button class="main" id="galBuscarNuevo" type="button" title="Abre la página de cada serie marcada, de a una, y dice qué capítulos hay que no tenés">Buscar lo nuevo</button>
+          <button id="galEncolar" type="button" hidden></button>
+          <span id="galNuevoMsg" class="tenue"></span>
+        </div>
+        <div id="galLista"></div>
+      </div>
+      <!-- (0.11.0) Se abrió un título desde la galería: por acá se vuelve -->
+      <button id="volverGaleria" type="button" hidden></button>
       <div id="estado" class="estado">Pegá una dirección arriba y tocá Analizar.</div>
       <!-- Antes de analizar nada: las últimas direcciones que se usaron -->
       <div id="inicio" hidden>

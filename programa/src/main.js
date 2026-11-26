@@ -14,6 +14,7 @@ const nucleo = require('../generado/nucleo.js');
 const sitios = require('../generado/sitios.js');     // leer una lista de links pegada, igual que la extensión
 const { parseSagas, missingRanges, rangesText } = require('../generado/opciones.js');   // sagas escritas como texto, y lo que falta
 const { frenoDe } = require('./freno.js');           // cuánto no pedirle nada a un sitio que pidió esperar: la regla de la extensión
+const { crearGalerias, TOPE_DEFECTO, TOPE_MAX } = require('./galeria.js');   // la galería de un sitio: el recorrido de su listado
 
 const PARTICION = 'persist:paginas';          // sesión de las páginas web: cookies aparte de las del programa
 const PRUEBA = process.argv.includes('--prueba');
@@ -42,7 +43,9 @@ let config = { carpeta: '', formatos: { pdf: true, cbz: false, imgs: false }, sa
                plantilla: '', sagasTexto: '', recientes: [], bibliotecas: [],
                // vinculos: carpetas que el usuario ató a una serie ({ clave de la serie: [carpetas] }), para
                // cuando se llaman distinto · seguidas: las series que sigue ([{ url, serie }])
-               vinculos: {}, seguidas: [] };
+               vinculos: {}, seguidas: [],
+               // galeria: el tope de páginas por corrida y los filtros de la galería, que se recuerdan
+               galeria: { tope: TOPE_DEFECTO, filtros: {} } };
 const archivoConfig = () => path.join(app.getPath('userData'), 'config.json');
 function leerConfig() {
   if (!PRUEBA) { try { config = { ...config, ...JSON.parse(fs.readFileSync(archivoConfig(), 'utf8')) }; } catch {} }      // las pruebas arrancan con todo de fábrica
@@ -51,6 +54,7 @@ function leerConfig() {
   if (!Array.isArray(config.bibliotecas)) config.bibliotecas = [];
   if (!config.vinculos || typeof config.vinculos !== 'object' || Array.isArray(config.vinculos)) config.vinculos = {};
   if (!Array.isArray(config.seguidas)) config.seguidas = [];
+  config.galeria = galeriaValida(config.galeria);
   aplicarNombres();
 }
 // Pasa al núcleo (el que arma los nombres) la plantilla y las sagas guardadas
@@ -58,8 +62,17 @@ function aplicarNombres() {
   nucleo.setEsquema(config.plantilla);
   nucleo.setSagas(parseSagas(String(config.sagasTexto || '')).table);
 }
+// Lo de la galería que se recuerda: el tope de páginas por corrida (de 1 a TOPE_MAX) y los filtros
+function galeriaValida(g) {
+  g = g && typeof g === 'object' && !Array.isArray(g) ? g : {};
+  const f = g.filtros && typeof g.filtros === 'object' && !Array.isArray(g.filtros) ? g.filtros : {};
+  const texto = (v, valen) => (typeof v === 'string' && (!valen || valen.includes(v)) ? v.slice(0, 40) : '');
+  return { tope: Math.min(Math.max(1, Math.floor(+g.tope) || TOPE_DEFECTO), TOPE_MAX),
+           filtros: { tengo: texto(f.tengo, ['tengo', 'falta']), tapa: texto(f.tapa, ['con', 'sin']), tipo: texto(f.tipo), idioma: texto(f.idioma), desaparecidas: f.desaparecidas === true } };
+}
 function guardarConfig(c) {
   config = { ...config, ...c, formatos: { ...config.formatos, ...(c.formatos || {}) } };
+  if ('galeria' in c) config.galeria = galeriaValida(c.galeria);
   if ('plantilla' in c || 'sagasTexto' in c) aplicarNombres();
   if ('bibliotecas' in c) indices.clear();          // cambió dónde mirar: lo recordado ya no vale
   if (!PRUEBA) { try { fs.writeFileSync(archivoConfig(), JSON.stringify(config, null, 2)); } catch {} }
@@ -1098,6 +1111,19 @@ async function paginasDe(url) {
   finally { win.destroy(); }
 }
 
+// ── La galería del sitio (0.11.0) ────────────────────
+// Todos los títulos del listado de un sitio, con su tapa. El recorrido está en galeria.js; acá se le
+// da lo de siempre: las páginas se abren y se analizan igual que con Analizar, entre una y otra va
+// la pausa de la cola, y el freno es el mismo mapa (noAntesDe) que mira la cola.
+const galerias = crearGalerias({
+  archivo: () => path.join(app.getPath('userData'), 'galerias.json'), PRUEBA,
+  abrirPagina, pedir, espera, pausa: PAUSA,
+  falta: (url) => (noAntesDe.get(sitioDe(url)) || 0) - Date.now(),
+  frenar: (url, esperar) => anotarEspera({ url }, esperar),
+  revisarTitulos, novedadesDe, encolar,
+  avisar: (evento) => { if (ui && !ui.isDestroyed()) ui.webContents.send('galeria', evento); },
+});
+
 // ── Ventana del programa ─────────────────────────────
 async function abrirUI(visible = true) {
   ui = new BrowserWindow({
@@ -1194,6 +1220,17 @@ atender('seguidas:seguir', (dato) => seguirSerie(dato || {}));
 atender('seguidas:dejar', (url) => dejarDeSeguir(String(url || '')));
 atender('seguidas:buscar', () => buscarNovedades());
 atender('seguidas:bajar', (url) => bajarNovedades(url ? String(url) : ''));
+// La galería del sitio: la guardada de la dirección que se pase (o null), recorrer ({ url, tope, modo:
+// 'nueva' | 'refrescar' | 'seguir' }), cancelar el recorrido, marcar series, buscar lo nuevo de las
+// marcadas y ponerlo en la cola, y olvidar la galería de un sitio
+atender('galeria:de', (url) => galerias.de(String(url || '')));
+atender('galeria:marcas', (sitio) => galerias.marcas(String(sitio || '')));          // solo lo que ya tenés de cada título
+atender('galeria:recorrer', (pedido) => galerias.recorrer(pedido || {}));
+atender('galeria:cancelar', () => galerias.cancelar());
+atender('galeria:marcar', (pedido) => galerias.marcar(pedido || {}));
+atender('galeria:buscar-nuevo', (sitio) => galerias.buscarNuevo(String(sitio || '')));
+atender('galeria:encolar-nuevo', (sitio) => galerias.encolarNuevo(String(sitio || '')));
+atender('galeria:olvidar', (sitio) => galerias.olvidar(String(sitio || '')));
 atender('biblioteca:quitar', (carpeta) => guardarConfig({ bibliotecas: config.bibliotecas.filter(c => c !== carpeta) }).bibliotecas);
 atender('tapa', ({ url, pagina }) => tapa(String(url || ''), String(pagina || '')));
 atender('carpeta', async () => {
@@ -1307,13 +1344,14 @@ atender('reabrir-con-proxy', () => {
   return true;
 });
 app.on('window-all-closed', () => { if (!PRUEBA) app.quit(); });
+app.on('before-quit', () => galerias.alSalir());        // (un recorrido de la galería en curso: queda guardado lo juntado)
 
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   // (con MR_DATOS, que es de las pruebas, no se toca el menú Inicio)
   if ((!PRUEBA || AVISOS) && !HUMO && !process.env.MR_DATOS) prepararAvisos();
   leerConfig();
-  if (!PRUEBA) { leerGuardados(); leerRegistro(); }      // las pruebas arrancan con todo vacío y no lo escriben
+  if (!PRUEBA) { leerGuardados(); leerRegistro(); galerias.leer(); }      // las pruebas arrancan con todo vacío y no lo escriben
   prepararSesion();
   if (HUMO) {
     try {
@@ -1342,7 +1380,9 @@ app.whenReady().then(async () => {
       // (0.10.4) por dónde se supo que la página pidió esperar, las ventanas de páginas abiertas y
       // una demora antes de escribir cada archivo del armador (para cortar un intento en el medio)
       ultimaDeteccion: () => ultimaDeteccion, ventanasDePaginas: () => [...ventanasDePaginas], demorarGuardado: (ms) => { demoraDeGuardado = +ms || 0; },
-      estadoAvisos: () => estadoAvisos, empaquetado: app.isPackaged, ejecutable: process.execPath })
+      estadoAvisos: () => estadoAvisos, empaquetado: app.isPackaged, ejecutable: process.execPath,
+      // (0.11.0) la galería del sitio
+      galerias })
       .catch((e) => { console.log('FALLA la prueba se cortó: ' + (e.stack || e)); return 1; });
     app.exit(fallas ? 1 : 0);
     return;
@@ -1353,6 +1393,7 @@ app.whenReady().then(async () => {
       (p) => console.log(`Proxy de prueba: lo de ${p.sitio} pasa por ${p.proxy}`),
       (e) => console.log(`No pude usar el proxy de prueba (${proxyPedido()}): ${e.message}. Sigo sin él.`));
   }
-  await abrirUI();
+  // (MR_OCULTA, solo junto con MR_DATOS: las pruebas que abren el programa de verdad no le ponen la ventana en la pantalla a nadie)
+  await abrirUI(!(process.env.MR_DATOS && process.env.MR_OCULTA));
   if (proxyActual) ui.setTitle(`Manga Reader · por el proxy de prueba (${proxyActual.proxy})`);
 });

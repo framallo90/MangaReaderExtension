@@ -49,6 +49,18 @@ contextBridge.exposeInMainWorld('mr', {
   abrirCarpeta: () => pedir('abrir-carpeta'),
   // (entre llaves: no devuelve nada. Lo que devuelve ipcRenderer.on no se puede pasar a la página)
   alCambiarCola: (fn) => { ipcRenderer.on('cola', (_e, cola) => fn(cola)); },
+  // (0.11.0) La galería del sitio: todos los títulos de su listado, con su tapa
+  galeria: {
+    de: (url) => pedir('galeria:de', url),                                  // la guardada del sitio de esa dirección, o null (no recorre nada)
+    marcas: (sitio) => pedir('galeria:marcas', sitio),                      // solo lo que ya tenés de cada título: [[dirección, marca]]
+    recorrer: (pedido) => pedir('galeria:recorrer', pedido),                // { url, tope, modo: 'nueva' | 'refrescar' | 'seguir' }
+    cancelar: () => pedir('galeria:cancelar'),
+    marcar: (pedido) => pedir('galeria:marcar', pedido),                    // { sitio, urls, marcada }
+    buscarNuevo: (sitio) => pedir('galeria:buscar-nuevo', sitio),           // lo nuevo de las series marcadas
+    encolarNuevo: (sitio) => pedir('galeria:encolar-nuevo', sitio),
+    olvidar: (sitio) => pedir('galeria:olvidar', sitio),
+    alAvanzar: (fn) => { ipcRenderer.on('galeria', (_e, evento) => fn(evento)); },
+  },
   // (0.10.4) Se abrió el programa otra vez con el proxy de prueba y esta ventana no lo usa: { proxy, actual }
   alPedirProxy: (fn) => { ipcRenderer.on('aviso-proxy', (_e, d) => fn(d)); },
   reabrirConProxy: () => pedir('reabrir-con-proxy'),
