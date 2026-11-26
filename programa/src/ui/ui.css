@@ -169,6 +169,11 @@ aside .barra button { padding: 6px 9px; font-size: 12px; }
 
 /* ── Guardar: la serie puesta sola, y nombres y sagas ── */
 #serie.auto { border-color: #667eea; color: #c9d4ff; }
+/* Lo que estaba escrito a mano antes de tocar una tapa de la galería: un clic lo vuelve a poner */
+#serieEscrita { align-self: flex-start; max-width: 100%; padding: 2px 10px; font-size: 11px; border-radius: 999px; border-color: #f1c40f; color: #f1c40f; background: none;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#serieEscrita:hover { background: #2b2a1c; }
+#serieEscrita[hidden] { display: none; }
 #nombres { font-size: 12px; color: #8fa6d8; }
 #nombres summary { cursor: pointer; padding: 2px 0; color: #a0c4ff; }
 #nombres[open] { display: flex; flex-direction: column; gap: 7px; }

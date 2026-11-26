@@ -7,15 +7,23 @@
 // marcar una serie, marcar las que se ven, mostrar más tandas, y lo que pasa cada vez que termina
 // una bajada (se ponen al día las marcas de lo que ya tenés).
 //
+// Desde la 0.11.2 comprueba además tres cosas (sale con 1 si alguna no da):
+//   · marcar diez series de a una deja una sola escritura de galerias.json en el disco (se cuentan
+//     las escrituras del programa, mirando su proceso principal por el inspector), y cerrar el
+//     programa enseguida después de marcar otras diez las deja guardadas;
+//   · con 6.000 tarjetas a la vista, "Mostrar 600 más" tarda menos de TOPE_MAS_MS y no toca las
+//     tarjetas que ya estaban (son los mismos nodos antes y después).
+//
 // Uso: node tests/galeria-grande.js [títulos] [carpetas de la colección]
 // Sale con 1 si algo de lo que se hace a mano (escribir, filtrar, marcar) tarda más de TOPE_MS.
 // No es parte de `npm run prueba`: mide tiempos, y con la máquina cargada cambian.
 const fs = require('fs'), os = require('os'), path = require('path');
-require('../scripts/generar.js');                 // (como scripts/abrir.js: generado/ con la última versión de la extensión)
+if (!process.env.EJECUTABLE) require('../scripts/generar.js');   // (como scripts/abrir.js: generado/ con la última versión de la extensión)
 const { iniciar } = require('./sitio');
-const { abrir, conectar, dormir } = require('./ventana');
+const { abrir, conectar, conectarPrincipal, dormir } = require('./ventana');
 
 const TOPE_MS = 1000;
+const TOPE_MAS_MS = 200;          // "Mostrar 600 más" con 6.000 tarjetas a la vista
 const N = Math.max(100, Math.floor(+process.argv[2]) || 33000);
 const CARPETAS = Math.max(0, Math.floor(+process.argv[3] || 1500));
 const TIPOS = ['Manga', 'Manhwa', 'Manhua', 'Novela', 'Doujinshi'];
@@ -32,7 +40,7 @@ const hora = () => new Date().toLocaleTimeString('es-AR', { hour12: false });
   const sitio = await iniciar({ galeria: true });
   const S = sitio.url;
   let programa = null, fallo = false;
-  const lentas = [];
+  const lentas = [], fallas = [];
   try {
     // ── Los datos: la galería guardada, la colección y el registro
     const ahora = new Date().toISOString();
@@ -56,8 +64,17 @@ const hora = () => new Date().toLocaleTimeString('es-AR', { hour12: false });
     console.log(`== La galería con un catálogo grande · ${new Date().toLocaleString('es-AR', { hour12: false })}`);
     console.log(`  ${N} títulos en ${galeria.paginas} páginas (galerias.json: ${(fs.statSync(archivo).size / 1048576).toFixed(1)} MB) · colección: ${hechas} carpetas · registro: ${registro.length} capítulos de 40 series`);
 
-    programa = abrir(datos);
+    programa = abrir(datos, {}, ['--inspect=0']);
     const v = await conectar(await programa.ws);
+    // Las escrituras de galerias.json, contadas en el proceso principal del programa: cada vez que
+    // escribe ese archivo, se anota (la hora y cuánto escribió). No se mira el tamaño del archivo.
+    const principal = await conectarPrincipal(programa);
+    await principal.en(`(() => { const fs = require('fs'), escribir = fs.writeFileSync; globalThis.__escrituras = [];
+      fs.writeFileSync = function (ruta, datos, ...resto) { if (/galerias\\.json$/.test(String(ruta))) globalThis.__escrituras.push({ hora: Date.now(), bytes: Buffer.byteLength(datos) }); return escribir.call(this, ruta, datos, ...resto); };
+      return true; })()`);
+    const escrituras = () => principal.en(`globalThis.__escrituras`);
+    const mb = (bytes) => (bytes / 1048576).toFixed(1) + ' MB';
+    const comprobar = (que, da, detalle) => { if (!da) fallas.push(que + (detalle ? ` (${detalle})` : '')); console.log(`           ${da ? 'OK   ' : 'FALLA'} ${que}${detalle ? ' → ' + detalle : ''}`); };
     // Evalúa una acción en la ventana y mide cuánto tarda, con el dibujo incluido. `aMano`: es algo
     // que se hace con el mouse o el teclado, y tiene que contestar enseguida.
     const medir = async (que, expr, aMano = false) => {
@@ -98,21 +115,55 @@ const hora = () => new Date().toLocaleTimeString('es-AR', { hour12: false });
     await medir('"Marcar las que se ven" con "sombra del norte" escrito', `marcarEnGaleria(galVisibles().map(t => t.url), true).then(() => document.querySelector('#galMarcadasCuenta').textContent)`, true);
     await v.en(escribir(''));
     await medir('"Desmarcar todas"', `marcarEnGaleria(gal.titulos.filter(t => t.marcada).map(t => t.url), false).then(() => document.querySelector('#galMarcadasCuenta').textContent)`, true);
-    console.log(`           galerias.json después de marcar: ${(fs.statSync(archivo).size / 1048576).toFixed(1)} MB`);
+    console.log(`           galerias.json después de marcar: ${mb(fs.statSync(archivo).size)}`);
 
-    for (const k of [1, 2, 3, 4, 5, 6, 7, 8, 9]) {
-      const r = await medir(`"Mostrar 600 más" (${k})`, `(() => { const m = document.querySelector('#galLista .gal-mas'); if (!m) return 'sin botón'; m.click(); return ${cuenta}; })()`, true);
+    // Diez series marcadas de a una, como con el mouse: cuántas veces escribe el programa galerias.json
+    await dormir(2500);                              // (lo que quedara por escribir de las marcas de recién)
+    const antesDeLasDiez = (await escrituras()).length;
+    for (let k = 10; k < 20; k++) { await v.en(`marcarEnGaleria([gal.titulos[${k}].url], true)`); await dormir(80); }
+    const mientras = (await escrituras()).length - antesDeLasDiez;
+    await dormir(3000);
+    const deLasDiez = (await escrituras()).slice(antesDeLasDiez);
+    comprobar('marcar diez series de a una deja una sola escritura de galerias.json', deLasDiez.length === 1,
+      `${mientras} mientras se marcaba, ${deLasDiez.length} en total a los 3 s: ${mb(deLasDiez.reduce((n, e) => n + e.bytes, 0))} escritos`);
+    const enDisco = () => JSON.parse(fs.readFileSync(archivo, 'utf8'))[S].titulos.map((t, k) => (t.marcada ? k : -1)).filter(k => k >= 0);
+    comprobar('  y las diez quedaron en el disco', enDisco().join(',') === '10,11,12,13,14,15,16,17,18,19', `marcadas en galerias.json: ${enDisco().length}`);
+
+    // "Mostrar 600 más": las tarjetas que ya estaban tienen que ser los mismos nodos, no otros iguales
+    for (let k = 1; k <= 10; k++) {
+      const habia = await v.en(`(window.__antes = [...document.querySelectorAll('#galLista .gal-tarjeta')]).length`);
+      const r = await medir(`"Mostrar 600 más" (${k}), con ${habia} a la vista`, `(() => { const m = document.querySelector('#galLista .gal-mas'); if (!m) return 'sin botón'; m.click(); return ${cuenta}; })()`, true);
       if (r.r === 'sin botón') break;
+      const mismos = await v.en(`(() => { const ahora = [...document.querySelectorAll('#galLista .gal-tarjeta')], antes = window.__antes; window.__antes = null;
+        return { iguales: antes.filter((n, i) => n === ahora[i]).length, habia: antes.length, hay: ahora.length }; })()`);
+      comprobar(`  las ${mismos.habia} tarjetas que ya estaban son los mismos nodos, y se agregaron 600 al final`, mismos.iguales === mismos.habia && mismos.hay === mismos.habia + 600,
+        `${mismos.iguales} de ${mismos.habia} iguales · ahora hay ${mismos.hay}`);
+      if (habia >= 6000) comprobar(`  con ${habia} a la vista tarda menos de ${TOPE_MAS_MS} ms`, r.ms < TOPE_MAS_MS, `${r.ms} ms`);
     }
+    const aLaVista = await v.en(`document.querySelectorAll('#galLista .gal-tarjeta').length`);
+    await medir(`marcar una serie con ${aLaVista} tarjetas a la vista`, `marcarEnGaleria([gal.titulos[40].url], true).then(() => document.querySelector('#galMarcadasCuenta').textContent)`, true);
+    await medir(`  y desmarcarla`, `marcarEnGaleria([gal.titulos[40].url], false).then(() => document.querySelector('#galMarcadasCuenta').textContent)`, true);
     await medir('escribir "torre" con 6.000 tarjetas a la vista', escribir('torre'), true);
     await medir('borrar lo escrito', escribir(''), true);
     await medir('ponerse al día cuando termina una bajada (las marcas de lo que ya tenés)', `refrescarGaleria().then(() => document.querySelectorAll('#galLista .gal-marca.tengo').length + ' marcas a la vista')`);
     await medir('"Volver a la galería" (después de entrar a un título)', `volverALaGaleria().then(() => ${cuenta})`, true);
-    const mb = await v.en(`performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null`);
-    console.log(`           memoria de la ventana: ${mb === null ? 'no se pudo leer' : mb + ' MB'}`);
+    console.log(`           memoria de la ventana: ${mb(await v.memoria())}`);
+
+    // Cerrar el programa enseguida después de marcar: lo marcado tiene que quedar guardado
+    await v.en(`document.querySelector('#galBuscar').value = ''; galTanda = 600; dibujarGaleria(); true`);
+    const antesDeCerrar = (await escrituras()).length;
+    for (let k = 20; k < 30; k++) await v.en(`marcarEnGaleria([gal.titulos[${k}].url], true)`);
+    const sinEscribir = (await escrituras()).length - antesDeCerrar;
+    await principal.cerrar();                           // (con el inspector conectado, el proceso espera a que se desconecte para terminar de salir)
+    const t0 = Date.now();
+    await v.en(`window.close()`).catch(() => {});       // (cerrar la ventana cierra el programa)
+    const salio = await Promise.race([programa.salio.then(() => true), dormir(15000).then(() => false)]);
+    comprobar('cerrar el programa enseguida después de marcar otras diez: quedan guardadas', salio && enDisco().join(',') === Array.from({ length: 20 }, (_, k) => k + 10).join(','),
+      `${salio ? `el programa salió a los ${Date.now() - t0} ms` : 'el programa no salió'} · al cerrar había ${sinEscribir} ${sinEscribir === 1 ? 'escritura' : 'escrituras'} de esas diez · marcadas en galerias.json: ${enDisco().length}`);
     v.cerrar();
     if (lentas.length) { fallo = true; console.log(`\nTardó más de ${TOPE_MS} ms algo que se hace a mano:\n  ` + lentas.join('\n  ')); }
     else console.log(`\nTodo lo que se hace a mano contestó en menos de ${TOPE_MS} ms.`);
+    if (fallas.length) { fallo = true; console.log(`\nNo dio:\n  ` + fallas.join('\n  ')); }
   } catch (e) {
     fallo = true;
     console.log('FALLA: ' + (e.stack || e));

@@ -8,8 +8,8 @@ const { crearGalerias, claveDe, padreDe, queEs, tipoDe, idiomaDe } = require('..
 
 // Un sitio de mentira: `paginas` son las del listado, con los nombres de sus títulos. Devuelve lo
 // que la galería necesita para abrir una página (lo mismo que le da main.js), contando los pedidos.
-function sitioDeMentira(paginas, { colgarEn = 0 } = {}) {
-  const S = 'https://sitio.example', pedidos = [];
+function sitioDeMentira(paginas, { colgarEn = 0, S = 'https://sitio.example' } = {}) {
+  const pedidos = [];
   const colgada = new Promise(() => {});          // (una página que no contesta nunca: el programa "se cierra" esperándola)
   const dir = (n) => `${S}/lista/${n > 1 ? '?p=' + n : ''}`;
   const explorar = (url) => {
@@ -55,6 +55,7 @@ async function probarGaleria(eq) {
     const r1 = await a.recorrer({ url: s.dir(1) });
     const marcadas = a.marcar({ sitio: s.S, urls: [`${s.S}/lista/bea`, `${s.S}/lista/no-esta/`], marcada: true });        // (sin la barra final: es la misma dirección)
     eq('marcar devuelve las direcciones de las series que quedaron marcadas (como están en la galería), no la galería entera', marcadas.join(', ').split(s.S).join(''), '/lista/bea/');
+    a.alSalir();                                    // (se cierra el programa: desde la 0.11.2 las marcas se escriben un rato después, o al salir)
     const b = crearGalerias({ ...s.deps, PRUEBA: false, archivo: () => archivo });
     b.leer();
     const leida = b.de(s.S + '/cualquier/pagina');
@@ -138,6 +139,85 @@ async function probarGaleria(eq) {
     eq('  si se cierra la ventana en medio del recorrido, se guarda lo juntado hasta ahí (las 7 páginas leídas)',
       (({ estado, motivo, titulos, paginas, sePuedeSeguir }) => `${estado} (${motivo}) · ${titulos.length} títulos · ${paginas} páginas · se puede seguir: ${sePuedeSeguir}`)(f.de(sano.S)),
       'incompleta (el programa se cerró en medio del recorrido) · 14 títulos · 7 páginas · se puede seguir: true');
+
+    // (0.11.2) Las marcas se guardan juntas: una sola escritura, un rato después de la última. Se
+    // cuentan las veces que se escribe el archivo de las galerías (no su tamaño): mientras dura esta
+    // parte, cada fs.writeFileSync sobre ese archivo queda anotado.
+    const escrituras = [], escribirDeVerdad = fs.writeFileSync;
+    fs.writeFileSync = function (ruta, ...resto) { if (ruta === archivo) escrituras.push(Date.now()); return escribirDeVerdad.call(this, ruta, ...resto); };
+    try {
+      const pausa = (ms) => new Promise(r => setTimeout(r, ms));
+      const M = 'https://marcas.example';
+      const veinte = sitioDeMentira([Array.from({ length: 24 }, (_, k) => `S${k + 1}`)], { S: M });
+      const deS = (k) => `${M}/lista/s${k}/`;
+      const enElDisco = (sitio = M) => { try { return JSON.parse(fs.readFileSync(archivo, 'utf8'))[sitio].titulos.filter(t => t.marcada).map(t => t.nombre).join(',') || 'ninguna'; } catch { return 'sin archivo'; } };
+      const m = crearGalerias({ ...veinte.deps, PRUEBA: false, archivo: () => archivo });
+      await m.recorrer({ url: veinte.dir(1) });
+      escrituras.length = 0;
+      let ultima = 0;
+      for (let k = 1; k <= 10; k++) { m.marcar({ sitio: M, urls: [deS(k)], marcada: true }); ultima = Date.now(); await pausa(40); }
+      const mientras = `${escrituras.length} (en el disco: ${enElDisco()})`;
+      for (const fin = Date.now() + 6000; Date.now() < fin && !escrituras.length;) await pausa(20);
+      const tardo = escrituras[0] - ultima;
+      await pausa(400);                                 // (por si viniera otra)
+      eq('marcar diez series seguidas, de a una: mientras se marca no se escribe nada, y queda una sola escritura en el disco, un segundo y medio después de la última marca',
+        `mientras se marcaba: ${mientras} · después: ${escrituras.length} · ${tardo >= 1400 && tardo < 3500 ? 'a 1,5 s de la última marca' : 'a los ' + tardo + ' ms'} · en el disco: ${enElDisco()}`,
+        'mientras se marcaba: 0 (en el disco: ninguna) · después: 1 · a 1,5 s de la última marca · en el disco: S1,S2,S3,S4,S5,S6,S7,S8,S9,S10');
+      // Cerrar el programa enseguida después de marcar: se escribe en ese momento, y no otra vez después
+      escrituras.length = 0;
+      for (let k = 11; k <= 20; k++) m.marcar({ sitio: M, urls: [deS(k)], marcada: true });
+      const antesDeSalir = escrituras.length;
+      m.alSalir();
+      const alSalir = `${escrituras.length} (en el disco: ${enElDisco().split(',').length} marcadas)`;
+      await pausa(1900);
+      const otraVez = crearGalerias({ ...veinte.deps, PRUEBA: false, archivo: () => archivo });
+      otraVez.leer();
+      eq('  al cerrar el programa enseguida después de marcar otras diez, se escriben en ese momento (una escritura, y ninguna más después): al abrirlo de nuevo están las veinte',
+        `antes de salir: ${antesDeSalir} · al salir: ${alSalir} · 1,9 s después: ${escrituras.length} · al abrir de nuevo: ${otraVez.de(M).titulos.filter(t => t.marcada).length} marcadas de ${otraVez.de(M).titulos.length}`,
+        'antes de salir: 0 · al salir: 1 (en el disco: 20 marcadas) · 1,9 s después: 1 · al abrir de nuevo: 20 marcadas de 24');
+
+      // Al empezar un recorrido: lo que esperaba se escribe antes de pedir la primera página
+      // (guardarTras: 5 s, para que acá no se escriba solo; el refresco queda colgado en su primera página)
+      let colgar = false;
+      const n = crearGalerias({ ...veinte.deps, PRUEBA: false, archivo: () => archivo, guardarTras: 5000,
+        abrirPagina: async (url) => { if (colgar) await new Promise(() => {}); return veinte.deps.abrirPagina(url); } });
+      await n.recorrer({ url: veinte.dir(1) });
+      escrituras.length = 0;
+      n.marcar({ sitio: M, urls: [deS(3)], marcada: true });
+      const antesDeRecorrer = `${escrituras.length} (en el disco: ${enElDisco()})`;
+      colgar = true;
+      const pedidosAntes = veinte.pedidos.length;
+      n.recorrer({ url: veinte.dir(1), modo: 'refrescar' });             // (no termina)
+      eq('  al empezar un recorrido se escribe lo que esperaba, antes de pedirle nada al sitio',
+        `antes: ${antesDeRecorrer} · al empezar: ${escrituras.length} (en el disco: ${enElDisco()}) · páginas pedidas: ${veinte.pedidos.length - pedidosAntes}`,
+        'antes: 0 (en el disco: ninguna) · al empezar: 1 (en el disco: S3) · páginas pedidas: 0');
+      n.alSalir();
+
+      // Al pasar a otro sitio: abrir la galería de otro, o marcar en otro, escribe lo que esperaba del anterior
+      const A = sitioDeMentira([['Ana', 'Bea', 'Cora']], { S: 'https://uno.example' }), B = sitioDeMentira([['Dana', 'Eva', 'Fina']], { S: 'https://dos.example' });
+      const deCual = (url) => (url.startsWith(A.S) ? A : B).deps;
+      const p = crearGalerias({ ...A.deps, PRUEBA: false, archivo: () => archivo, guardarTras: 5000,
+        abrirPagina: (url) => deCual(url).abrirPagina(url), pedir: (win, ...resto) => deCual(win.url).pedir(win, ...resto) });
+      await p.recorrer({ url: A.dir(1) });
+      await p.recorrer({ url: B.dir(1) });
+      escrituras.length = 0;
+      p.marcar({ sitio: A.S, urls: [`${A.S}/lista/bea/`], marcada: true });
+      const pasos = [`marcar en uno: ${escrituras.length}`];
+      p.de(A.S + '/lista/');
+      pasos.push(`volver a abrir su galería: ${escrituras.length}`);
+      p.de(B.S + '/lista/');
+      pasos.push(`abrir la del otro sitio: ${escrituras.length} (en el disco: ${enElDisco(A.S)})`);
+      p.marcar({ sitio: B.S, urls: [`${B.S}/lista/eva/`], marcada: true });
+      pasos.push(`marcar en el otro: ${escrituras.length}`);
+      p.marcar({ sitio: A.S, urls: [`${A.S}/lista/cora/`], marcada: true });
+      pasos.push(`marcar de nuevo en el primero: ${escrituras.length} (en el disco: ${enElDisco(B.S)})`);
+      p.alSalir();
+      pasos.push(`al salir: ${escrituras.length} (en el disco: ${enElDisco(A.S)} y ${enElDisco(B.S)})`);
+      eq('  al pasar a otro sitio (abrir su galería, o marcar en él) se escribe lo que esperaba del anterior', pasos.join(' · '),
+        'marcar en uno: 0 · volver a abrir su galería: 0 · abrir la del otro sitio: 1 (en el disco: Bea) · marcar en el otro: 1 · marcar de nuevo en el primero: 2 (en el disco: Eva) · al salir: 3 (en el disco: Bea,Cora y Eva)');
+    } finally {
+      fs.writeFileSync = escribirDeVerdad;
+    }
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

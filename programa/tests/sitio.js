@@ -312,12 +312,37 @@ const mixtoG = (n) => pagina('Sitio de galería – Mixto' + (n > 1 ? ` (página
 <div class="grilla">${MIXTO[n - 1].map(tarjetaMixta).join('')}</div>
 <aside><h3>Grupos</h3>${['Norte', 'Sur', 'Este'].map(x => `<a href="/grupo/${slugDe(x)}/" style="display:inline-block;margin:4px"><img src="/t/grupo-${slugDe(x)}.png" width="90" height="135" alt=""><b>Grupo ${x}</b></a>`).join('')}</aside>
 <p>${n < MIXTO.length ? `<a href="/mixto/?p=${n + 1}">Siguiente</a>` : `<a href="/mixto/?p=${n - 1}">Anterior</a>`}</p>`);
+// (0.11.2) Un catálogo largo, para una corrida larga de la galería: con iniciar({ galeria: true,
+// catalogo: { paginas, porPagina } }) el sitio tiene además /catalogo/ (y /catalogo/?p=N), con
+// "Siguiente" y `porPagina` tarjetas por página, todas distintas. Los nombres y las direcciones no
+// llevan números (un código corto en la dirección puede pasar por número de capítulo).
+const CAT_A = ['Luna', 'Sombra', 'Reino', 'Espada', 'Torre', 'Dragón', 'Sendero', 'Jardín', 'Invierno', 'Cazador', 'Maestro', 'Princesa', 'Academia', 'Crónica', 'Leyenda', 'Guardián', 'Bosque', 'Ciudad', 'Héroe', 'Villana'];
+const CAT_B = ['Roja', 'del Norte', 'Eterno', 'de Hierro', 'Perdida', 'Carmesí', 'sin Nombre', 'de Cristal', 'Final', 'del Alba', 'Oscuro', 'Dorada', 'Errante', 'Silencioso', 'del Abismo', 'Blanca', 'Dormida'];
+const CAT_C = ['y el Mar', 'y la Niebla', 'en Llamas', 'de Otoño', 'del Ocaso', 'y el Viento', 'de Ceniza', 'bajo la Lluvia', 'del Desierto', 'y la Escarcha', 'de Medianoche', 'en Silencio'];
+const LETRAS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+// El nombre del título número i (desde 0): distinto para cada uno (pasados los 4.080, con una letra al final)
+function nombreDeCatalogo(i) {
+  const vuelta = Math.floor(i / (CAT_A.length * CAT_B.length * CAT_C.length));
+  return `${CAT_A[i % CAT_A.length]} ${CAT_B[Math.floor(i / CAT_A.length) % CAT_B.length]} ${CAT_C[Math.floor(i / (CAT_A.length * CAT_B.length)) % CAT_C.length]}` +
+    (vuelta ? ' ' + [...String(vuelta)].map(c => LETRAS[+c]).join('') : '');
+}
+const titulosDeCatalogo = ({ paginas, porPagina }) => Array.from({ length: paginas * porPagina }, (_, i) => nombreDeCatalogo(i));
+function catalogoG(n, { paginas, porPagina }) {
+  const tarjetas = Array.from({ length: porPagina }, (_, k) => {
+    const i = (n - 1) * porPagina + k, nombre = nombreDeCatalogo(i), slug = slugDe(nombre);
+    const datos = k % 3 === 0 ? '<span>Manga</span> <span>Español</span>' : k % 3 === 1 ? '<span>Manhwa</span> <span>Inglés</span>' : '';
+    return `<a href="/catalogo/${slug}/" style="display:inline-block;width:130px;margin:4px;vertical-align:top"><img src="/t/${slug}.png" width="120" height="180" alt=""><h3 style="margin:2px 0">${nombre}</h3>${datos}</a>`;
+  }).join('');
+  const paso = (n > 1 ? `<a href="/catalogo/${n > 2 ? '?p=' + (n - 1) : ''}">Anterior</a> ` : '') + (n < paginas ? `<a href="/catalogo/?p=${n + 1}">Siguiente</a>` : '');
+  return pagina('Sitio de galería – Catálogo' + (n > 1 ? ` (página ${n})` : ''), `${menuGaleria}<h1>Catálogo</h1><div>${tarjetas}</div><p>${paso}</p>`);
+}
 const nombresG = (listado) => [...(LISTADOS[listado].destacados || []), ...LISTADOS[listado].paginas.flat()];
 const serieG = (base, nombre) => pagina(`${nombre} – capítulos | Sitio de galería`, `${menuGaleria}<h1>${nombre}</h1><a href="${base}1/">Capítulo 1</a> <a href="${base}2/">Capítulo 2</a>`);
 const capituloG = (nombre, n) => pagina(`${nombre} Capítulo ${n} | Sitio de galería`, menuGaleria + imagenes(`g/${slugDe(nombre)}/${n}`, false));
 
-function iniciar({ tapas = false, galeria = false } = {}) {
+function iniciar({ tapas = false, galeria = false, catalogo = null } = {}) {
   const pedidos = { sinReferer: 0, capitulos: {}, portada: 0, horas: {} };
+  const delCatalogo = catalogo ? new Map(titulosDeCatalogo(catalogo).map(n => [slugDe(n), n])) : null;     // dirección → nombre
   const ocultos = new Set();          // (galería) los títulos que el sitio deja de mostrar
   // (0.10.4) Lo que una prueba puede retener: mientras `lento.pagina` es true, la página de
   // /leer/lento-1/ no contesta; mientras `lento.armador` es true, las imágenes de /leer/lento-2/ no
@@ -374,6 +399,21 @@ function iniciar({ tapas = false, galeria = false } = {}) {
         const suyo = [...MIXTO_DESTACADOS, ...MIXTO.flat()].find(([tipo, x]) => tipo === g[1] && slugDe(x) === g[2]);
         if (!suyo) return no();
         return g[3] ? html(capituloG(suyo[1], g[3])) : html(serieG(u, suyo[1]));
+      }
+      // El catálogo largo (si se pidió), sus series y sus capítulos
+      if (catalogo && u === '/catalogo/') {
+        const n = +(new URLSearchParams(consulta).get('p') || 1);
+        if (!(n >= 1 && n <= catalogo.paginas)) return no();
+        const clave = `catalogo ${n}`;
+        (pedidos.listados = pedidos.listados || []).push(clave);
+        (pedidos.horas[clave] = pedidos.horas[clave] || []).push(Date.now());
+        return html(catalogoG(n, catalogo));
+      }
+      g = catalogo && u.match(/^\/catalogo\/([\w-]+)\/(?:([12])\/)?$/);
+      if (g) {
+        const suyo = delCatalogo.get(g[1]);
+        if (!suyo) return no();
+        return g[2] ? html(capituloG(suyo, g[2])) : html(serieG(u, suyo));
       }
       if (u === '/suelta/') return html(serieG('/suelta/', 'Suelta'));
       g = u.match(/^\/suelta\/([12])\/$/);
@@ -525,4 +565,4 @@ function iniciar({ tapas = false, galeria = false } = {}) {
   })));
 }
 
-module.exports = { iniciar };
+module.exports = { iniciar, titulosDeCatalogo };

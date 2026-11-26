@@ -42,6 +42,25 @@ function apretar(texto, segundos = 15) {
   return { mirando, fin };
 }
 
+// Espera a que no quede en pantalla ningún aviso del programa con el botón `texto`. Un aviso que
+// ya se apretó (o se limpió) tarda un momento en irse; si el que aprieta el siguiente arranca antes,
+// lo encuentra a él, y cuando lo va a apretar ya no está. Pasó el 26-11-2026 sobre el programa
+// instalado: "Limpiar terminados" encontró el aviso anterior a los 2,8 s de apretado, y dio "no se
+// pudo apretar" (código 2) sin que el aviso que le tocaba hubiera salido todavía. Mira con el mismo
+// script, sin apretar nada (-Explorar), hasta que no lo encuentra. Devuelve cuánto esperó, en ms.
+async function sinAvisoEnPantalla(texto, hastaMs = 20000) {
+  const t0 = Date.now();
+  for (;;) {
+    const codigo = await new Promise((resolve) => {
+      const ps = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'clic-aviso.ps1'),
+        '-Texto', texto, '-Titulo', 'Manga Reader: terminó la cola', '-Segundos', '1', '-Explorar'], { windowsHide: true, stdio: 'ignore' });
+      ps.on('close', resolve);
+      ps.on('error', () => resolve(-1));
+    });
+    if (codigo !== 0 || Date.now() - t0 > hastaMs) return Date.now() - t0;      // (0: lo encontró, sigue en pantalla)
+  }
+}
+
 // Saca del centro de notificaciones (y de la pantalla) los avisos del programa: si quedara uno de
 // una corrida anterior, el clic le podría llegar a ese, que es de un proceso que ya no está
 const limpiarAvisos = () => {
@@ -86,9 +105,10 @@ module.exports = async function probar(api) {
     const tocar = (texto, segundos = 40) => {
       const a = apretar(texto, segundos);
       const fin = a.fin.then((r) => {
-        const lineas = r.salida.split(/\r?\n/).filter(l => /OK:|NO APARECIÓ|NO SE PUDO|encontr/i.test(l));
+        const lineas = r.salida.split(/\r?\n/).filter(l => /OK:|NO APARECIÓ|NO SE PUDO|ERROR|falló|encontr/i.test(l));
         console.log(`      (${hora()}: código ${r.codigo}${lineas.length ? ' · ' + lineas.slice(-2).join(' · ') : ''})`);
         if (r.codigo === 0) return 'apretado';
+        if (r.codigo === 1 && /NO APARECIÓ EN PANTALLA/.test(r.salida)) return 'el aviso existe pero Windows no lo mostró en pantalla (¿la pantalla está apagada, o está puesto No molestar?)';
         if (r.codigo === 1) return 'el aviso no apareció en pantalla';
         return `no se pudo apretar (código ${r.codigo})`;
       });
@@ -113,9 +133,11 @@ module.exports = async function probar(api) {
     eq('el primer aviso de fin de cola sale en pantalla y se aprieta al primer intento, sin volver a mostrarlo', tocado1, 'apretado');
     if (api.estadoAvisos) console.log(`      (lo que hizo al arrancar, ya terminado: ${api.estadoAvisos()})`);
     await dormir(500);
-    // (el primer aviso ya se usó: se saca, y el que aprieta el botón del siguiente lo espera desde
-    // ahora: sale cuando termina el reintento, al minuto)
+    // (el primer aviso ya se usó: se saca, se espera a que se haya ido de la pantalla —también tiene
+    // un botón "Limpiar terminados"— y el que aprieta el botón del siguiente lo espera desde ahora:
+    // sale cuando termina el reintento, al minuto)
     limpiarAvisos();
+    console.log(`      (el aviso anterior se fue de la pantalla a los ${((await sinAvisoEnPantalla('Limpiar terminados')) / 1000).toFixed(1)} s de limpiarlo)`);
     const clic2 = tocar('Limpiar terminados', 110);
     const fin1 = estados(await api.colaVacia(120000));
     const h = sitio.pedidos.horas['/leer/ocupado-1/'] || [];
@@ -134,6 +156,7 @@ module.exports = async function probar(api) {
       `${tocado2.startsWith('apretado')} · ${api.verCola().length} · ${await ui.webContents.executeJavaScript(`document.querySelector('#cola').textContent`)}`, 'true · 0 · Todavía no hay nada en la cola.');
 
     limpiarAvisos();
+    console.log(`      (el aviso anterior se fue de la pantalla a los ${((await sinAvisoEnPantalla('Abrir carpeta')) / 1000).toFixed(1)} s de limpiarlo)`);
     // 3) Abrir carpeta: otro capítulo, y el aviso de su final
     const antes = explorador(tmp, false);
     const clic3 = tocar('Abrir carpeta');

@@ -16,6 +16,7 @@ const TOPE_MAX = 5000;        // hasta dónde se puede subir (un catálogo grand
 const PASOS_PARA_SUBIR = 8;
 const SIN_NUEVOS_PARA_CORTAR = 2; // páginas seguidas sin ningún título nuevo: se terminó (o da vueltas)
 const GUARDAR_CADA = 5;           // cada cuántas páginas se guarda en el disco lo juntado (un catálogo grande son horas)
+const GUARDAR_TRAS = 1500;        // (0.11.2) las marcas se guardan juntas: una sola escritura, pasado este rato desde la última marca
 
 // La dirección de un título, para no repetirlo: sin la barra final y sin el #
 function claveDe(url) {
@@ -66,6 +67,7 @@ function queEs(r) {
 
 // d: lo que pone main.js
 //   archivo()                 dónde se guardan las galerías · PRUEBA: en las pruebas no se lee ni se escribe
+//   guardarTras               (solo para probar) cuánto se espera para guardar las marcas, si no es GUARDAR_TRAS
 //   abrirPagina(url, alCrear), pedir(win, pedido, args, ms)   las páginas, como las abre Analizar
 //   espera(ms), pausa         la pausa entre una página y la siguiente (la de la cola)
 //   falta(url) → ms           cuánto le falta al freno de ese sitio · frenar(url, esperar): anotarlo
@@ -84,10 +86,24 @@ function crearGalerias(d) {
     // había guardado hasta ahí, y se puede seguir desde esa página
     for (const g of Object.values(galerias)) if (g.estado === 'recorriendo') { g.estado = 'incompleta'; g.motivo = 'el programa se cerró en medio del recorrido'; }
   }
+  let porGuardar = null;          // { sitio, reloj }: hay marcas de ese sitio que todavía no se escribieron en el disco
+  // Escribe el archivo entero (todas las galerías): con eso queda guardado también lo que estuviera esperando
   function escribir() {
+    if (porGuardar) { clearTimeout(porGuardar.reloj); porGuardar = null; }
     if (d.PRUEBA) return;
     try { fs.writeFileSync(d.archivo(), JSON.stringify(galerias)); } catch {}
   }
+  // Las marcas no se escriben de a una (0.11.2): el archivo es la galería entera de cada sitio (10,8 MB
+  // con 33.000 títulos), y marcar cinco series de a una eran 54 MB de escritura. Se escribe una sola
+  // vez, pasado GUARDAR_TRAS desde la última marca. Y antes, cuando esperar puede perder algo: al
+  // cerrar el programa (alSalir), al empezar un recorrido y al pasar a otro sitio (guardarLoPendiente).
+  function escribirLuego(sitio) {
+    if (d.PRUEBA) return;
+    if (porGuardar) clearTimeout(porGuardar.reloj);
+    porGuardar = { sitio, reloj: setTimeout(escribir, d.guardarTras ?? GUARDAR_TRAS) };
+  }
+  // Escribe ya lo que esté esperando. Con `salvoDe`, solo si es de otro sitio (se cambió de sitio)
+  function guardarLoPendiente(salvoDe = '') { if (porGuardar && porGuardar.sitio !== salvoDe) escribir(); }
   const deSitio = (url) => galerias[sitioDeUrl(url)] || null;
   const guardada = (sitio) => { const g = galerias[sitio]; if (!g) throw new Error('No hay una galería guardada de ese sitio'); return g; };
 
@@ -104,6 +120,7 @@ function crearGalerias(d) {
   // Solo lo que ya tenés de cada título (para ponerlo al día cuando termina de bajar un capítulo, sin
   // mandar la galería entera): [[dirección, marca]] de los que tienen alguna
   function marcas(sitio) {
+    guardarLoPendiente(sitio);
     const g = guardada(sitio);
     const mios = d.revisarTitulos({ nombres: g.titulos.map(t => t.nombre) });
     return g.titulos.map((t, k) => [t.url, mios[k] || null]).filter(([, m]) => m);
@@ -259,6 +276,7 @@ function crearGalerias(d) {
   async function recorrer({ url, tope, modo = 'nueva' } = {}) {
     if (corrida || buscando) throw new Error('Ya hay un recorrido o una búsqueda en curso');
     if (!/^https?:\/\//i.test(url || '')) throw new Error('La dirección tiene que empezar con http:// o https://');
+    guardarLoPendiente();                           // (las marcas que estuvieran esperando: un recorrido puede durar horas)
     tope = Math.min(Math.max(1, Math.floor(+tope) || TOPE_DEFECTO), TOPE_MAX);
     const c = corrida = { sitio: sitioDeUrl(url), cancelada: false, win: null, avance: () => {} };
     let g = modo === 'nueva' ? null : deSitio(url);
@@ -348,14 +366,15 @@ function crearGalerias(d) {
     }
   }
 
-  // Al cerrarse el programa con un recorrido en curso: queda guardado lo juntado, como incompleta
+  // Al cerrarse el programa: con un recorrido en curso, queda guardado lo juntado, como incompleta; y
+  // sin recorrido, las marcas que todavía no se habían escrito
   function alSalir() {
     const g = corrida && galerias[corrida.sitio];
-    if (!g || g.estado !== 'recorriendo') return;
+    if (!g || g.estado !== 'recorriendo') return guardarLoPendiente();
     g.estado = 'incompleta';
     g.motivo = 'el programa se cerró en medio del recorrido';
     g.fecha = new Date().toISOString();
-    escribir();
+    escribir();                                     // (el archivo entero: también las marcas que faltaban)
   }
 
   // Cancela el recorrido en curso: cierra la página que esté abierta y deja lo juntado
@@ -368,19 +387,22 @@ function crearGalerias(d) {
 
   // Marca o desmarca series. Devuelve las direcciones de las que quedaron así, y la interfaz las cambia
   // en la galería que ya tiene: devolverla entera (con lo que ya tenés de cada título vuelto a mirar)
-  // hacía tardar cada casilla 0,7 s en una galería de 33.000 títulos
+  // hacía tardar cada casilla 0,7 s en una galería de 33.000 títulos. Al disco no va enseguida: las
+  // marcas se guardan juntas (escribirLuego)
   function marcar({ sitio, urls, marcada } = {}) {
+    guardarLoPendiente(sitio);
     const g = guardada(sitio);
     const claves = new Set((Array.isArray(urls) ? urls : []).map(claveDe));
     const hechas = [];
     for (const t of g.titulos) if (claves.has(claveDe(t.url))) { t.marcada = !!marcada; hechas.push(t.url); }
-    escribir();
+    if (hechas.length) escribirLuego(g.sitio);
     return hechas;
   }
 
   // "Buscar lo nuevo" de las series marcadas: abre la página de cada una, de a una, con la pausa y el
   // freno de siempre, y anota qué capítulos hay que no tenés (los posteriores al último que tenés).
   async function buscarNuevo(sitio) {
+    guardarLoPendiente(sitio);
     const g = guardada(sitio);
     if (buscando || corrida) throw new Error('Ya hay un recorrido o una búsqueda en curso');
     const marcadas = g.titulos.filter(t => t.marcada);
@@ -412,6 +434,7 @@ function crearGalerias(d) {
   }
   // Pone en la cola lo nuevo de todas las marcadas, cada una con su serie: la cola y el freno de siempre
   function encolarNuevo(sitio) {
+    guardarLoPendiente(sitio);
     const g = guardada(sitio);
     let encolados = 0, series = 0;
     for (const t of g.titulos) {
@@ -434,7 +457,13 @@ function crearGalerias(d) {
     return true;
   }
 
-  return { leer, alSalir, de: (url) => publica(deSitio(url)), marcas, recorrer, cancelar, marcar, buscarNuevo, encolarNuevo, olvidar,
+  // La galería guardada del sitio de una dirección (al pedir la de otro sitio, se guarda lo que esperaba del anterior)
+  function de(url) {
+    guardarLoPendiente(sitioDeUrl(url));
+    return publica(deSitio(url));
+  }
+
+  return { leer, alSalir, de, marcas, recorrer, cancelar, marcar, buscarNuevo, encolarNuevo, olvidar,
     enCurso: () => (corrida ? corrida.sitio : ''),
     // Las galerías guardadas, sin sus títulos (para decir cuáles hay)
     lista: () => Object.values(galerias).map(g => ({ sitio: g.sitio, inicio: g.inicio, fecha: g.fecha, titulos: g.titulos.length, estado: g.estado })) };

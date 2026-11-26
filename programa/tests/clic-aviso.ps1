@@ -251,16 +251,26 @@ try {
 
   Write-Linea "Busco el aviso '$Titulo' con el botón '$Texto' (hasta $Segundos s, método $Metodo)"
   $limite = (Get-Date).AddSeconds($Segundos)
-  $res = $null; $vueltas = 0
+  $res = $null; $vueltas = 0; $sinLugar = 0
   do {
     $vueltas++
     $res = Find-Aviso
-    if ($res.boton) { break }
+    if ($res.boton) {
+      # Un aviso que está en el árbol pero sin lugar en la pantalla (rectángulo vacío) no apareció:
+      # Windows lo mandó al centro de notificaciones sin mostrarlo. Pasa con la pantalla apagada
+      # (26-11-2026: nadie tocaba la máquina hacía una hora y media) o con "No molestar".
+      $vacio = $true
+      try { $vacio = $res.boton.Current.BoundingRectangle.IsEmpty } catch { }
+      if (-not $vacio) { break }
+      $sinLugar++
+      $res = @{ candidatas = $res.candidatas }
+    }
     Start-Sleep -Milliseconds 300
   } while ((Get-Date) -lt $limite)
 
   if (-not $res.boton) {
     Write-Linea "NO APARECIÓ el aviso con el botón '$Texto' en $Segundos s ($vueltas vueltas)."
+    if ($sinLugar) { Write-Linea "NO APARECIÓ EN PANTALLA: el aviso existe (visto en $sinLugar vueltas) pero sin lugar en la pantalla. Windows lo mandó al centro de notificaciones sin mostrarlo: pasa con la pantalla apagada o con No molestar." }
     Write-Linea 'Ventanas candidatas que se vieron en la última vuelta:'
     foreach ($v in $res.candidatas) { Write-Linea ('  ' + (Get-Descripcion $v)) }
     # Para descubrir dónde vive el aviso si no es una ventana conocida: clase y proceso de

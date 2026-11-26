@@ -37,8 +37,9 @@ function estado(texto, clase = '') {
 // completo ("Directorio", "Biblioteca"…), entra ahí sola: la portada suele mostrar solo una parte.
 // `nombre` es cómo se llama el título por el que se entró (para proponerlo como serie) y
 // `aMano` dice que la dirección se escribió o pegó: esas quedan anotadas como recientes.
+// `deGaleria`: se tocó la tapa de ese título en la galería del sitio (ahí su nombre manda: ver serieDelTitulo).
 const esPortada = (url) => { try { return /^\/*$/.test(new URL(url).pathname); } catch { return false; } };
-async function ir(url, nivel = ruta.length, buscarCatalogo = false, nombre = '', aMano = false) {
+async function ir(url, nivel = ruta.length, buscarCatalogo = false, nombre = '', aMano = false, deGaleria = false) {
   if (ocupado) return;
   galeriaDetras();                                 // (si la galería del sitio estaba a la vista, queda detrás)
   ocupado = true;
@@ -68,10 +69,14 @@ async function ir(url, nivel = ruta.length, buscarCatalogo = false, nombre = '',
     // capítulos se guarden con el mismo. Si no se entró por un título y la página es un
     // capítulo, se propone la que dice su título (la misma con la que se guardaría). Al
     // arrancar de nuevo desde arriba (otra dirección, un favorito) la puesta sola se va.
-    if (nivel === 0) proponerSerie('');
-    if (nombre && r.listas.some(l => l.tipo === 'capitulos')) proponerSerie(nombre);
-    else if (r.capitulo?.serie && !$('serie').value.trim()) proponerSerie(r.capitulo.serie);
-    else if (!r.capitulo && !r.listas.some(l => l.tipo === 'capitulos')) proponerSerie('');
+    // Desde la galería es distinto (0.11.2): el nombre del título que se tocó se pone siempre.
+    if (deGaleria && nombreDeSerie(nombre)) serieDelTitulo(nombre);
+    else {
+      if (nivel === 0) proponerSerie('');
+      if (nombre && r.listas.some(l => l.tipo === 'capitulos')) proponerSerie(nombre);
+      else if (r.capitulo?.serie && !$('serie').value.trim()) proponerSerie(r.capitulo.serie);
+      else if (!r.capitulo && !r.listas.some(l => l.tipo === 'capitulos')) proponerSerie('');
+    }
     mostrar(r);
     if (nombre && !r.capitulo && !r.listas.some(l => l.tipo === 'capitulos')) estado(`No encontré la lista de capítulos de «${nombre}» en esta página. Si están en otra parte de la página o en otra dirección, probá abrirla desde las listas de abajo.`, 'error');
     if (entre) estado(`Entré al catálogo que encontré en la portada ("${entre}"). ` + ayuda(r) + ' Para volver a la portada, usá la ruta de arriba.', 'bien');
@@ -85,12 +90,43 @@ async function ir(url, nivel = ruta.length, buscarCatalogo = false, nombre = '',
 
 // Pone en "Serie" el nombre del título elegido, salvo que ya hayas escrito otro a mano.
 // De un renglón como "One Piece Capítulo 1134 hace 2 horas" queda "One Piece".
+const nombreDeSerie = (nombre) => String(nombre || '').replace(/\s*(?:[-–—|:·]\s*)?(?:cap[ií]tulo|chapter|cap\.|ch\.|ep\.|#)\s*\d.*$/i, '').replace(/\s+/g, ' ').trim().slice(0, 60);
 function proponerSerie(nombre) {
   const campo = $('serie');
   if (campo.value.trim() && campo.value !== serieAuto) return;
-  serieAuto = String(nombre || '').replace(/\s*(?:[-–—|:·]\s*)?(?:cap[ií]tulo|chapter|cap\.|ch\.|ep\.|#)\s*\d.*$/i, '').replace(/\s+/g, ' ').trim().slice(0, 60);
+  serieAuto = nombreDeSerie(nombre);
   campo.value = serieAuto;
   marcarSerie();
+}
+// Desde la galería del sitio, el título que se toca manda (0.11.2): su nombre se pone siempre en
+// "Serie", aunque hubiera otro escrito a mano. Antes ese no se pisaba, y los capítulos del título
+// que se tocaba se guardaban con el nombre viejo. Lo escrito a mano no se pierde: queda en un chip
+// al lado del campo ("escrito: One Piece"), y con un clic vuelve. Si no había nada escrito a mano, no
+// hay chip. Entrando por la exploración por nivel vale la regla de siempre (proponerSerie).
+function serieDelTitulo(nombre) {
+  const campo = $('serie'), escrito = campo.value.trim() && campo.value !== serieAuto ? campo.value.trim() : '';
+  serieAuto = nombreDeSerie(nombre);
+  campo.value = serieAuto;
+  marcarSerie();
+  // (si ahora no había nada escrito a mano, el chip sigue como estaba: lo de una tapa anterior tampoco se pierde)
+  const guardado = escrito || $('serieEscrita').dataset.escrito || '';
+  ponerSerieEscrita(guardado !== serieAuto ? guardado : '');
+}
+// El chip con lo que estaba escrito a mano ('' lo saca)
+function ponerSerieEscrita(escrito) {
+  const chip = $('serieEscrita');
+  chip.hidden = !escrito;
+  chip.dataset.escrito = escrito;
+  chip.textContent = escrito ? `escrito: ${escrito}` : '';
+  chip.title = escrito ? `Antes de tocar la tapa habías escrito «${escrito}» a mano. Tocá para volver a ponerlo como serie.` : '';
+}
+// Un clic en el chip: vuelve lo escrito a mano (y como está escrito a mano, ya no se pisa solo)
+function volverALoEscrito() {
+  const escrito = $('serieEscrita').dataset.escrito || '';
+  if (!escrito) return;
+  ponerSerieEscrita('');
+  $('serie').value = escrito;
+  $('serie').dispatchEvent(new Event('input'));     // (como si se escribiera: se marca y se mira lo que ya está en la carpeta)
 }
 function marcarSerie() {
   const sola = !!serieAuto && $('serie').value === serieAuto;
@@ -875,15 +911,16 @@ const galTengo = (t) => !!t.tengo && !t.tengo.parecida;
 // Tipo e idioma: los que dicen las tarjetas de esta galería. Un filtro recordado de otro sitio que acá no existe no se aplica
 const galValores = (campo) => [...new Set(gal.titulos.map(t => t[campo]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
 const galFiltro = (campo) => (galFiltros[campo] && galValores(campo).includes(galFiltros[campo]) ? galFiltros[campo] : '');
-function galVisibles() {
-  if (!gal) return [];
+// El buscador y los filtros como están puestos ahora, hechos una pregunta: ¿este título pasa?
+function galFiltroActual() {
   const q = $('galBuscar').value.trim().toLowerCase(), f = galFiltros, tipo = galFiltro('tipo'), idioma = galFiltro('idioma');
-  return gal.titulos.filter(t => (!q || t.nombre.toLowerCase().includes(q)) &&
+  return (t) => (!q || t.nombre.toLowerCase().includes(q)) &&
     (!f.tengo || (f.tengo === 'tengo') === galTengo(t)) &&
     (!f.tapa || (f.tapa === 'con') === galConTapa(t)) &&
     (!tipo || t.tipo === tipo) && (!idioma || t.idioma === idioma) &&
-    (!f.desaparecidas || !!t.desaparecida));
+    (!f.desaparecidas || !!t.desaparecida);
 }
+const galVisibles = () => (gal ? gal.titulos.filter(galFiltroActual()) : []);
 function guardarGaleriaConfig() { mr.guardarConfig({ galeria: { tope: galTope(), filtros: galFiltros } }).catch(() => {}); }
 
 function abrirGaleria(g) {
@@ -908,71 +945,156 @@ function galeriaDetras() { if (!$('galeria').hidden) cerrarGaleria(true); }
 // Las tarjetas se dibujan de a tandas: la galería de un catálogo grande tiene miles de títulos
 const GAL_TANDA = 600;
 let galTanda = GAL_TANDA;
+// Lo que quedó dibujado: los títulos que pasan los filtros, en orden (`ver`); cuántas de sus tarjetas
+// están a la vista (`n`, las primeras); la tarjeta y la casilla de cada una, por dirección; y los
+// tipos e idiomas que había (con uno nuevo cambian los filtros que se ofrecen). `antes`, mientras se
+// dibuja: las tarjetas del dibujo anterior, para volver a usar las que no cambiaron.
+let galDibujado = { ver: [], n: 0, colaActiva: false, cajas: new Map(), tarjetas: new Map(), antes: null, valores: { tipo: [], idioma: [] } };
 let galDibujo = 0;
 const dibujarGaleriaLuego = () => { clearTimeout(galDibujo); galDibujo = setTimeout(dibujarGaleria, 150); };
 function dibujarGaleria() {
   if (!gal) return;
-  const total = gal.titulos.length, idas = gal.titulos.filter(t => t.desaparecida).length;
+  clearTimeout(galDibujo);                         // (si había uno pedido para dentro de un rato, es este)
+  const total = gal.titulos.length;
   $('galTitulo').textContent = `Galería de ${sitioCorto(gal.sitio)}`;
   $('galTitulo').title = `El listado se recorre desde ${gal.inicio}`;
-  $('galDatos').textContent = [plural(total, 'título', 'títulos'), plural(gal.paginas, 'página', 'páginas'), gal.fecha ? `del ${fechaCorta(gal.fecha)}` : '',
-    idas ? plural(idas, 'desaparecida', 'desaparecidas') : '', !galRecorriendo && gal.estado === 'incompleta' ? 'incompleta' : ''].filter(Boolean).join(' · ');
+  galDecirDatos();
   // Los botones del recorrido
   $('galCancelar').hidden = !galRecorriendo;
   $('galRefrescar').hidden = $('galOlvidar').hidden = galRecorriendo;
   $('galSeguir').hidden = galRecorriendo || !gal.sePuedeSeguir;
   $('galTope').disabled = $('galCerrar').disabled = galRecorriendo;
   // Tipo e idioma: solo si las tarjetas del sitio los dicen
+  const valores = { tipo: galValores('tipo'), idioma: galValores('idioma') };
   for (const [id, campo, todos] of [['galTipo', 'tipo', 'Tipo: todos'], ['galIdioma', 'idioma', 'Idioma: todos']]) {
-    const valores = galValores(campo);
-    $(id).hidden = !valores.length;
-    $(id).replaceChildren(el('option', { value: '', textContent: todos }), ...valores.map(v => el('option', { value: v, textContent: v })));
+    $(id).hidden = !valores[campo].length;
+    $(id).replaceChildren(el('option', { value: '', textContent: todos }), ...valores[campo].map(v => el('option', { value: v, textContent: v })));
     $(id).value = galFiltro(campo);
   }
   $('galTengo').value = galFiltros.tengo;
   $('galTapa').value = galFiltros.tapa;
   $('galDesaparecidas').checked = !!galFiltros.desaparecidas;
 
-  const ver = galVisibles(), aLaVista = ver.slice(0, galTanda), resto = ver.length - aLaVista.length;
-  $('galCuenta').textContent = [ver.length !== total ? `${ver.length} de ${total}` : '', resto ? `a la vista, los primeros ${aLaVista.length}` : ''].filter(Boolean).join(' · ');
-  // Las marcadas y lo nuevo que se les encontró
+  const ver = galVisibles();
+  $('galMarcarVisibles').disabled = !ver.length;
+  dibujarMarcadasDeGaleria();
+  // ("N capítulos en la cola" se dice mientras la cola tiene algo pendiente; después manda lo que ya tenés)
+  const colaActiva = tareas.some(x => x.estado === 'en cola' || ACTIVOS.has(x.estado));
+
+  // Las tarjetas del dibujo anterior que siguen igual se vuelven a usar (0.11.2): armar de nuevo las
+  // 600 de una galería que no cambió (al terminar un recorrido, al volver a ella, al ponerla al día
+  // después de una bajada) dejaba a la ventana usando 10 MB más cada vez
+  galDibujado = { ver, n: 0, colaActiva, cajas: new Map(), tarjetas: new Map(), antes: galDibujado.tarjetas, valores };
+  if (ver.length) galCompletarTarjetas(true);
+  else {
+    $('galLista').replaceChildren(el('div', { className: 'vacio', textContent: total ? 'Ningún título coincide con lo que buscás o con los filtros.' : galRecorriendo ? 'Todavía no hay títulos…' : 'Esta galería no tiene títulos.' }));
+    galDecirCuenta(0, 0);
+  }
+  galDibujado.antes = null;
+}
+// Cuántos títulos y páginas tiene la galería, de cuándo es y cómo quedó
+function galDecirDatos() {
+  const total = gal.titulos.length, idas = gal.titulos.filter(t => t.desaparecida).length;
+  $('galDatos').textContent = [plural(total, 'título', 'títulos'), plural(gal.paginas, 'página', 'páginas'), gal.fecha ? `del ${fechaCorta(gal.fecha)}` : '',
+    idas ? plural(idas, 'desaparecida', 'desaparecidas') : '', !galRecorriendo && gal.estado === 'incompleta' ? 'incompleta' : ''].filter(Boolean).join(' · ');
+}
+// Deja a la vista las tarjetas que tienen que estar (las primeras `galTanda` de las que pasan los
+// filtros) agregando al final las que falten, sin tocar las que ya están; y pone al día el botón
+// "Mostrar más" y la cuenta. Con esto dibuja la galería, muestra otra tanda y suma lo de cada página
+// de un recorrido. `desdeCero`: es un dibujo entero (lo que hubiera en la lista se reemplaza, salvo
+// que ya sean justo esas tarjetas, en ese orden: ahí no se toca nada).
+function galCompletarTarjetas(desdeCero = false) {
+  const d = galDibujado, lista = $('galLista'), hasta = Math.min(galTanda, d.ver.length), resto = d.ver.length - hasta;
+  lista.querySelector('.gal-mas')?.remove();
+  const nuevas = d.ver.slice(d.n, hasta).map(t => tarjetaDeGaleria(t, d.colaActiva));
+  if (!desdeCero) lista.append(...nuevas);
+  else if (lista.children.length !== nuevas.length || nuevas.some((n, i) => lista.children[i] !== n)) lista.replaceChildren(...nuevas);
+  if (resto) lista.append(botonDeMasEnGaleria(resto));
+  d.n = hasta;
+  galDecirCuenta(d.ver.length, hasta);
+  if (nuevas.length) pedirGalTapas();
+}
+// Mientras recorre, cada página del listado suma títulos al final. No se vuelve a dibujar la galería
+// (0.11.2): se agregan las tarjetas de los que pasan los filtros, si todavía entran en lo que se
+// muestra, y se ponen al día las cuentas. Antes se dibujaban de nuevo todas con cada página: en un
+// recorrido de 300 páginas, las mismas 600 tarjetas 250 veces, y la ventana terminaba usando 71 MB
+// (2,5 veces lo del principio). Devuelve false si esta vez hay que dibujarla entera: todavía no hay
+// ninguna tarjeta, o lo nuevo trae un tipo o un idioma que no estaba (cambian los filtros que se
+// ofrecen, y uno recordado de otro sitio puede empezar a valer).
+function sumarAGaleria(nuevos) {
+  const d = galDibujado;
+  if (!d.n || nuevos.some(t => (t.tipo && !d.valores.tipo.includes(t.tipo)) || (t.idioma && !d.valores.idioma.includes(t.idioma)))) return false;
+  d.ver.push(...nuevos.filter(galFiltroActual()));
+  galDecirDatos();
+  galCompletarTarjetas();
+  return true;
+}
+// Las marcadas y lo nuevo que se les encontró: la cuenta y sus botones
+function dibujarMarcadasDeGaleria() {
   const marcadas = gal.titulos.filter(t => t.marcada);
   const capsNuevos = marcadas.reduce((n, t) => n + (t.nuevo?.nuevos || 0), 0);
   $('galMarcadasCuenta').textContent = marcadas.length ? plural(marcadas.length, 'serie marcada', 'series marcadas') : 'Marcá series con la casilla de su tapa, para buscar lo nuevo de todas juntas.';
-  $('galMarcarVisibles').disabled = !ver.length;
   $('galDesmarcar').hidden = !marcadas.length;
   $('galBuscarNuevo').disabled = !marcadas.length || galBuscando || galRecorriendo;
   $('galEncolar').hidden = !capsNuevos;
   $('galEncolar').textContent = `Encolar lo nuevo (${plural(capsNuevos, 'capítulo', 'capítulos')})`;
-  // ("N capítulos en la cola" se dice mientras la cola tiene algo pendiente; después manda lo que ya tenés)
-  const colaActiva = tareas.some(x => x.estado === 'en cola' || ACTIVOS.has(x.estado));
-
-  const mas = resto ? el('button', { type: 'button', className: 'gal-mas', textContent: `Mostrar ${Math.min(GAL_TANDA, resto)} más (quedan ${resto} sin mostrar)` }) : null;
-  if (mas) mas.addEventListener('click', () => { galTanda += GAL_TANDA; dibujarGaleria(); });
-  $('galLista').replaceChildren(...(ver.length ? aLaVista.map(t => {
-    const caja = el('input', { type: 'checkbox', checked: !!t.marcada, title: 'Marcar esta serie, para buscar lo nuevo' });
-    caja.addEventListener('click', (e) => e.stopPropagation());
-    caja.addEventListener('change', () => marcarEnGaleria([t.url], caja.checked));
-    // La tapa es la del sitio. Si el título no tiene o no cargó, queda el recuadro con la inicial: no se inventa ninguna
-    const img = el('img', { alt: '' });
-    if (t.imagen) { img.dataset.pagina = t.pagina || gal.inicio; ponerMiniatura(img, t.imagen); }
-    const tapa = el('div', { className: 'gal-tapa' }, el('span', { className: 'gal-inicial', textContent: (t.nombre.match(/[\p{L}\p{N}]/u) || ['?'])[0].toUpperCase() }), img);
-    const n = t.nuevo;
-    const marca = t.desaparecida ? el('span', { className: 'gal-marca ida', textContent: 'desaparecida', title: `No apareció en el recorrido del ${fechaCorta(t.desaparecida)}. No se borra: si vuelve a aparecer, se le saca la marca.` })
-      : n && n.error ? el('span', { className: 'gal-marca ida', textContent: '⚠️ ' + n.error, title: n.error })
-      : n && n.enCola && colaActiva ? el('span', { className: 'gal-marca nuevo', textContent: `${plural(n.enCola, 'capítulo', 'capítulos')} en la cola` })
-      : n && n.nuevos ? el('span', { className: 'gal-marca nuevo', textContent: `${plural(n.nuevos, 'nuevo', 'nuevos')}: ${n.rango}` })
-      : n && n.revisada && !n.enCola ? el('span', { className: 'gal-marca', textContent: `al día (${n.tengo} de ${n.cuantos})` })
-      : t.tengo && t.tengo.parecida ? el('span', { className: 'gal-marca parecida', textContent: '≈ parecido', title: `En tu colección hay «${t.tengo.parecida}»: puede ser lo mismo con otro nombre` })
-      : t.tengo ? el('span', { className: 'gal-marca tengo', textContent: t.tengo.bajados ? `✔ ${plural(t.tengo.bajados, 'bajado', 'bajados')}` : '✔ en tu colección',
-          title: [t.tengo.bajados ? `Ya bajaste ${plural(t.tengo.bajados, 'capítulo', 'capítulos')} de este título` : '', t.tengo.carpeta ? `Está en «${t.tengo.carpeta}»` : ''].filter(Boolean).join('. ') })
-      : null;
-    const tarjeta = el('div', { className: 'gal-tarjeta' + (galTengo(t) ? ' ya' : '') + (t.desaparecida ? ' ida' : ''), title: [t.nombre, t.detalle].filter(Boolean).join(' · ') },
-      caja, tapa, el('span', { className: 'gal-nombre', textContent: t.nombre }), t.detalle ? el('span', { className: 'gal-detalle', textContent: t.detalle }) : null, marca);
-    tarjeta.addEventListener('click', () => abrirDesdeGaleria(t));
-    return tarjeta;
-  }).concat(mas || []) : [el('div', { className: 'vacio', textContent: total ? 'Ningún título coincide con lo que buscás o con los filtros.' : galRecorriendo ? 'Todavía no hay títulos…' : 'Esta galería no tiene títulos.' })]));
-  pedirGalTapas();
+}
+// Cuántos títulos pasan los filtros y cuántos de esos están a la vista (no se dice lo que sobra decir)
+function galDecirCuenta(pasan, aLaVista) {
+  const total = gal.titulos.length;
+  $('galCuenta').textContent = [pasan !== total ? `${pasan} de ${total}` : '', pasan > aLaVista ? `a la vista, los primeros ${aLaVista}` : ''].filter(Boolean).join(' · ');
+}
+// La tarjeta de un título: su casilla, su tapa, su nombre y lo que se sabe de él. Si la del dibujo
+// anterior muestra lo mismo (`firma`: todo lo que la tarjeta dice, menos la casilla), es esa.
+function tarjetaDeGaleria(t, colaActiva) {
+  const firma = JSON.stringify([t.nombre, t.detalle, t.imagen, t.pagina || gal.inicio, t.desaparecida, t.tengo, t.nuevo, !!(colaActiva && t.nuevo && t.nuevo.enCola)]);
+  const anterior = galDibujado.antes && galDibujado.antes.get(t.url);
+  if (anterior && anterior.galFirma === firma) {
+    anterior.galTitulo = t;                        // (el título de ahora: sus oyentes lo leen de acá)
+    anterior.galCaja.checked = !!t.marcada;
+    galDibujado.cajas.set(t.url, anterior.galCaja);
+    galDibujado.tarjetas.set(t.url, anterior);
+    return anterior;
+  }
+  const caja = el('input', { type: 'checkbox', checked: !!t.marcada, title: 'Marcar esta serie, para buscar lo nuevo' });
+  caja.addEventListener('click', (e) => e.stopPropagation());
+  caja.addEventListener('change', () => marcarEnGaleria([tarjeta.galTitulo.url], caja.checked));
+  galDibujado.cajas.set(t.url, caja);              // (para cambiarle la marca sin volver a dibujar la galería)
+  // La tapa es la del sitio. Si el título no tiene o no cargó, queda el recuadro con la inicial: no se inventa ninguna
+  const img = el('img', { alt: '' });
+  if (t.imagen) { img.dataset.pagina = t.pagina || gal.inicio; ponerMiniatura(img, t.imagen); }
+  const tapa = el('div', { className: 'gal-tapa' }, el('span', { className: 'gal-inicial', textContent: (t.nombre.match(/[\p{L}\p{N}]/u) || ['?'])[0].toUpperCase() }), img);
+  const n = t.nuevo;
+  const marca = t.desaparecida ? el('span', { className: 'gal-marca ida', textContent: 'desaparecida', title: `No apareció en el recorrido del ${fechaCorta(t.desaparecida)}. No se borra: si vuelve a aparecer, se le saca la marca.` })
+    : n && n.error ? el('span', { className: 'gal-marca ida', textContent: '⚠️ ' + n.error, title: n.error })
+    : n && n.enCola && colaActiva ? el('span', { className: 'gal-marca nuevo', textContent: `${plural(n.enCola, 'capítulo', 'capítulos')} en la cola` })
+    : n && n.nuevos ? el('span', { className: 'gal-marca nuevo', textContent: `${plural(n.nuevos, 'nuevo', 'nuevos')}: ${n.rango}` })
+    : n && n.revisada && !n.enCola ? el('span', { className: 'gal-marca', textContent: `al día (${n.tengo} de ${n.cuantos})` })
+    : t.tengo && t.tengo.parecida ? el('span', { className: 'gal-marca parecida', textContent: '≈ parecido', title: `En tu colección hay «${t.tengo.parecida}»: puede ser lo mismo con otro nombre` })
+    : t.tengo ? el('span', { className: 'gal-marca tengo', textContent: t.tengo.bajados ? `✔ ${plural(t.tengo.bajados, 'bajado', 'bajados')}` : '✔ en tu colección',
+        title: [t.tengo.bajados ? `Ya bajaste ${plural(t.tengo.bajados, 'capítulo', 'capítulos')} de este título` : '', t.tengo.carpeta ? `Está en «${t.tengo.carpeta}»` : ''].filter(Boolean).join('. ') })
+    : null;
+  const tarjeta = el('div', { className: 'gal-tarjeta' + (galTengo(t) ? ' ya' : '') + (t.desaparecida ? ' ida' : ''), title: [t.nombre, t.detalle].filter(Boolean).join(' · ') },
+    caja, tapa, el('span', { className: 'gal-nombre', textContent: t.nombre }), t.detalle ? el('span', { className: 'gal-detalle', textContent: t.detalle }) : null, marca);
+  tarjeta.addEventListener('click', () => abrirDesdeGaleria(tarjeta.galTitulo));
+  tarjeta.galTitulo = t;
+  tarjeta.galFirma = firma;
+  tarjeta.galCaja = caja;
+  galDibujado.tarjetas.set(t.url, tarjeta);
+  return tarjeta;
+}
+function botonDeMasEnGaleria(resto) {
+  const mas = el('button', { type: 'button', className: 'gal-mas', textContent: `Mostrar ${Math.min(GAL_TANDA, resto)} más (quedan ${resto} sin mostrar)` });
+  mas.addEventListener('click', mostrarMasEnGaleria);
+  return mas;
+}
+// "Mostrar 600 más" agrega las tarjetas que siguen al final y no toca las que ya estaban (0.11.2).
+// Redibujar todas tardaba más con cada tanda: 0,4 s con 6.000 a la vista. Las que siguen son las del
+// último dibujo (`galDibujado`): todo lo que cambia la lista o un título vuelve a dibujar la galería.
+function mostrarMasEnGaleria() {
+  if (!gal) return;
+  galTanda += GAL_TANDA;
+  galCompletarTarjetas();
 }
 // Las tapas se piden cuando quedan a la vista. Si una no carga y se está filtrando por tapa, se redibuja
 function pedirGalTapas() { if (gal) pedirTapas($('galLista'), gal.inicio, () => { if (galFiltros.tapa) dibujarGaleriaLuego(); }); }
@@ -1049,7 +1171,7 @@ mr.galeria.alAvanzar((ev) => {
   // Llegan solo los títulos que sumó esa página (la galería entera, con miles, llega una vez, al final)
   if (ev.inicio) { gal.sitio = ev.sitio; gal.inicio = ev.inicio; }
   if (typeof ev.paginas === 'number') gal.paginas = ev.paginas;
-  if (ev.nuevos && ev.nuevos.length) { gal.titulos.push(...ev.nuevos); dibujarGaleriaLuego(); }
+  if (ev.nuevos && ev.nuevos.length) { gal.titulos.push(...ev.nuevos); if (!sumarAGaleria(ev.nuevos)) dibujarGaleriaLuego(); }
 });
 
 async function marcarEnGaleria(urls, marcada) {
@@ -1059,7 +1181,10 @@ async function marcarEnGaleria(urls, marcada) {
     const hechas = new Set(await mr.galeria.marcar({ sitio: gal.sitio, urls, marcada }));
     if (!gal) return;
     for (const t of gal.titulos) if (hechas.has(t.url)) t.marcada = !!marcada;
-    dibujarGaleria();
+    // De una marca cambian la casilla de esas tarjetas y la cuenta de las marcadas, nada más: no se
+    // vuelve a dibujar la galería (0.11.2: con 6.600 tarjetas a la vista, cada casilla tardaba medio segundo)
+    for (const u of hechas) { const caja = galDibujado.cajas.get(u); if (caja) caja.checked = !!marcada; }
+    dibujarMarcadasDeGaleria();
   } catch (e) { galEstado('⚠️ ' + e.message, 'error'); }
 }
 async function buscarNuevoEnGaleria() {
@@ -1095,7 +1220,7 @@ async function encolarNuevoDeGaleria() {
 function abrirDesdeGaleria(t) {
   if (ocupado) return;
   $('url').value = t.url;
-  ir(t.url, 0, false, t.nombre);
+  ir(t.url, 0, false, t.nombre, false, true);
 }
 async function volverALaGaleria() {
   if (!gal) return;
@@ -1239,7 +1364,12 @@ $('cambiarCarpeta').addEventListener('click', async () => { mostrarCarpeta(await
 for (const id of ['fPdf', 'fCbz', 'fImgs', 'saltear']) {
   $(id).addEventListener('change', () => { refrescar(); mr.guardarConfig({ formatos: opciones().formatos, saltear: $('saltear').checked }); mirarDisco(); });
 }
-$('serie').addEventListener('input', () => { marcarSerie(); mirarDisco(400); });
+$('serie').addEventListener('input', () => {
+  marcarSerie();
+  mirarDisco(400);
+  if ($('serie').value.trim() === $('serieEscrita').dataset.escrito) ponerSerieEscrita('');     // (se volvió a escribir lo mismo: el chip ya no hace falta)
+});
+$('serieEscrita').addEventListener('click', volverALoEscrito);
 $('plantilla').addEventListener('input', () => { clearTimeout(avisoPlantilla); avisoPlantilla = setTimeout(() => verPlantilla(true), 300); });
 for (const b of $('plantillas').querySelectorAll('button')) {
   b.addEventListener('click', () => { $('plantilla').value = b.dataset.tpl; verPlantilla(true); });

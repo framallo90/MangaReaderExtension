@@ -1340,11 +1340,13 @@ app.on('second-instance', (_e, argv, _dir, datos) => {
 atender('reabrir-con-proxy', () => {
   if (!proxyEnEspera) throw new Error('No hay ningún proxy pedido');
   app.relaunch({ args: process.argv.slice(1).filter(a => !a.startsWith('--proxy=')).concat('--proxy=' + proxyEnEspera) });
-  setTimeout(() => app.exit(0), 300);
+  setTimeout(() => { galerias.alSalir(); app.exit(0); }, 300);      // (app.exit no avisa con before-quit: lo de la galería se guarda acá)
   return true;
 });
 app.on('window-all-closed', () => { if (!PRUEBA) app.quit(); });
-app.on('before-quit', () => galerias.alSalir());        // (un recorrido de la galería en curso: queda guardado lo juntado)
+// Al salir, lo de la galería que no se había escrito: un recorrido en curso (queda lo juntado) y las
+// marcas de series, que se guardan juntas un rato después de la última (0.11.2)
+app.on('before-quit', () => galerias.alSalir());
 
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);

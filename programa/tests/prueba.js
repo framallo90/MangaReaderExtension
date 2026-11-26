@@ -1031,20 +1031,42 @@ module.exports = async function probar(api) {
     eq('tocar una tapa abre sus capítulos con la exploración de siempre, con su nombre como serie, y deja el botón para volver',
       `${await titulos()} · serie: ${await en(`document.querySelector('#serie').value`)} · ${await en(`document.querySelector('#volverGaleria').hidden ? 'sin botón' : document.querySelector('#volverGaleria').textContent.replace(/:\\d+$/, '')`)}`,
       'Capítulo 1, Capítulo 2 · serie: Abeja · ‹ Volver a la galería de 127.0.0.1');
-    await en(`document.querySelector('#volverGaleria').click()`);
-    await galQuieta('de vuelta en la galería');
+    // (0.11.2) Desde la galería, el título que se toca manda: su nombre va siempre a "Serie". Lo que
+    // estaba escrito a mano no se pierde: queda en un chip al lado, y con un clic vuelve.
+    const serieYChip = () => en(`(() => { const s = document.querySelector('#serie'), c = document.querySelector('#serieEscrita');
+      return 'serie: ' + s.value + (s.classList.contains('auto') ? ' (puesta sola)' : s.value ? ' (a mano)' : '') + ' · ' + (c.hidden ? 'sin chip' : 'chip «' + c.textContent + '»'); })()`);
+    // (se espera a que termine de analizar y a que la dirección sea la de ese título: la lista de antes también tenía dos renglones)
+    const abiertoG = (slug) => hasta(`document.querySelector('#galeria').hidden && !document.querySelector('#analizar').disabled && new URL(document.querySelector('#url').value).pathname === '/sig/${slug}/' && document.querySelectorAll('#lista .fila').length === 2`, 'los capítulos de ' + slug);
+    const volverG = async (que = 'de vuelta en la galería') => { await en(`document.querySelector('#volverGaleria').click()`); await galQuieta(que); };
+    eq('  sin nada escrito a mano, el chip de lo escrito no aparece', await serieYChip(), 'serie: Abeja (puesta sola) · sin chip');
+    await volverG();
     eq('  y "Volver a la galería" la trae de nuevo, sin recorrer nada', `${await tarjetas()} · pedidos nuevos: ${g1.pedidos.listados.length - pedidosG1}`, 'Abeja, Barco, Cometa, Dragón, Espada, Faro, Gato, Halcón, Isla, Jardín · pedidos nuevos: 0');
-    // Con una serie escrita a mano, tocar una tapa no la pisa: es la regla de siempre de la exploración
-    // (se espera a que termine de analizar: la lista de antes también tenía dos renglones)
     await escribirSerie('A mano');
     await tocarTarjeta('Barco');
-    await hasta(`document.querySelector('#galeria').hidden && !document.querySelector('#analizar').disabled && /\\/sig\\/barco\\//.test(document.querySelector('#url').value) && document.querySelectorAll('#lista .fila').length === 2`, 'los capítulos de Barco');
-    eq('  con una serie escrita a mano, tocar una tapa no la pisa (la regla de siempre de la exploración)',
-      `${await titulos()} · serie: ${await en(`document.querySelector('#serie').value`)} · ${await en(`document.querySelector('#url').value.replace(/^.*?(\\/sig\\/)/, '$1')`)}`,
-      'Capítulo 1, Capítulo 2 · serie: A mano · /sig/barco/');
+    await abiertoG('barco');
+    eq('con un nombre escrito a mano, tocar otra tapa pone en "Serie" el nombre de ese título (es el que vale) y deja lo escrito en un chip',
+      `${await titulos()} · ${await serieYChip()}`, 'Capítulo 1, Capítulo 2 · serie: Barco (puesta sola) · chip «escrito: A mano»');
+    await en(`document.querySelector('#serieEscrita').click()`);
+    eq('  un clic en el chip vuelve a poner lo escrito a mano, y el chip se va', await serieYChip(), 'serie: A mano (a mano) · sin chip');
+    await volverG();
+    await tocarTarjeta('Cometa');
+    await abiertoG('cometa');
+    const conChip = await serieYChip();
+    await volverG();
+    await tocarTarjeta('Dragón');
+    await abiertoG('dragon');
+    eq('  vale cada vez que se toca una tapa, y lo escrito no se pierde aunque se toquen más (el chip sigue ahí hasta que se usa)', `${conChip} → ${await serieYChip()}`,
+      'serie: Cometa (puesta sola) · chip «escrito: A mano» → serie: Dragón (puesta sola) · chip «escrito: A mano»');
+    // Desde la exploración por nivel, la regla de siempre: entrar a un título de una lista no pisa lo escrito a mano
+    await en(`document.querySelector('#serieEscrita').click()`);
+    await en(`ir(${JSON.stringify(g1.url + '/sig/')}, 0); true`);
+    await hasta(`!document.querySelector('#analizar').disabled && new URL(document.querySelector('#url').value).pathname === '/sig/' && document.querySelectorAll('#lista .fila').length >= 4`, 'el listado, con la exploración por nivel');
+    await en(`[...document.querySelectorAll('#lista .fila')].find(f => f.querySelector('.txt').firstChild.textContent === 'Cometa').click(); true`);
+    await abiertoG('cometa');
+    eq('desde la exploración por nivel la regla de siempre no cambia: entrar a un título de una lista no pisa la serie escrita a mano, y no hay chip',
+      `${await titulos()} · ${await serieYChip()}`, 'Capítulo 1, Capítulo 2 · serie: A mano (a mano) · sin chip');
     await escribirSerie('');
-    await en(`document.querySelector('#volverGaleria').click()`);
-    await galQuieta('de vuelta en la galería, otra vez');
+    await volverG('de vuelta en la galería, otra vez');
 
     // Marcar series, buscar lo nuevo de todas y encolarlo
     await en(`(() => { for (const n of ['Abeja', 'Barco']) [...document.querySelectorAll('#galLista .gal-tarjeta')].find(t => t.querySelector('.gal-nombre').textContent === n).querySelector('input').click(); })()`);
@@ -1071,6 +1093,30 @@ module.exports = async function probar(api) {
     eq('una dirección que lleva a un sitio del que ya hay galería: no la pisa (quedan sus series marcadas)',
       await (async () => { const r = await api.galerias.recorrer({ url: g1.url + '/sig/gato/1/' }); return `${r.yaEstaba ? 'ya estaba' : 'nueva'} · ${r.galeria.titulos.length} · marcadas: ${r.galeria.titulos.filter(t => t.marcada).map(t => t.nombre).join(', ')}`; })(),
       'ya estaba · 10 · marcadas: Abeja, Barco');
+
+    // (0.11.2) "Mostrar más" agrega las tarjetas que siguen al final: las que ya estaban no se tocan.
+    // (acá la tanda se achica a 4 para verlo con 10 títulos; de fábrica es de 600, y con 6.000 a la
+    // vista lo mide tests/galeria-grande.js)
+    const antesDeMas = await en(`(() => { galTanda = 4; dibujarGaleria(); window.__antes = [...document.querySelectorAll('#galLista .gal-tarjeta')];
+      return window.__antes.length + ' tarjetas · ' + document.querySelector('#galLista .gal-mas').textContent + ' · ' + document.querySelector('#galCuenta').textContent; })()`);
+    const despuesDeMas = await en(`(() => { document.querySelector('#galLista .gal-mas').click(); const ahora = [...document.querySelectorAll('#galLista .gal-tarjeta')], antes = window.__antes;
+      return ahora.length + ' tarjetas · ' + (antes.every((n, i) => n === ahora[i]) ? 'las 4 que estaban son los mismos nodos' : 'las que estaban se volvieron a dibujar') + ' · ' + (document.querySelector('#galLista .gal-mas') ? 'sigue el botón' : 'sin botón') +
+        ' · ' + ahora.map(t => t.querySelector('.gal-nombre').textContent).join(', ') + ' · con su tapa: ' + ahora.filter(t => t.querySelector('.gal-tapa img').getAttribute('src')).length; })()`);
+    eq('"Mostrar más" agrega las tarjetas que siguen al final y no toca las que ya estaban (son los mismos nodos antes y después)', `${antesDeMas} → ${despuesDeMas}`,
+      '4 tarjetas · Mostrar 6 más (quedan 6 sin mostrar) · a la vista, los primeros 4 → 10 tarjetas · las 4 que estaban son los mismos nodos · sin botón · Abeja, Barco, Cometa, Dragón, Espada, Faro, Gato, Halcón, Isla, Jardín · con su tapa: 10');
+    // Marcar tampoco vuelve a dibujar la galería: cambia la casilla de esas tarjetas y la cuenta de las marcadas
+    const tildadas = () => en(`[...document.querySelectorAll('#galLista .gal-tarjeta')].filter(t => t.querySelector('input').checked).map(t => t.querySelector('.gal-nombre').textContent).join(', ') || 'ninguna'`);
+    const cuentaDeMarcadas = (re, que) => hasta(`${re}.test(document.querySelector('#galMarcadasCuenta').textContent) && document.querySelector('#galMarcadasCuenta').textContent`, que);
+    await en(`window.__antes = [...document.querySelectorAll('#galLista .gal-tarjeta')]; document.querySelector('#galMarcarVisibles').click(); true`);
+    const pasosDeMarcar = [`${await cuentaDeMarcadas('/^10 series/', 'las diez marcadas')}: ${(await tildadas()).split(', ').length} tildadas`];
+    await tocarTarjeta('Cometa', `.querySelector('input')`);
+    pasosDeMarcar.push(`${await cuentaDeMarcadas('/^9 series/', 'nueve marcadas')}: sin tildar, ${await en(`[...document.querySelectorAll('#galLista .gal-tarjeta')].filter(t => !t.querySelector('input').checked).map(t => t.querySelector('.gal-nombre').textContent).join(', ')`)}`);
+    await en(`document.querySelector('#galDesmarcar').click()`);
+    await cuentaDeMarcadas('/^Marcá series/', 'ninguna marcada');
+    pasosDeMarcar.push(`"Desmarcar todas": ${await tildadas()} tildada, y el botón ${await en(`document.querySelector('#galDesmarcar').hidden ? 'se va' : 'sigue'`)}`);
+    eq('marcar y desmarcar (las que se ven, una casilla, todas) cambia las casillas y la cuenta sin volver a dibujar la galería: las tarjetas son los mismos nodos',
+      `${pasosDeMarcar.join(' → ')} · ${await en(`(() => { const ahora = [...document.querySelectorAll('#galLista .gal-tarjeta')], antes = window.__antes; window.__antes = null; return antes.length === ahora.length && antes.every((n, i) => n === ahora[i]) ? 'los mismos nodos' : 'se volvió a dibujar'; })()`)} · en el programa: ${api.galerias.de(g1.url).titulos.filter(t => t.marcada).length} marcadas`,
+      '10 series marcadas: 10 tildadas → 9 series marcadas: sin tildar, Cometa → "Desmarcar todas": ninguna tildada, y el botón se va · los mismos nodos · en el programa: 0 marcadas');
 
     // Una sola página, una tapa que no carga, y los filtros (por separado y combinados)
     const g2 = await sitioG();
@@ -1128,6 +1174,16 @@ module.exports = async function probar(api) {
     const g5 = await sitioG();
     eq('una barra de solo números, sin nada que marque la siguiente: la exploración no la sigue, y la galería no dice que terminó', galEn(await api.galerias.recorrer({ url: g5.url + '/solo/' })) + ` · pidió: ${g5.pedidos.listados.join(', ')}`,
       'incompleta (el listado sigue en páginas numeradas (por lo menos hasta la 3), pero no tiene un enlace a la página siguiente que la exploración sepa seguir) · 1 pág. · 3: Uva, Vino, Yerba · pidió: solo 1');
+    // (Alfa y Beta, que la comprobación de más abajo espera bajados, los bajó la suite mucho antes. Si
+    // esta sección corre sola —node tests/seccion.js— nadie los bajó: los baja ella, y al final los saca.
+    // Hasta la 0.11.1 esa comprobación fallaba con la sección sola: 41 de 42)
+    const faltabaBajar = !api.revisarTitulos({ nombres: ['Alfa', 'Beta'] }).every(m => m && m.bajados);
+    if (faltabaBajar) {
+      api.encolar([{ url: `${S}/leer/alfa-1/`, texto: 'Capítulo 1', numero: 1 }], { carpeta: tmp, formatos: soloPdf });
+      api.encolar([{ url: `${S}/ver/9000001`, texto: 'Capítulo 1', numero: 1 }], { carpeta: tmp, serie: 'Beta', formatos: soloPdf });
+      await api.colaVacia();
+      api.limpiar();
+    }
     // Uno que carga al bajar, entrando por la portada del sitio (que tiene el link a su listado completo)
     const rDir = await api.galerias.recorrer({ url: S + '/' });
     eq('la portada de un sitio con link a su listado completo: va a ese, que carga al bajar, y no se queda en la primera tanda', galEn(rDir),
@@ -1208,6 +1264,57 @@ module.exports = async function probar(api) {
       `${galEn(retomada)} · ${h2.length} pedidos de la página 2 · ${h2[1] - h2[0] >= 1950 ? 'a los 2 s o más' : 'a los ' + (h2[1] - h2[0]) + ' ms'} · pidió: ${g10.pedidos.listados.join(', ')}`,
       'completa · 3 pág. · 8: Nube, Lluvia, Viento, Trueno, Rayo, Niebla, Granizo, Helada · 2 pedidos de la página 2 · a los 2 s o más · pidió: ocupado 1, ocupado 2, ocupado 2, ocupado 3');
 
+    // (0.11.2) En medio de un listado largo, y con el proxy de prueba (tests/proxy.js) contestando el
+    // 503 o el 429 de verdad delante del sitio: en la quinta página de un listado de doce. El programa
+    // usa el proxy como con MR_PROXY: lo del sitio pasa por él (y la galería queda a nombre del proxy).
+    // Lo que el proxy contestó en cada página del listado, en orden: "1 2 3 4 5 (503) 5 6…"
+    const porElProxy = (p) => p.pedidos.filter(x => /^\/largo\/(?:\?p=\d+)?$/.test(x.ruta)).map(x => (x.ruta.split('p=')[1] || '1') + (x.codigo === 200 ? '' : ` (${x.codigo})`)).join(' ');
+    const g15 = await sitioG();
+    const proxy503 = await iniciarProxy({ sitio: g15.url, reglas: [{ codigo: 503, retryAfter: '2', ruta: /^\/largo\/\?p=5$/, solo: 'paginas', veces: 1 }] });
+    try {
+      await api.usarProxy(proxy503.url);
+      await en(`document.querySelector('#galCerrar').click()`);
+      await verTodo(g15.url + '/largo/');
+      await galQuieta('la galería cortada por el 503 del proxy');
+      const freno503 = api.esperaDe(proxy503.url), antesDelCorte = await tarjetas();
+      eq('un 503 (Retry-After: 2) en la quinta página de un listado de doce, por el proxy de prueba: la galería corta ahí y dice el motivo, queda con los títulos de las cuatro páginas anteriores, y el sitio frenado lo que pidió',
+        `${await galAviso()} · ${antesDelCorte} · freno ${freno503 > 1000 && freno503 <= 2000 ? 'de entre 1 y 2 s' : freno503 + ' ms'} · el proxy contestó: ${porElProxy(proxy503)}`,
+        '⚠️ Quedó incompleta: el sitio pidió esperar (HTTP 503) en la página 5 del listado. Tiene lo que se juntó hasta ahí (12 títulos en 4 páginas). Con "Seguir desde donde quedó" continúa. · Río Azul, Río Blanco, Río Claro, Monte Azul, Monte Blanco, Monte Claro, Valle Azul, Valle Blanco, Valle Claro, Lago Azul, Lago Blanco, Lago Claro · freno de entre 1 y 2 s · el proxy contestó: 1 2 3 4 5 (503)');
+      await en(`document.querySelector('#galSeguir').click()`);
+      await galQuieta('la galería retomada después del 503');
+      const todos503 = (await tarjetas()).split(', '), h5 = proxy503.pedidos.filter(x => x.ruta === '/largo/?p=5').map(x => x.hora);
+      eq('  al retomar ("Seguir desde donde quedó") espera el freno, vuelve a pedir la quinta y llega al final: no se pierde ni se repite ningún título de las cuatro primeras páginas, y esas no se vuelven a pedir',
+        `${await galAviso()} · ${todos503.length} títulos, ${new Set(todos503).size} distintos · los 12 primeros ${todos503.slice(0, 12).join(', ') === antesDelCorte ? 'son los mismos, en el mismo orden' : 'cambiaron: ' + todos503.slice(0, 12).join(', ')} · la quinta se volvió a pedir ${h5[1] - h5[0] >= 1950 ? 'a los 2 s o más' : 'a los ' + (h5[1] - h5[0]) + ' ms'} · el proxy contestó: ${porElProxy(proxy503)}`,
+        'Es del FECHA: 36 títulos en 12 páginas. Se refresca cuando tocás Refrescar, no sola. · 36 títulos, 36 distintos · los 12 primeros son los mismos, en el mismo orden · la quinta se volvió a pedir a los 2 s o más · el proxy contestó: 1 2 3 4 5 (503) 5 6 7 8 9 10 11 12');
+    } finally {
+      await api.usarProxy(null);
+      await proxy503.cerrar();
+    }
+    // Lo mismo con un 429 que no dice cuánto esperar: el freno es de un minuto. No se espera el minuto:
+    // se mira que al retomar no le pida nada al sitio mientras el freno está puesto, y la prueba lo saca.
+    const g16 = await sitioG();
+    const proxy429 = await iniciarProxy({ sitio: g16.url, reglas: [{ codigo: 429, retryAfter: null, ruta: /^\/largo\/\?p=5$/, solo: 'paginas', veces: 1 }] });
+    try {
+      await api.usarProxy(proxy429.url);
+      const corte429 = await api.galerias.recorrer({ url: g16.url + '/largo/' });
+      const freno429 = api.esperaDe(proxy429.url), antes429 = corte429.galeria.titulos.map(t => t.url).join(' ');
+      eq('un 429 sin cabecera en la quinta página, por el proxy: corta igual, con el motivo y lo de las cuatro anteriores, y el sitio queda frenado un minuto',
+        `${corte429.galeria.estado} (${corte429.galeria.motivo}) · ${corte429.galeria.titulos.length} títulos en ${corte429.galeria.paginas} páginas · se puede seguir: ${corte429.galeria.sePuedeSeguir} · freno ${minuto(freno429)} · el proxy contestó: ${porElProxy(proxy429)}`,
+        'incompleta (el sitio pidió esperar (HTTP 429) en la página 5 del listado) · 12 títulos en 4 páginas · se puede seguir: true · freno entre 55 y 60 s · el proxy contestó: 1 2 3 4 5 (429)');
+      const retomada429 = api.galerias.recorrer({ url: corte429.galeria.inicio, modo: 'seguir' });
+      await dormir(1500);
+      const conElFreno = `${porElProxy(proxy429)} · freno ${minuto(api.esperaDe(proxy429.url))}`;
+      api.olvidarEsperas();
+      const fin429 = (await retomada429).galeria, urls429 = fin429.titulos.map(t => t.url);
+      eq('  al retomar con el freno puesto no le pide nada al sitio; cuando el freno se va, vuelve a pedir la quinta y termina, sin perder ni repetir títulos de las cuatro primeras páginas',
+        `a 1,5 s de retomar: ${conElFreno} → ${fin429.estado} · ${fin429.paginas} páginas · ${urls429.length} títulos, ${new Set(urls429).size} distintos · los 12 primeros ${urls429.slice(0, 12).join(' ') === antes429 ? 'son los mismos, en el mismo orden' : 'cambiaron'} · el proxy contestó: ${porElProxy(proxy429)}`,
+        'a 1,5 s de retomar: 1 2 3 4 5 (429) · freno entre 55 y 60 s → completa · 12 páginas · 36 títulos, 36 distintos · los 12 primeros son los mismos, en el mismo orden · el proxy contestó: 1 2 3 4 5 (429) 5 6 7 8 9 10 11 12');
+    } finally {
+      api.olvidarEsperas();
+      await api.usarProxy(null);
+      await proxy429.cerrar();
+    }
+
     // Por dónde empieza: desde un capítulo sube sola; si no hay listado, lo dice y cae a la exploración de siempre
     const g11 = await sitioG();
     eq('desde la dirección de un capítulo: sube a su serie y de ahí al listado del sitio, y lo recorre (la primera página no se pide dos veces)',
@@ -1244,8 +1351,8 @@ module.exports = async function probar(api) {
     for (const s of sitiosG) await s.cerrar();
     await escribirSerie(serieDeAntes);                // (como estaba antes de esta sección)
     // (estas series no quedan para las pruebas que siguen, que cuentan lo que hay en el registro)
-    for (const s of ['abeja', 'barco', 'nogal']) api.quitarDelRegistro(s);
-    for (const d of ['Abeja', 'Barco', 'Nogal']) fs.rmSync(path.join(tmp, d), { recursive: true, force: true });
+    for (const s of ['abeja', 'barco', 'nogal', ...(faltabaBajar ? ['alfa', 'beta'] : [])]) api.quitarDelRegistro(s);
+    for (const d of ['Abeja', 'Barco', 'Nogal', ...(faltabaBajar ? ['Alfa', 'Beta'] : [])]) fs.rmSync(path.join(tmp, d), { recursive: true, force: true });
 
     // Favoritos: filtros por tipo y por idioma (los dos se detectan al pegar la lista, por sus títulos de grupo)
     await pegarEnFavoritos(`Zeta: ${S}/serie/zeta/\nManga en español:\nGama: ${S}/serie/gama/\nCómics en inglés:\nDelta: ${S}/serie/delta/`);
