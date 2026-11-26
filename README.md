@@ -5,7 +5,7 @@ Dos herramientas para guardar capítulos de manga y cómics como **PDF**, **CBZ*
 | | Qué es | Versión | Dónde está |
 |---|---|---|---|
 | 🧩 **La extensión** | Se usa desde Chrome, sobre la página que tenés abierta | 2.11.4 | `manga-reader-ext(ver 24-11-2026-3)/manga-reader-ext` |
-| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.11.0 | `programa/` |
+| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.11.1 | `programa/` |
 
 Funcionan por separado y comparten el mismo código para detectar páginas, armar nombres y generar los archivos. Son de uso personal, están en español y todo corre en tu máquina, sin servidor.
 
@@ -265,6 +265,17 @@ Lo que todavía le falta y cómo está armado: [programa/README.md](programa/REA
 # Actualizaciones
 
 Lo más nuevo arriba. El historial completo de la extensión está en la sección 15 de [DOCUMENTACION.md](DOCUMENTACION.md).
+
+### 26-11-2026 · Programa 0.11.1
+
+Lo que la 0.11.0 había dejado sin probar, y un arreglo que salió de ahí.
+
+- **Marcar series en una galería grande:** con 33.000 títulos, cada casilla tardaba de 0,6 a 0,7 s, porque cada marca traía de nuevo la galería entera. Ahora tarda menos de 0,1 s.
+- **La galería con un catálogo grande** (`node tests/galeria-grande.js`, nuevo): con una galería guardada de 33.000 títulos y una colección de 1.540 carpetas, abrirla lleva 0,7 s, y buscar o filtrar, menos de 50 ms. Al abrir se piden solo las 20 tapas que quedan a la vista. Nada de lo que se hace a mano pasa de un segundo.
+- **Corrida real con el tope de fábrica** (zonatmo.org, 07:18): 1.435 títulos en 60 páginas, en 5 min 28 s, todos con tapa. "Seguir desde donde quedó" sumó 144 más en 6 páginas, y "Buscar lo nuevo" de 2 series marcadas encontró 139 capítulos, sin bajar nada.
+- **El programa empaquetado:** se armó el instalador de la 0.11.1 (`programa/dist/`, 116 MB). Su paquete pasa la prueba de humo y la sección de la galería. No se instaló.
+- **Pruebas:** 292 comprobaciones del programa en 10 min 42 s (una más: lo que devuelve marcar). Las de navegador de la extensión, que no se corrían desde la 2.11.4, se corrieron de nuevo: las 14 secciones de siempre (174) y las cinco tandas de la 2.11 (28, 18, 52, 14 y 12), todas en verde.
+- **Sigue abierto:** un recorrido de horas de punta a punta (el más largo es de 66 páginas) y un 429 o un 503 que mande un sitio por su cuenta en medio de un listado.
 
 ### 25-11-2026 · Programa 0.11.0
 

@@ -4,7 +4,7 @@ Explora una página web por niveles (títulos → capítulos → páginas) y gua
 
 Todo corre en tu máquina: no hay servidor ni cuenta. Es independiente de la extensión de Chrome y usa su mismo código para detectar páginas, armar nombres y generar los archivos.
 
-**Estado: versión 0.11.0.** Funciona de punta a punta sobre los sitios de prueba. Los cambios de cada versión están en las [Actualizaciones](../README.md#actualizaciones) del README principal.
+**Estado: versión 0.11.1.** Funciona de punta a punta sobre los sitios de prueba. Los cambios de cada versión están en las [Actualizaciones](../README.md#actualizaciones) del README principal.
 
 ## Cómo abrirlo
 
@@ -261,7 +261,7 @@ node tests/proxy-real.js https://one-piece-fans2.com/manga/es/todos/1104 --codig
 | `src/freno.js` | El freno de la cola: la regla de la extensión (`esperaDelSitio` de `ajustes.js`), sin copiarla |
 | `src/galeria.js` | La galería del sitio: el recorrido del listado (por dónde empieza, cuándo para, qué guarda). Usa la exploración de siempre |
 | `src/pagina/galeria.js` | Lo de la galería que corre dentro de cada página: las tarjetas de la grilla y el aviso de páginas numeradas. No cambia el explorador |
-| `tests/` | El sitio de prueba (`sitio.js`), el proxy de prueba (`proxy.js`), las pruebas (`prueba.js`, `freno.js`, `galeria.js`) y las que usan el programa de verdad (`avisos.js` con `clic-aviso.ps1` y `limpiar-avisos.ps1`; `proxy-abierto.js`, `proxy-real.js` y `galeria-real.js` con `ventana.js`) |
+| `tests/` | El sitio de prueba (`sitio.js`), el proxy de prueba (`proxy.js`), las pruebas (`prueba.js`, `freno.js`, `galeria.js`) y las que usan el programa de verdad (`avisos.js` con `clic-aviso.ps1` y `limpiar-avisos.ps1`; `proxy-abierto.js`, `proxy-real.js`, `galeria-real.js` y `galeria-grande.js` con `ventana.js`) |
 
 - **El código compartido no se copia a mano.** `generar.js` saca de la extensión las funciones de detección, nombres y capítulos (`content.js`), el agrupado por tomos (`agrupar.js`), la plantilla de nombres (`plantilla.js`), el armado de archivos (`offscreen.js`), la lectura de una lista de links pegada (`sitios.js`) y la lectura de las sagas (`opciones.js`). Un arreglo en la extensión llega al programa la próxima vez que se abre. El instalador lleva adentro la copia del momento en que se armó.
 - **Las páginas web corren aisladas:** sin acceso a Node ni al disco, sin poder abrir ventanas, bajar archivos por su cuenta ni pedir permisos.
@@ -275,7 +275,7 @@ node tests/proxy-real.js https://one-piece-fans2.com/manga/es/todos/1104 --codig
 npm run prueba
 ```
 
-Corren dentro de Electron contra un sitio de prueba servido en la máquina, y tardan 10 min 47 s (la 0.10.4, con 234, tardaba 7 min 46 s). Son 291 comprobaciones:
+Corren dentro de Electron contra un sitio de prueba servido en la máquina, y tardan 10 min 42 s (la 0.10.4, con 234, tardaba 7 min 46 s). Son 292 comprobaciones:
 
 - **Explorar:** portada, catálogo paginado, directorio que carga al bajar, serie y capítulo.
 - **Portada con tapas:** que no pase por capítulo (y que un capítulo con tapas al final lo siga siendo), que cada título traiga su tapa y que la miniatura se pida con el Referer del sitio.
@@ -310,7 +310,8 @@ Aparte están las pruebas con el programa de verdad. No son parte de `npm run pr
 - **Sobre el programa instalado:** `"%LOCALAPPDATA%\Programs\Manga Reader\Manga Reader.exe" --prueba --avisos --pruebas=<carpeta tests de este repositorio>` (el instalado no trae las pruebas).
 - **`MR_PROXY` con el programa ya abierto:** `npm run proxy-abierto` abre el programa dos veces, la segunda con el proxy, y comprueba que la ventana que estaba lo diga y que su botón lo vuelva a abrir con el proxy. Usa una carpeta de datos aparte (`MR_DATOS`), y lee y toca la ventana por el protocolo de depuración (`tests/ventana.js`).
 
-- **La galería de un sitio de verdad:** `node tests/galeria-real.js <dirección> [tope]` abre el programa con una carpeta de datos aparte, toca "Ver todo el sitio" y cuenta el avance, cómo quedó, cuántos títulos y páginas, y qué pasó con las tapas. No deja nada.
+- **La galería de un sitio de verdad:** `node tests/galeria-real.js <dirección> [tope]` abre el programa con una carpeta de datos aparte, toca "Ver todo el sitio" y cuenta el avance, cómo quedó, cuántos títulos y páginas, y qué pasó con las tapas. No deja nada. Con `SEGUIR=<páginas>` toca después "Seguir desde donde quedó" con ese tope, y con `NUEVO=<n>` marca los primeros n títulos y toca "Buscar lo nuevo" (no baja nada).
+- **La galería con un catálogo grande** (0.11.1): `node tests/galeria-grande.js [títulos] [carpetas de la colección]` arma una galería ya guardada de 33.000 títulos, una colección de 1.500 carpetas y un registro, abre el programa de verdad sin mostrar la ventana y mide lo que se hace a mano: abrir la galería, buscar, filtrar, marcar, mostrar más. No le pide nada a internet. Sale con 1 si algo tarda más de un segundo. No es parte de `npm run prueba` porque mide tiempos.
 
 Los resultados, con fecha y hora, están en las secciones 11 y 16 de [DOCUMENTACION.md](../DOCUMENTACION.md).
 

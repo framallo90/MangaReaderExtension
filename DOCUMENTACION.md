@@ -1377,7 +1377,7 @@ La galería se guarda por sitio (su origen: `https://sitio.com`), con su fecha, 
 
 ### 16.8 Qué no recorre, y por qué
 
-- **Un catálogo grande entero, de una:** cada página lleva unos 6 s (lo que tarda la exploración en dejar que la página termine de armarse, más la pausa). En zonatmo.org, 12 páginas tardaron 72 s; su Biblioteca tiene unas 1.360 páginas (unos 33.000 títulos): entera son unas 2 horas y cuarto, y con el tope de fábrica (60) una corrida trae 1.440 títulos en 6 minutos. Se sube el tope o se sigue de a corridas; lo juntado se va guardando.
+- **Un catálogo grande entero, de una:** cada página lleva unos 6 s (lo que tarda la exploración en dejar que la página termine de armarse, más la pausa). En zonatmo.org, 12 páginas tardaron 72 s; su Biblioteca tiene unas 1.360 páginas (unos 33.000 títulos): entera son unas 2 horas y cuarto. Con el tope de fábrica (60), medido el 26-11-2026: 1.435 títulos en 5 min 28 s. Se sube el tope o se sigue de a corridas; lo juntado se va guardando.
 - **Una barra de páginas de solo números,** sin nada que marque la siguiente: la exploración no la sigue. La galería lee la primera página y lo dice.
 - **Un listado con tapas del tamaño de una página** (250 × 600 px o más) cuyos títulos cuelgan de la dirección del propio listado (`/manga/` → `/manga/serie/`): la exploración lo toma por un capítulo (para ella esas direcciones son partes de la misma página, como las de un lector), y la galería dice que no hay listado. Con miniaturas, que es lo habitual en un catálogo, no pasa.
 - **Más de 30 pantallas de un listado que carga al bajar:** la exploración baja hasta ahí. La galería queda incompleta y lo dice; no hay por dónde seguir.
@@ -1390,15 +1390,15 @@ La galería se guarda por sitio (su origen: `https://sitio.com`), con su fecha, 
 
 - **`galerias.json`** (carpeta de datos del programa): `{ sitio: { sitio, inicio, listaIds, conTapas, fecha, refresco, paginas, estado, motivo, siguiente, titulos } }`. Cada título: `{ url, nombre, detalle, imagen, pagina, tipo, idioma, alta, vista, desaparecida, marcada }`. `pagina` es la del listado donde se vio (de ahí sale el Referer de su tapa); `vista`, el recorrido en el que apareció por última vez.
 - **`config.galeria`:** `{ tope, filtros: { tengo, tapa, tipo, idioma, desaparecidas } }`.
-- **Lo que pide la interfaz** (`mr.galeria` en `preload_ui.js`): `de(dirección)` (la guardada, sin recorrer), `recorrer({ url, tope, modo: 'nueva' | 'refrescar' | 'seguir' })`, `cancelar()`, `marcar({ sitio, urls, marcada })`, `buscarNuevo(sitio)`, `encolarNuevo(sitio)`, `marcas(sitio)` (solo lo que ya tenés de cada título), `olvidar(sitio)`. El avance llega por el evento `galeria`, con los títulos que sumó cada página.
+- **Lo que pide la interfaz** (`mr.galeria` en `preload_ui.js`): `de(dirección)` (la guardada, sin recorrer), `recorrer({ url, tope, modo: 'nueva' | 'refrescar' | 'seguir' })`, `cancelar()`, `marcar({ sitio, urls, marcada })` (desde la 0.11.1 devuelve solo las direcciones que quedaron así, no la galería entera), `buscarNuevo(sitio)`, `encolarNuevo(sitio)`, `marcas(sitio)` (solo lo que ya tenés de cada título), `olvidar(sitio)`. El avance llega por el evento `galeria`, con los títulos que sumó cada página.
 - **En la página:** `tarjetasDelListado` (las tarjetas de la grilla) y `paginasNumeradas` (si el listado sigue en páginas numeradas), en `src/pagina/galeria.js`. `scripts/generar.js` lo pone después de `explorar.js`.
 - **Constantes** (`src/galeria.js`): `TOPE_DEFECTO` 60 · `TOPE_MAX` 5.000 · `PASOS_PARA_SUBIR` 8 · `SIN_NUEVOS_PARA_CORTAR` 2 · `GUARDAR_CADA` 5. En la interfaz, `GAL_TANDA` 600.
 
 ### 16.10 Cómo se probó
 
-**En `npm run prueba`** (291 comprobaciones en total, en 10 min 47 s; eran 234):
+**En `npm run prueba`** (292 comprobaciones en total desde la 0.11.1, en 10 min 42 s; la 0.11.0 tenía 291 en 10 min 47 s, y la 0.10.4, 234):
 
-- **En Node, con un sitio de mentira** (`node tests/galeria.js`, 15): la dirección de un título, subir por la dirección, qué es cada página, el tipo y el idioma; cómo se suman a los títulos de la exploración las otras tarjetas de la grilla; que la galería se guarde en el disco y se vuelva a leer (en las pruebas el programa no escribe nada); que un refresco cortado por el tope no marque desaparecidas y, al seguirlo hasta el final, sí; que un título que vuelve deje de estarlo; y un recorrido largo interrumpido (el programa que se cierra de golpe y el que sale ordenado).
+- **En Node, con un sitio de mentira** (`node tests/galeria.js`, 16; la 0.11.1 sumó que marcar devuelva solo las direcciones que cambió): la dirección de un título, subir por la dirección, qué es cada página, el tipo y el idioma; cómo se suman a los títulos de la exploración las otras tarjetas de la grilla; que la galería se guarde en el disco y se vuelva a leer (en las pruebas el programa no escribe nada); que un refresco cortado por el tope no marque desaparecidas y, al seguirlo hasta el final, sí; que un título que vuelve deje de estarlo; y un recorrido largo interrumpido (el programa que se cierra de golpe y el que sale ordenado).
 - **Contra el sitio de prueba** (`iniciar({ galeria: true })`, un sitio por caso; 42), por la interfaz y por el programa:
   - Un listado de 3 páginas con "Siguiente": los 10 títulos de las tres, en orden y sin repetir; se ve la galería y no la ruta, las pestañas ni la lista.
   - Las tapas: 2 pedidos de cada una (la página y el programa), el del programa con el Referer de la página del listado donde la vio; ninguna rechazada por no traerlo; y también con la grilla a más de 400 px del borde de arriba. Una que no existe: la inicial.
@@ -1434,4 +1434,56 @@ La galería se guarda por sitio (su origen: `https://sitio.com`), con su fecha, 
 3. Las tapas no se pedían si la grilla quedaba a más de 400 px del borde de arriba: la imagen sin cargar estaba oculta de una forma que le borraba la posición, y lo que se mira para pedirla es si su lugar quedó a la vista. Apareció al correr la suite entera (con la grilla a 576 px llegaban 0 de 10; ahora, las 10).
 4. La ventana del programa de prueba aparecía en la pantalla, y en la primera corrida alguien la usó y la cerró en el medio. Ahora esas pruebas abren el programa sin mostrar la ventana.
 
-**No se probó:** un recorrido de horas de punta a punta (el más largo fue de 12 páginas); un sitio real que conteste 429 o 503 en medio del listado (se probó con el sitio de prueba); la galería con decenas de miles de títulos en pantalla (las tandas de 600 se probaron con cientos); y "Buscar lo nuevo" contra un sitio real.
+**Lo que la 0.11.0 dejó sin probar** lo cubrió la 0.11.1 al día siguiente (16.11): la galería con decenas de miles de títulos en pantalla, una corrida real con el tope de fábrica, "Seguir desde donde quedó" y "Buscar lo nuevo" contra un sitio real, y el programa empaquetado. **Sigue sin probarse:** un recorrido de horas de punta a punta (el más largo es de 66 páginas) y un sitio real que conteste 429 o 503 en medio del listado (se probó con el sitio de prueba).
+
+### 16.11 La 0.11.1: lo que había quedado sin probar (26-11-2026)
+
+Todo el 26-11-2026, hora de Argentina.
+
+**La galería con un catálogo grande** (`node tests/galeria-grande.js [títulos] [carpetas de la colección]`, nuevo; no es parte de `npm run prueba` porque mide tiempos, y con la máquina cargada cambian). Arma una carpeta de datos aparte con una galería ya guardada de 33.000 títulos en 1.375 páginas (el tamaño de la Biblioteca de zonatmo.org: `galerias.json` pesa 10,8 MB), una colección de 1.540 carpetas (300 son de títulos de la galería y 20 se llaman parecido) y un registro de 120 capítulos, y abre el programa de verdad sin mostrar la ventana. Las tapas las sirve el sitio de prueba: no le pide nada a internet. Sale con 1 si algo de lo que se hace a mano tarda más de un segundo.
+
+| Qué | 0.11.0 (07:11) | 0.11.1 (07:36) |
+|---|---|---|
+| "Ver todo el sitio": abrir la galería guardada | 628 ms | 730 ms |
+| Tapas pedidas al abrir | 20 de 33.000 (las que quedan a la vista) | 20 de 33.000 |
+| Escribir en el buscador ("luna": 1.650 de 33.000) | 35 ms | 33 ms |
+| Cada filtro (ya tengo, me falta, tipo, sin tapa, desaparecidas) | de 12 a 44 ms | de 11 a 39 ms |
+| **Marcar una serie** | **723 ms** | **72 ms** |
+| **"Marcar las que se ven"** (98 series) | **604 ms** | **55 ms** |
+| **"Desmarcar todas"** | **623 ms** | **66 ms** |
+| "Mostrar 600 más", la primera vez | 73 ms | 48 ms |
+| "Mostrar 600 más", con 6.000 tarjetas a la vista | 287 ms | 492 ms |
+| Escribir en el buscador con 6.000 tarjetas a la vista | 58 ms | 48 ms |
+| Ponerse al día cuando termina una bajada | 537 ms | 400 ms |
+| "Volver a la galería" | 619 ms | 516 ms |
+| Memoria de la ventana | 45 MB | 54 MB |
+
+Lo que no está en negrita no cambió de una versión a la otra: la diferencia es lo que varía de una corrida a la siguiente.
+
+**Lo que encontró, y se arregló:** marcar una serie tardaba de 0,6 a 0,7 s por casilla. Cada marca devolvía la galería entera, con lo que ya tenés de cada uno de los 33.000 títulos vuelto a mirar contra la colección. Ahora `marcar` devuelve solo las direcciones que cambió y la interfaz las cambia en la galería que ya tiene: menos de 0,1 s. Lo demás ya contestaba en menos de un segundo y no se tocó. Lo que más pesa al abrir (medio segundo) es mirar, título por título, si en la colección hay una carpeta de nombre parecido; "Mostrar 600 más" vuelve a dibujar todas las tarjetas y por eso crece con cada tanda (para llegar a un título lejano está el buscador).
+
+**Una corrida real con el tope de fábrica** (07:18, `SEGUIR=6 NUEVO=2 node tests/galeria-real.js https://zonatmo.org/ 60`; las dos variables son nuevas):
+
+| Paso | Qué pasó |
+|---|---|
+| "Ver todo el sitio", con el tope en 60 | 1.435 títulos en 60 páginas (24 por página, menos 5 que se repitieron), en 5 min 28 s: 5,5 s por página. Todos con tapa; de las 24 pedidas cargaron 24. Siete tipos: Manhwa, Manhua, Manga, Doujinshi, Novela, Webtoon y Cómic. Incompleta por el tope, con el motivo |
+| "Seguir desde donde quedó", con el tope en 6 | 144 títulos más, ninguno repetido, en 31 s: 1.579 en 66 páginas. Otra vez incompleta por el tope |
+| Marcar 2 series y "Buscar lo nuevo" | Abrió la página de cada una (16,5 s en total) y dijo "Hay 139 capítulos nuevos en 2 series" (31 y 108: con una carpeta de datos vacía todos son nuevos), con el botón "Encolar lo nuevo (139 capítulos)" a la vista. No se tocó: no se bajó nada |
+
+**El programa empaquetado.** `npm run instalador` arma `programa/dist/Manga-Reader-Instalador-0.11.1.exe` (116 MB; 41 s). Del paquete que ese instalador copia (`dist/win-unpacked`), a las 07:37: la prueba de humo (`"Manga Reader.exe" --humo`) dio "HUMO OK"; `app.asar` trae `src/galeria.js`, `src/pagina/galeria.js` y un `generado/pagina.js` con los dos pedidos de la galería. Y la sección de la galería de `prueba.js`, corrida sola contra ese ejecutable (`--prueba --pruebas=<carpeta>`, 07:37, 3 min 18 s), dio lo mismo que sola contra el programa sin empaquetar: 41 de sus 42 comprobaciones y ningún error en la consola (la que falta necesita lo que bajan las secciones anteriores de la suite). No se instaló: el instalador es el mismo de la 0.10.4, que sí se instaló y se probó instalado (sección 11).
+
+**Las suites, con el repositorio como quedó.** Las de navegador de la extensión no se habían vuelto a correr desde la 2.11.4 (la extensión no cambió); se corrieron de nuevo, de a una:
+
+| Suite | Comprobaciones | Tardó | Empezó |
+|---|---|---|---|
+| Programa: `npm run prueba` | 292 | 10 min 42 s | 07:25 |
+| Programa, la galería en Node: `node tests/galeria.js` | 16 | menos de 1 s | 07:52 |
+| Extensión en Node: `bash tests/correr.sh` | 601 | 10 s | 07:52 |
+| Extensión en el navegador, las 14 secciones de siempre: `SOLO=shadow node tests/e2e.js` | 174 | 4 min 40 s | 07:40 |
+| `SOLO=iframes,cola,insignia node tests/e2e_211.js` | 28 | 2 min 10 s | 07:45 |
+| `SOLO=ritmo,espera node tests/e2e_211.js` | 18 | 1 min 18 s | 07:47 |
+| `SOLO=orden,adaptadores,carpeta,pegar,teclado,menores node tests/e2e_211.js` | 52 | 1 min 9 s | 07:48 |
+| `SOLO=fondos node tests/e2e_211.js` | 14 | 48 s | 07:50 |
+| `SOLO=imagenes node tests/e2e_211.js` | 12 | 1 min 19 s | 07:50 |
+
+Todas en verde.
