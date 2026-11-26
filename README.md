@@ -279,7 +279,8 @@ Lo que quedaba abierto de la galería, cerrado punto por punto.
 - **Un 503 y un 429 en la quinta página de un listado, con el proxy de prueba:** la galería corta, dice el motivo y deja el sitio frenado. Al retomar no pierde ni repite ningún título, y no vuelve a pedir las páginas que ya tenía.
 - **Una corrida larga** (`node tests/galeria-larga.js`, nuevo): un catálogo de prueba de 300 páginas con 12 títulos cada una, de punta a punta, en 23 min 38 s (12,7 páginas por minuto), sin repetir ni perder ninguno de los 3.600. La primera vez la ventana terminó usando 2,5 veces la memoria del principio, porque la galería se volvía a dibujar entera con cada página. Ahora suma las tarjetas al final, y terminó en 1,86 veces.
 - **Pruebas:** 306 comprobaciones del programa en 12 min 20 s (eran 292).
-- **Sigue abierto:** un 429 o un 503 que mande un sitio por su cuenta, y una corrida de horas contra un sitio real (la de 300 páginas es un recorte, con un catálogo de prueba).
+- **Lo instalado es lo commiteado:** el paquete sobre el que se corrió todo es igual, archivo por archivo, al código commiteado, y la suite sobre lo commiteado dio 306 de 306 en 12 min 18 s.
+- **Sigue abierto:** un 429 o un 503 que mande un sitio por su cuenta; una corrida de horas contra un sitio real (la de 300 páginas es un recorte, con un catálogo de prueba); `npm run avisos` contra el programa de desarrollo, que no se volvió a correr después de cambiar la prueba (solo contra el instalado); e instalar con el asistente, en otra carpeta o para todos los usuarios (se instaló en silencio).
 
 ### 26-11-2026 · Programa 0.11.1
 

@@ -1095,10 +1095,21 @@ Los siete puntos de la 0.11.2, con sus resultados, están en la [sección 16.12]
 | 10:45:15 a 11:09:02 | La corrida de 300 páginas: `EJECUTABLE="…\Manga Reader.exe" node tests/galeria-larga.js` | **7 de 7.** Completa, 3.600 títulos sin repetir ni perder, 23 min 38 s (12,7 páginas por minuto), la ventana de 28,6 a 53,1 MB (1,86 veces). Detalle en 16.12, punto 7 |
 | 15:16:29 a 15:16:55 | Desinstalar (`Uninstall Manga Reader.exe /currentuser /S`) y `tests/limpiar-avisos.ps1 -Ejecutable "…\Manga Reader.exe"` | Se fueron la carpeta, la clave de desinstalación y los dos accesos directos. La limpieza borró lo que habían dejado los avisos (la clave CLSID de los botones y el ajuste de avisos del programa). Después, `-Mirar`: "estado limpio", como antes de instalar. Los datos del programa (`%APPDATA%\manga-reader-programa`) no se tocaron |
 
+**Lo instalado es lo commiteado.** Todo lo de esta tabla se corrió antes de los commits: el paquete se armó a las 10:27 y el código quedó en `72ffc15` a las 15:22. Se comparó a las 15:52, antes de la suite de abajo, y otra vez a las 16:05:25, después: las dos veces dio lo mismo. Los 20 archivos de `dist/win-unpacked/resources/app.asar` se leyeron con `@electron/asar` 3.4.1 (el de `node_modules`) y se compararon con el commit por el SHA-256 de sus bytes (`git cat-file blob 72ffc15:programa/<archivo>`):
+
+- **`src/`:** los 13 archivos del commit están en el paquete, y ningún otro. Doce son iguales byte a byte, entre ellos `src/galeria.js`, `src/main.js`, `src/ui/ui.js`, `src/ui/index.html` y `src/ui/ui.css`. El otro, `src/pagina/explorar.js` (que la 0.11.2 no tocó), difiere solo en los finales de línea: el repositorio lo guarda con LF (42.197 bytes), la copia de trabajo lo tiene con CRLF (`core.autocrlf=true`, 665 líneas: 42.862 bytes) y el paquete sale de la copia de trabajo. Contra la copia de trabajo, que es lo que da sacar `72ffc15` en esta máquina, los 13 son iguales byte a byte, y `git diff 72ffc15 -- programa/src` está vacío.
+- **`package.json`:** el nombre, la versión (0.11.2), `main`, la descripción y el autor son iguales. electron-builder le saca `scripts`, `devDependencies` y `build`.
+- **`generado/`:** no está en git. Lo arma `scripts/generar.js` a partir de la extensión, que no cambia desde el 25-11-2026 a las 07:42 (`1674036`). Los 6 archivos son iguales byte a byte a los que se generaron hoy a las 15:52.
+- **El instalador** (`Manga-Reader-Instalador-0.11.2.exe`, 10:27:40) salió de esa misma armada del paquete (10:27:16).
+
+No hizo falta rearmar ni volver a instalar: la tabla de arriba vale para `72ffc15`. Y `npm run prueba` sobre lo commiteado (`304ebbc`, que cambia solo la documentación de `72ffc15`, con la copia de trabajo sin cambios antes y después): **306 de 306, de 15:52:56 a 16:05:14 (12 min 18 s).**
+
 **Las dos corridas de avisos que fallaron antes, y por qué** (10:33:35 y 10:36:43): la primera dio 2 de 4 y la segunda 0 de 4. No era el programa ni el instalador: **la pantalla estaba apagada**. Nadie tocaba la máquina desde las 09:07, y con la pantalla apagada Windows no muestra los avisos: los manda derecho al centro de notificaciones. La prueba los encontraba ahí, sin lugar en la pantalla (el botón con el rectángulo vacío), y fallaba con un error sin sentido ("No se puede convertir el valor NaN"). A las 10:41 se leyó el estado de la pantalla (apagada), a las 10:42 se la prendió moviendo el puntero un píxel y devolviéndolo, y la corrida de las 10:43 dio 4 de 4. La prueba quedó corregida en dos cosas:
 
 - **`clic-aviso.ps1`:** un aviso que está pero sin lugar en la pantalla cuenta como que no apareció, y lo dice ("NO APARECIÓ EN PANTALLA: … pasa con la pantalla apagada o con No molestar"). `avisos.js` lo pasa tal cual.
 - **`avisos.js`:** antes de esperar el aviso siguiente, espera a que el anterior se haya ido de la pantalla (`sinAvisoEnPantalla`; en la corrida buena tardó 1,8 y 1,6 s). El anterior tiene los mismos botones, y si el que aprieta arranca antes lo encuentra a él.
+
+Con estos dos cambios, la prueba de avisos se corrió solo contra el instalado (10:43, 4 de 4). **`npm run avisos` contra el programa de desarrollo no se volvió a correr:** queda abierto ("No probado", más abajo).
 
 **A mano, con el programa instalado** (los avisos tienen sus propios pasos en "Programa 0.10.4", más arriba; estos son los de la galería):
 
@@ -1163,7 +1174,7 @@ El 22-11-2026, con la 2.8.4 y con ventana (pestañas en segundo plano como en el
   - **Un 429 o un 503 que mande un sitio por su cuenta.** Sigue abierto al 25-11-2026: ver el final de "Programa 0.10.4". El proxy inyecta, no observa.
   - **Los 5 s que se retiene el primer aviso** salen de lo medido en esta máquina (con 2 s alcanzó, 4 de 4). Windows no dice cuándo terminó de tomar un acceso directo nuevo: en otra máquina puede tardar más, y ahí ese primer aviso quedaría en el centro de notificaciones (Win + N). Pasa una sola vez, en el primer arranque con `npm start`; el programa instalado no lo necesita.
   - **El primer aviso con el programa abierto a mano.** Se probó con `npm run avisos` y con la misma prueba sobre el instalado (el mismo arranque y el mismo `prepararAvisos`), que encolan solos; con una cola lanzada a mano desde la ventana no se miró.
-  - **Instalar con el asistente.** La instalación fue en silencio (`/S`), para el usuario actual y en la carpeta de siempre; elegir otra carpeta o instalar para todos los usuarios no se probó. El instalador sigue sin firma.
+  - **Instalar con el asistente.** La instalación fue en silencio (`/S`), para el usuario actual y en la carpeta de siempre; elegir otra carpeta o instalar para todos los usuarios no se probó. El instalador sigue sin firma. Con la 0.11.2 (26-11-2026) tampoco: también se instaló en silencio.
   - **Cortar un intento mientras busca las páginas** (el recorrido de la página, antes de bajar): es el mismo mecanismo que mientras la página abre (el pedido a la ventana falla cuando se cierra), pero no tiene una comprobación propia. Y Cancelar y Reintentar se prueban llamando a su manejador, no con un clic en la ventana.
   - **`MR_PROXY` con el programa ya abierto, entre uno instalado y uno abierto con `npm start`:** la prueba usa dos del mismo.
 
@@ -1174,6 +1185,7 @@ El 22-11-2026, con la 2.8.4 y con ventana (pestañas en segundo plano como en el
   - **Una corrida de horas de verdad contra un sitio real.** La de 300 páginas de la 0.11.2 es un recorte, con un catálogo servido en esta máquina; contra un sitio real, lo más largo son 66 páginas.
   - **Una marca hecha en el último segundo y medio antes de que el programa muera sin cerrarse** (administrador de tareas, corte de luz) se pierde: las marcas se escriben juntas (16.12, punto 1). Cerrándolo, no.
   - **Los avisos de Windows con la pantalla apagada** no salen en pantalla (van al centro de notificaciones): es de Windows, y la prueba de avisos ahora lo dice en vez de fallar raro.
+  - **`npm run avisos` contra el programa de desarrollo** no se volvió a correr después de cambiar `avisos.js` y `clic-aviso.ps1` en la 0.11.2: solo se corrió contra el instalado (10:43, 4 de 4).
 
 #### A mano: los botones de la notificación del lote
 
@@ -1619,6 +1631,7 @@ Siete puntos que la 0.11.1 dejó abiertos o a medio decir. De cada uno: qué pas
 | Suite | Comprobaciones | Tardó | Empezó |
 |---|---|---|---|
 | Programa: `npm run prueba` | 306 (eran 292) | 12 min 20 s | 10:14 |
+| Lo mismo, sobre lo commiteado (`304ebbc`, sin cambios en la copia de trabajo) | 306 | 12 min 18 s | 15:52 |
 | Programa, la galería en Node: `node tests/galeria.js` | 20 (eran 16) | 4,4 s (las nuevas esperan el segundo y medio de las marcas) | 15:17 |
 | La sección de la galería, sola: `node tests/seccion.js` | 53 | 5 min 44 s | 15:16 |
 | Lo mismo, sobre el instalado | 53 | 5 min 1 s | 10:28 |
@@ -1643,3 +1656,7 @@ Todas en verde.
 
 - **Un 429 o un 503 que mande un sitio por su cuenta.** Los de estas pruebas los pone el proxy o el sitio de prueba: dicen qué hace el programa con esa respuesta, no qué manda un sitio cuando de verdad se satura.
 - **Una corrida de horas de verdad.** La de 300 páginas es un recorte: 24 minutos contra un catálogo servido en esta máquina. La Biblioteca de zonatmo.org son unas 1.360 páginas y más de dos horas; contra un sitio real, lo más largo sigue siendo 66 páginas (16.11).
+- **`npm run avisos` contra el programa de desarrollo** no se volvió a correr después de cambiar `avisos.js` y `clic-aviso.ps1`: solo se corrió contra el instalado (10:43, 4 de 4).
+- **Instalar con el asistente** (en otra carpeta, para todos los usuarios) no se probó: la 0.11.2 se instaló en silencio, como la 0.10.4. Está anotado en la sección 11, "No probado", "De la 0.10.4 (el programa)".
+
+**Lo instalado es lo commiteado:** el paquete de las 10:27, sobre el que se corrió todo lo del punto 4, es igual a `72ffc15` (comparado archivo por archivo a las 15:52 y a las 16:05; el método y el resultado, en la sección 11, "Programa 0.11.2").
