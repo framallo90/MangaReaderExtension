@@ -366,12 +366,16 @@ function crearGalerias(d) {
     return true;
   }
 
+  // Marca o desmarca series. Devuelve las direcciones de las que quedaron así, y la interfaz las cambia
+  // en la galería que ya tiene: devolverla entera (con lo que ya tenés de cada título vuelto a mirar)
+  // hacía tardar cada casilla 0,7 s en una galería de 33.000 títulos
   function marcar({ sitio, urls, marcada } = {}) {
     const g = guardada(sitio);
     const claves = new Set((Array.isArray(urls) ? urls : []).map(claveDe));
-    for (const t of g.titulos) if (claves.has(claveDe(t.url))) t.marcada = !!marcada;
+    const hechas = [];
+    for (const t of g.titulos) if (claves.has(claveDe(t.url))) { t.marcada = !!marcada; hechas.push(t.url); }
     escribir();
-    return publica(g);
+    return hechas;
   }
 
   // "Buscar lo nuevo" de las series marcadas: abre la página de cada una, de a una, con la pausa y el

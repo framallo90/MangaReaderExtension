@@ -53,7 +53,8 @@ async function probarGaleria(eq) {
     const s = sitioDeMentira(paginas);
     const a = crearGalerias({ ...s.deps, PRUEBA: false, archivo: () => archivo });
     const r1 = await a.recorrer({ url: s.dir(1) });
-    a.marcar({ sitio: s.S, urls: [`${s.S}/lista/bea`], marcada: true });        // (sin la barra final: es la misma dirección)
+    const marcadas = a.marcar({ sitio: s.S, urls: [`${s.S}/lista/bea`, `${s.S}/lista/no-esta/`], marcada: true });        // (sin la barra final: es la misma dirección)
+    eq('marcar devuelve las direcciones de las series que quedaron marcadas (como están en la galería), no la galería entera', marcadas.join(', ').split(s.S).join(''), '/lista/bea/');
     const b = crearGalerias({ ...s.deps, PRUEBA: false, archivo: () => archivo });
     b.leer();
     const leida = b.de(s.S + '/cualquier/pagina');

@@ -6,6 +6,8 @@
 //
 // Uso: node tests/galeria-real.js <dirección> [tope de páginas] [cuántas tapas pedir]
 //   node tests/galeria-real.js https://one-piece-fans2.com/manga/es/todos/1104 3
+// Con SEGUIR=<páginas>, después toca "Seguir desde donde quedó" con ese tope; con NUEVO=<n>, marca
+// los primeros n títulos y toca "Buscar lo nuevo" (abre la página de cada uno; no baja nada).
 // La ventana del programa no se muestra (con VENTANA=1, sí): se maneja por el protocolo de
 // depuración, con tests/ventana.js. Con CAPTURA=<archivo.png> guarda una captura de la galería.
 const fs = require('fs'), os = require('os'), path = require('path');
@@ -28,15 +30,19 @@ const hora = () => new Date().toLocaleTimeString('es-AR', { hour12: false });
     const v = await conectar(await programa.ws);
     const t0 = Date.now();
     await v.en(`(() => { const t = document.querySelector('#galTope'); t.value = ${JSON.stringify(String(tope))}; t.dispatchEvent(new Event('change')); document.querySelector('#url').value = ${JSON.stringify(url)}; document.querySelector('#verTodo').click(); })()`);
-    // El avance, cada vez que cambia lo que dice la ventana
-    let antes = '', fin = null;
-    for (const limite = Date.now() + 15 * 60000; Date.now() < limite && !fin; await dormir(500)) {
-      const e = await v.en(`(() => { const g = !document.querySelector('#galeria').hidden; return { galeria: g, recorriendo: g && !document.querySelector('#galCancelar').hidden,
-        texto: document.querySelector(g ? '#galEstado' : '#estado').textContent, libre: !document.querySelector('#verTodo').disabled }; })()`);
-      if (e.texto !== antes) { console.log(`[${hora()}] ${e.texto}`); antes = e.texto; }
-      if (e.libre && !e.recorriendo && !/^(Buscando|Recorriendo|Cancelando)/.test(e.texto)) fin = e;
-    }
-    if (!fin) throw new Error('El recorrido no terminó en 15 minutos');
+    // El avance, cada vez que cambia lo que dice la ventana, hasta que el recorrido termina
+    const hastaQueTermine = async () => {
+      let antes = '', fin = null;
+      for (const limite = Date.now() + 15 * 60000; Date.now() < limite && !fin; await dormir(500)) {
+        const e = await v.en(`(() => { const g = !document.querySelector('#galeria').hidden; return { galeria: g, recorriendo: g && !document.querySelector('#galCancelar').hidden,
+          texto: document.querySelector(g ? '#galEstado' : '#estado').textContent, libre: !document.querySelector('#verTodo').disabled }; })()`);
+        if (e.texto !== antes) { console.log(`[${hora()}] ${e.texto}`); antes = e.texto; }
+        if (e.libre && !e.recorriendo && !/^(Buscando|Recorriendo|Cancelando)/.test(e.texto)) fin = e;
+      }
+      if (!fin) throw new Error('El recorrido no terminó en 15 minutos');
+      return fin;
+    };
+    const fin = await hastaQueTermine();
     console.log(`  tardó ${((Date.now() - t0) / 1000).toFixed(1)} s`);
     if (!fin.galeria) {
       console.log('  no se armó ninguna galería. Lo que quedó a la vista, con la exploración de siempre: ' + await v.en(`[document.querySelector('#capitulo').hidden ? '' : 'un capítulo (' + document.querySelector('#capNombre').textContent + ')',
@@ -60,6 +66,32 @@ const hora = () => new Date().toLocaleTimeString('es-AR', { hour12: false });
         await dormir(1500);
         console.log(`  en la ventana: ${await v.en(`document.querySelectorAll('#galLista .gal-tarjeta').length + ' tarjetas · ' + document.querySelectorAll('#galLista .gal-tapa img[src]').length + ' con su tapa a la vista'`)}`);
       } else console.log('  tapas: el listado no trae ninguna (cada tarjeta muestra la inicial)');
+      // "Seguir desde donde quedó", con otro tope
+      if (process.env.SEGUIR && g.sePuedeSeguir) {
+        const antes = g.titulos.length, t1 = Date.now();
+        console.log(`  == "Seguir desde donde quedó", con el tope en ${process.env.SEGUIR}`);
+        await v.en(`(() => { const t = document.querySelector('#galTope'); t.value = ${JSON.stringify(String(process.env.SEGUIR))}; t.dispatchEvent(new Event('change')); document.querySelector('#galSeguir').click(); })()`);
+        await dormir(300);
+        await hastaQueTermine();
+        const g2 = await v.en(`mr.galeria.de(${JSON.stringify(g.sitio)})`);
+        const vistos = new Set(g.titulos.map(t => t.url));
+        console.log(`  tardó ${((Date.now() - t1) / 1000).toFixed(1)} s · títulos: ${g2.titulos.length} (${g2.titulos.length - antes} más; ${g2.titulos.filter(t => !vistos.has(t.url)).length} que no estaban) en ${g2.paginas} páginas · estado: ${g2.estado}${g2.motivo ? ' (' + g2.motivo + ')' : ''}`);
+      } else if (process.env.SEGUIR) console.log('  (no hay por dónde seguir: la galería quedó completa)');
+      // "Buscar lo nuevo" de los primeros títulos: abre la página de cada uno y dice qué capítulos hay que no tenés
+      if (+process.env.NUEVO > 0) {
+        const marcar = g.titulos.slice(0, +process.env.NUEVO), t2 = Date.now();
+        console.log(`  == "Buscar lo nuevo" de ${marcar.length} series marcadas: ${marcar.map(t => t.nombre).join(' | ')}`);
+        await v.en(`marcarEnGaleria(${JSON.stringify(marcar.map(t => t.url))}, true)`);
+        await v.en(`document.querySelector('#galBuscarNuevo').click()`);
+        let dicho = '';
+        for (const limite = Date.now() + 5 * 60000; Date.now() < limite; await dormir(500)) {
+          const m = await v.en(`document.querySelector('#galNuevoMsg').textContent`);
+          if (m !== dicho) { console.log(`[${hora()}] ${m}`); dicho = m; }
+          if (/^(Hay|No hay|⚠️)/.test(m)) break;
+        }
+        console.log(`  tardó ${((Date.now() - t2) / 1000).toFixed(1)} s · ${await v.en(`[...document.querySelectorAll('#galLista .gal-tarjeta')].filter(t => t.querySelector('input').checked).map(t => t.querySelector('.gal-nombre').textContent + ': ' + (t.querySelector('.gal-marca') ? t.querySelector('.gal-marca').textContent : 'sin marca')).join(' | ')`)}`);
+        console.log(`  ${await v.en(`document.querySelector('#galEncolar').hidden ? 'sin botón para encolar' : 'botón: ' + document.querySelector('#galEncolar').textContent`)} (no se toca: no se baja nada)`);
+      }
     }
     if (process.env.CAPTURA) {
       // (una captura de la ventana, por el protocolo de depuración)

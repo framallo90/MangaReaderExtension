@@ -1054,7 +1054,13 @@ mr.galeria.alAvanzar((ev) => {
 
 async function marcarEnGaleria(urls, marcada) {
   if (!gal || !urls.length) return;
-  try { gal = await mr.galeria.marcar({ sitio: gal.sitio, urls, marcada }); dibujarGaleria(); } catch (e) { galEstado('⚠️ ' + e.message, 'error'); }
+  // (vuelven solo las direcciones que quedaron marcadas o desmarcadas: se cambian acá, sin traer la galería entera)
+  try {
+    const hechas = new Set(await mr.galeria.marcar({ sitio: gal.sitio, urls, marcada }));
+    if (!gal) return;
+    for (const t of gal.titulos) if (hechas.has(t.url)) t.marcada = !!marcada;
+    dibujarGaleria();
+  } catch (e) { galEstado('⚠️ ' + e.message, 'error'); }
 }
 async function buscarNuevoEnGaleria() {
   if (!gal || galBuscando || ocupado) return;
