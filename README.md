@@ -5,7 +5,7 @@ Dos herramientas para guardar capítulos de manga y cómics como **PDF**, **CBZ*
 | | Qué es | Versión | Dónde está |
 |---|---|---|---|
 | 🧩 **La extensión** | Se usa desde Chrome, sobre la página que tenés abierta | 2.11.4 | `manga-reader-ext(ver 24-11-2026-3)/manga-reader-ext` |
-| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.10.4 | `programa/` |
+| 🖥 **El programa** | Aplicación de escritorio: pegás una dirección y explorás lo que hay | 0.11.0 | `programa/` |
 
 Funcionan por separado y comparten el mismo código para detectar páginas, armar nombres y generar los archivos. Son de uso personal, están en español y todo corre en tu máquina, sin servidor.
 
@@ -194,6 +194,7 @@ Aplicación de escritorio para Windows, hecha con Electron y JavaScript plano. H
 | 🔎 **Explorar por niveles** | De una página saca sus listas de links: títulos, capítulos numerados y en orden, y páginas. Tocar un título lo abre y muestra sus capítulos; solo los capítulos se tildan para bajar. Los géneros y filtros van en una pestaña aparte |
 | 🗃 **Encontrar el catálogo** | Si pegás la portada de un sitio y tiene un link a su listado completo ("Directorio", "Biblioteca"), entra solo, y en cualquier página lo deja a la vista como botón. Una portada llena de tapas no la confunde con un capítulo |
 | 🖼 **Tapas** | Si la página muestra la tapa de cada título, la lista se ve como un mosaico de tapas. Un botón vuelve a la lista de renglones |
+| 🌐 **Ver todo el sitio** | La galería del sitio: todos los títulos de su listado, cada uno con su tapa, juntados recorriendo las páginas del listado (con tope, Cancelar y "Seguir desde donde quedó"). Con buscador y filtros: lo que ya tengo, lo que me falta, con y sin tapa, desaparecidas, tipo e idioma. Queda guardada por sitio y se refresca cuando lo pedís. Desde ahí se abren los títulos, se marcan series y se baja lo nuevo de todas juntas |
 | 🔎 **Buscar en el sitio** | Si la página tiene buscador, queda un cuadro en el programa: escribís un nombre y muestra lo que trae el buscador del propio sitio |
 | 🧩 **Listas incompletas o escondidas** | Abre la pestaña "Capítulos", toca "Ver más" y baja los paneles con barra propia. Si la página muestra solo el primer capítulo y el último, "Completar" suma los del medio por número |
 | 📑 **Listados largos** | Baja hasta el final para ver lo que la página carga de a poco. "Traer más páginas" suma las 10 siguientes y "Traer todas" sigue hasta el final |
@@ -242,6 +243,15 @@ En la página de un capítulo, **Revisar páginas** muestra todas sus imágenes 
 - Un toque sobre una imagen la pone o la saca.
 - **Descargar N páginas** baja exactamente las elegidas.
 
+Para ver un sitio entero de una vez está **Ver todo el sitio**, al lado de Analizar. Con cualquier dirección del sitio (su listado, una serie o un capítulo) arma la galería: todos los títulos del listado, con su tapa.
+
+- Mientras recorre el listado muestra cuántas páginas y cuántos títulos lleva. **Cancelar** corta y deja lo juntado.
+- Lee hasta el **tope** de páginas (60; se cambia ahí mismo). Si el listado es más largo, dice que quedó incompleta y por qué, y **Seguir desde donde quedó** continúa.
+- Arriba están el **buscador** y los **filtros**: lo que ya tengo, lo que me falta, con tapa, sin tapa, desaparecidas y, si el sitio los dice, tipo e idioma. Se combinan, y quedan puestos para la próxima vez.
+- **Tocar una tapa** abre sus capítulos, como siempre; un botón vuelve a la galería.
+- Con la **casilla** de cada tapa se marcan series: **Buscar lo nuevo** dice qué capítulos hay que no tenés, y **Encolar lo nuevo** los baja todos.
+- La galería queda **guardada**: la próxima vez aparece al instante, con su fecha. **Refrescar** la recorre de nuevo; lo que ya no está en el sitio queda marcado como desaparecido.
+
 Para no pegar siempre las mismas direcciones está **⭐ Favoritos**. Al abrirlo aparecen el cuadro para pegar y, debajo, tu lista:
 
 - **Pegá un link o muchos** en el cuadro y quedan guardados en el momento, todos juntos. Uno por renglón y escritos como los tengas (`Nombre: https://sitio.com/ — nota`), igual que "Mis sitios" en la extensión. También sirve el archivo de sitios que exporta la extensión.
@@ -255,6 +265,22 @@ Lo que todavía le falta y cómo está armado: [programa/README.md](programa/REA
 # Actualizaciones
 
 Lo más nuevo arriba. El historial completo de la extensión está en la sección 15 de [DOCUMENTACION.md](DOCUMENTACION.md).
+
+### 25-11-2026 · Programa 0.11.0
+
+La galería del sitio: un botón nuevo, **Ver todo el sitio**, al lado de Analizar.
+
+- **Qué hace:** toma la dirección pegada y arma la galería del sitio: todos los títulos de su listado, cada uno con su tapa, con buscador y filtros. No cambia la exploración por niveles: la usa por detrás, y lo que se ve es la galería y el avance.
+- **Por dónde empieza:** si la dirección es un listado, ahí. Si es un capítulo o una serie, sube sola hasta el listado (por el link al listado completo, o por la dirección). Si el sitio no tiene un listado recorrible, lo dice con esas palabras y muestra la página con la exploración de siempre.
+- **El recorrido:** cada página se analiza con lo mismo que usa Analizar, y se pasa a la siguiente por la paginación que ya lee (enlace siguiente, números con la siguiente marcada, "Cargar más", lo que carga al bajar). Para cuando no hay más páginas, cuando dos seguidas no traen nada nuevo, al llegar al tope (60 páginas por corrida, se sube hasta 5.000) o al cancelar. Va con la pausa de la cola y respeta el freno del sitio. Lo que queda incompleto dice por qué, y "Seguir desde donde quedó" continúa.
+- **Todas las tarjetas de cada página:** en la primera prueba real (zonatmo.org) la galería traía una parte chica del catálogo, solo los manhwas. Ese sitio pone el tipo en la dirección (`/library/manga/…`, `/library/manhwa/…`) y la exploración arma una lista por tipo; la galería tomaba una sola. Ahora toma la lista y, además, las otras tarjetas con tapa de la misma grilla: 24 de 24 por página.
+- **Tapas:** las del sitio, pedidas con el Referer de la página donde se vieron. Si una no carga, un recuadro con la inicial; sin tapas, la galería funciona igual.
+- **Filtros:** por nombre, lo que ya tengo, lo que me falta, con tapa, sin tapa, desaparecidas, y tipo e idioma si el sitio los dice. Se combinan y se recuerdan.
+- **Guardada por sitio,** con su fecha: se refresca cuando lo pedís. Lo que deja de aparecer queda marcado como desaparecido, no se borra. Un recorrido largo se guarda cada 5 páginas y al cerrar el programa.
+- **Desde la galería:** tocar una tapa abre sus capítulos con la exploración de siempre; se marcan series, "Buscar lo nuevo" junta lo de todas y "Encolar lo nuevo" lo baja por la cola de siempre.
+- **Corridas reales:** contra zonatmo.org (22:03, tope 12), 284 títulos en 12 páginas en 71,7 s, de cinco tipos, y las 36 tapas pedidas cargaron. Su Biblioteca tiene unas 1.360 páginas (unos 33.000 títulos): entera son más de dos horas, y con el tope de fábrica una corrida trae 1.440. Contra one-piece-fans2.com (22:01), que no tiene catálogo, lo dice ("no tiene un listado recorrible") y muestra el capítulo con la exploración de siempre. Contra ahira.com.ar (22:05), 66 títulos en una página, completa y con sus tapas.
+- **Lo que no recorre:** una barra de páginas de solo números (lo dice y queda incompleta); un listado con tapas del tamaño de una página cuyos títulos cuelgan de su propia dirección (la exploración lo toma por un capítulo); y un catálogo grande entero de una sola vez (son horas: se sube el tope o se sigue de a corridas).
+- **Pruebas:** 291 comprobaciones (eran 234), en 10 min 47 s: 15 en Node (`node tests/galeria.js`) y 42 contra un sitio de prueba nuevo, por la interfaz y por el programa. `node tests/galeria-real.js <dirección> [tope]` hace la corrida real sin dejar nada.
 
 ### 25-11-2026 · Programa 0.10.4
 

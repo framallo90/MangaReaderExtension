@@ -4,7 +4,7 @@ Explora una página web por niveles (títulos → capítulos → páginas) y gua
 
 Todo corre en tu máquina: no hay servidor ni cuenta. Es independiente de la extensión de Chrome y usa su mismo código para detectar páginas, armar nombres y generar los archivos.
 
-**Estado: versión 0.10.4.** Funciona de punta a punta sobre los sitios de prueba. Los cambios de cada versión están en las [Actualizaciones](../README.md#actualizaciones) del README principal.
+**Estado: versión 0.11.0.** Funciona de punta a punta sobre los sitios de prueba. Los cambios de cada versión están en las [Actualizaciones](../README.md#actualizaciones) del README principal.
 
 ## Cómo abrirlo
 
@@ -49,6 +49,22 @@ Otras formas de cargar capítulos:
 
 - **Si la página es un capítulo**, aparece una tarjeta con **Descargar este capítulo** y **Revisar páginas**.
 - **Pegar links:** el botón de arriba abre un cuadro para pegar una lista de links como la tengas. Cada uno queda con su número, igual que en la extensión.
+
+### Ver todo el sitio: la galería (0.11.0)
+
+**Ver todo el sitio**, al lado de Analizar, toma la dirección pegada y arma la galería del sitio: todos los títulos de su listado, cada uno con su tapa. No cambia la exploración por niveles: la usa por detrás, y lo que se ve es la galería.
+
+- **Sirve cualquier dirección del sitio.** Si es su listado, arranca ahí (y si es la portada y tiene el link a su listado completo, entra a ese). Si es un capítulo o una serie, sube sola hasta el listado. Si el sitio no tiene un listado recorrible, lo dice con esas palabras y muestra la página con la exploración de siempre.
+- **Mientras recorre** dice cuántas páginas y cuántos títulos lleva, y las tapas van apareciendo. **Cancelar** corta en el acto y deja lo juntado.
+- **El tope:** lee hasta 60 páginas del listado por corrida (se cambia en la galería, hasta 5.000, y queda guardado). Si el listado es más largo, la galería queda incompleta y lo dice; **Seguir desde donde quedó** continúa en la página siguiente. Cada página lleva unos 6 segundos: un catálogo de 1.300 páginas son más de dos horas.
+- **Va despacio a propósito:** entre una página y la otra espera lo mismo que la cola, y si el sitio pide esperar (429 o 503) frena igual que la cola, y se puede retomar.
+- **Buscador y filtros:** por nombre; lo que ya tengo (bajaste algo con el programa o está en tu colección) y lo que me falta; con tapa y sin tapa; desaparecidas; y tipo e idioma, si las tarjetas del sitio los dicen. Se combinan y quedan puestos para la próxima vez.
+- **Las tapas son las del sitio.** Si una no carga queda un recuadro con la inicial; si el sitio no da tapas, la galería funciona igual.
+- **Queda guardada por sitio,** con su fecha: la próxima vez aparece al instante, sin pedirle nada al sitio. **Refrescar** la recorre de nuevo: lo nuevo se suma, y lo que ya no aparece queda marcado como **desaparecida** (no se borra; si vuelve, se le saca la marca). **Olvidar** la borra.
+- **Tocar una tapa** abre sus capítulos con la exploración de siempre, con su nombre puesto como serie. Un botón vuelve a la galería. Si en "Serie" había un nombre escrito a mano, queda ese (la serie escrita a mano no se pisa, como siempre): conviene borrarlo antes de pasar a otra serie.
+- **Marcar series** (la casilla de cada tapa, o "Marcar las que se ven" con los filtros puestos): **Buscar lo nuevo** dice qué capítulos hay que no tenés de cada una, y **Encolar lo nuevo** los pone todos en la cola.
+
+Lo que no recorre, y por qué, está en la sección 16 de [DOCUMENTACION.md](../DOCUMENTACION.md), con los resultados contra sitios de verdad.
 
 ### Revisar las páginas de un capítulo
 
@@ -214,7 +230,9 @@ node tests/proxy-real.js https://one-piece-fans2.com/manga/es/todos/1104 --codig
 - **Las sagas y la plantilla no se sincronizan con la extensión:** se copian a mano de una a otra. Los favoritos tampoco: son dos listas.
 - **No se conecta a Google Drive por internet:** usa la carpeta que Google Drive para ordenadores deja en la máquina. Sin eso instalado, no ve lo que tenés en el Drive.
 - **En tu colección, las series se encuentran por el nombre de su carpeta.** Si la carpeta se llama distinto que la serie, o está más de dos niveles adentro, no la ve.
-- **No recorre un sitio entero** de un saque: va nivel por nivel, y "Traer todas" para a las 50 páginas.
+- **La galería ("Ver todo el sitio") no sigue una barra de páginas de solo números,** sin nada que marque cuál es la siguiente: lee la primera página y dice que quedó incompleta. Tampoco recorre un listado con tapas del tamaño de una página cuyos títulos cuelgan de la dirección del propio listado: la exploración lo toma por un capítulo.
+- **Un catálogo grande no sale de una sola vez:** son unos 6 segundos por página. Se sube el tope o se sigue de a corridas. Explorando por niveles, "Traer todas" para a las 50 páginas.
+- **La galería es una por sitio:** si un sitio tiene varios listados (por letra, por género), recorre uno.
 - **Encuentra el catálogo por el nombre del link o por su dirección** ("Biblioteca", "Directorio", `/library`, `/series`…). Si el sitio lo llama de otra forma, hay que entrar a mano tocando su link en la lista.
 - **Los géneros se reconocen por una palabra de su dirección** (`/genero/`, `/tag/`, `?genre=`…). Si un sitio los arma de otra forma, pueden salir entre los títulos.
 - **El buscador del sitio se encuentra de tres formas:** el que el sitio declara (schema.org), un formulario de búsqueda, o un cuadro de búsqueda suelto donde el programa escribe. Si el sitio lo muestra recién al tocar una lupa, o pide iniciar sesión, no aparece.
@@ -241,7 +259,9 @@ node tests/proxy-real.js https://one-piece-fans2.com/manga/es/todos/1104 --codig
 | `build/icon.png` | El ícono del programa |
 | `generado/`, `dist/` | Se crean solos. No se editan ni se suben al repositorio |
 | `src/freno.js` | El freno de la cola: la regla de la extensión (`esperaDelSitio` de `ajustes.js`), sin copiarla |
-| `tests/` | El sitio de prueba (`sitio.js`), el proxy de prueba (`proxy.js`), las pruebas (`prueba.js`, `freno.js`) y las que usan ventanas y avisos de verdad (`avisos.js` con `clic-aviso.ps1` y `limpiar-avisos.ps1`; `proxy-abierto.js` y `proxy-real.js` con `ventana.js`) |
+| `src/galeria.js` | La galería del sitio: el recorrido del listado (por dónde empieza, cuándo para, qué guarda). Usa la exploración de siempre |
+| `src/pagina/galeria.js` | Lo de la galería que corre dentro de cada página: las tarjetas de la grilla y el aviso de páginas numeradas. No cambia el explorador |
+| `tests/` | El sitio de prueba (`sitio.js`), el proxy de prueba (`proxy.js`), las pruebas (`prueba.js`, `freno.js`, `galeria.js`) y las que usan el programa de verdad (`avisos.js` con `clic-aviso.ps1` y `limpiar-avisos.ps1`; `proxy-abierto.js`, `proxy-real.js` y `galeria-real.js` con `ventana.js`) |
 
 - **El código compartido no se copia a mano.** `generar.js` saca de la extensión las funciones de detección, nombres y capítulos (`content.js`), el agrupado por tomos (`agrupar.js`), la plantilla de nombres (`plantilla.js`), el armado de archivos (`offscreen.js`), la lectura de una lista de links pegada (`sitios.js`) y la lectura de las sagas (`opciones.js`). Un arreglo en la extensión llega al programa la próxima vez que se abre. El instalador lleva adentro la copia del momento en que se armó.
 - **Las páginas web corren aisladas:** sin acceso a Node ni al disco, sin poder abrir ventanas, bajar archivos por su cuenta ni pedir permisos.
@@ -255,7 +275,7 @@ node tests/proxy-real.js https://one-piece-fans2.com/manga/es/todos/1104 --codig
 npm run prueba
 ```
 
-Corren dentro de Electron contra un sitio de prueba servido en la máquina, y tardan 7 min 46 s (la 0.10.3, con 226, tardaba 6 minutos y medio). Son 234 comprobaciones:
+Corren dentro de Electron contra un sitio de prueba servido en la máquina, y tardan 10 min 47 s (la 0.10.4, con 234, tardaba 7 min 46 s). Son 291 comprobaciones:
 
 - **Explorar:** portada, catálogo paginado, directorio que carga al bajar, serie y capítulo.
 - **Portada con tapas:** que no pase por capítulo (y que un capítulo con tapas al final lo siga siendo), que cada título traiga su tapa y que la miniatura se pida con el Referer del sitio.
@@ -274,6 +294,8 @@ Corren dentro de Electron contra un sitio de prueba servido en la máquina, y ta
 - **A través del proxy de prueba** (desde la interfaz): 503 y 429 sin cabecera (al tocar Reintentar, la cuenta arranca cerca de 60; en el mismo instante del clic en Cancelar se leen el número y los botones, y el reintento no sale), 503 con `Retry-After: 5` (cuenta hasta 1, sale a los 5 s o más y completa), corte desde el 6.º pedido (incompleto, con el motivo y sin archivo), un capítulo que ya estaba con una imagen que pide esperar ("ya estaba", y el sitio frenado), dos fallos seguidos del mismo capítulo (el botón se sigue ofreciendo y el tercer intento sale, respetando el freno) y los botones del aviso de fin de cola (cada uno dispara el mismo manejador que su botón de la ventana). Y que sin el proxy todo va directo.
 - **El proxy y la caché** (0.10.4; el sitio de prueba deja cachear esas imágenes una hora): con el proxy, el armador vuelve a pedir por él las 6 imágenes que la página ya bajó, con `no-cache`; un 503 en cada pedido del armador por una de ellas deja el capítulo incompleto, sin archivo, y al reintentar baja entero. Sin el proxy, cada imagen se pide una sola vez y nada sale con `no-cache`.
 - **Cancelar y reintentar en medio de una bajada** (0.10.4; el sitio de prueba retiene la página o las imágenes a pedido): mientras la página tarda en abrir, mientras el armador baja y mientras escribe. La ventana del intento viejo se cierra en menos de 2 s, el nuevo sale y queda un solo archivo entero, sin "(1)". Cancelar solo no deja nada del capítulo, ni su carpeta.
+- **La galería del sitio, en Node** (0.11.0; también sola: `node tests/galeria.js`, con un sitio de mentira): las reglas del recorrido; que la galería se guarde en el disco y se vuelva a leer; que un refresco cortado no marque nada como desaparecido y, al seguirlo hasta el final, sí; y un recorrido largo interrumpido, que queda con lo juntado y se sigue desde ahí.
+- **La galería del sitio** (0.11.0; un sitio de prueba por caso, por la interfaz y por el programa): un listado de 3 páginas con "Siguiente"; números de página, "Cargar más", uno que carga al bajar y uno de una sola página; una barra de solo números (incompleta, y lo dice); destacados repetidos en todas las páginas; un listado que da vueltas; un catálogo que mezcla carpetas en una misma grilla; el tope, "Seguir desde donde quedó" y Cancelar; un 503 en una página del listado (frena y se retoma); subir desde un capítulo; un sitio sin listado; las tapas con su Referer, una que no carga y un sitio sin tapas; el buscador y cada filtro, por separado y combinados, y que se recuerden; lo bajado marcado; marcar series, buscar lo nuevo y encolarlo; refrescar con un título que desaparece; y "Olvidar".
 - **Páginas dibujadas de fondo:** la página de prueba de la extensión (8 páginas de fondo y 18 tapas alrededor): el explorador la toma por capítulo, devuelve las 8 en orden y ninguna tapa, y la baja entera.
 - **Revisar páginas:** todas las imágenes con el motivo de las descartadas, y la bajada con las elegidas a mano.
 - **Carpetas y series seguidas:** el aviso cuando una carpeta no está, atar a una serie una carpeta de otro nombre, y buscar y bajar lo nuevo de las series seguidas.
@@ -281,13 +303,15 @@ Corren dentro de Electron contra un sitio de prueba servido en la máquina, y ta
 - **Favoritos:** pegar, buscar, filtrar por tipo e idioma y quitar.
 - **La interfaz:** todo lo anterior manejado desde la pantalla, más "Traer todas", las direcciones recientes y la serie puesta sola.
 
-Aparte están las pruebas con ventanas y avisos de verdad. No son parte de `npm run prueba`: muestran cosas en la pantalla.
+Aparte están las pruebas con el programa de verdad. No son parte de `npm run prueba`. Las de los avisos muestran cosas en la pantalla; las que abren el programa (con `tests/ventana.js`) no muestran su ventana, salvo con `VENTANA=1`.
 
 - **Los botones del aviso, apretados de verdad:** `npm run avisos` muestra el aviso de fin de cola y aprieta cada botón con `tests/clic-aviso.ps1` (UI Automation de Windows, sin mover el mouse; espera 1,5 s antes de tocar, porque un toque en la animación de entrada del aviso se pierde). Abre una ventana del Explorador y la cierra al terminar. Cada aviso se aprieta al primer intento: si no sale en pantalla, la prueba falla (hasta la 0.10.3 lo mostraba otra vez). El que aprieta arranca antes de que salga el aviso, para estar mirando la pantalla cuando aparece.
 - **El primer aviso, desde cero:** `npm run avisos:limpio` borra antes lo que el programa dejó en Windows (`tests/limpiar-avisos.ps1`: su acceso directo del menú Inicio, las claves de los botones y el ajuste de sus avisos) y corre la misma prueba. `npm run avisos:limpiar` solo borra, y es lo que conviene correr al terminar.
 - **Sobre el programa instalado:** `"%LOCALAPPDATA%\Programs\Manga Reader\Manga Reader.exe" --prueba --avisos --pruebas=<carpeta tests de este repositorio>` (el instalado no trae las pruebas).
 - **`MR_PROXY` con el programa ya abierto:** `npm run proxy-abierto` abre el programa dos veces, la segunda con el proxy, y comprueba que la ventana que estaba lo diga y que su botón lo vuelva a abrir con el proxy. Usa una carpeta de datos aparte (`MR_DATOS`), y lee y toca la ventana por el protocolo de depuración (`tests/ventana.js`).
 
-Los resultados, con fecha y hora, están en la sección 11 de [DOCUMENTACION.md](../DOCUMENTACION.md).
+- **La galería de un sitio de verdad:** `node tests/galeria-real.js <dirección> [tope]` abre el programa con una carpeta de datos aparte, toca "Ver todo el sitio" y cuenta el avance, cómo quedó, cuántos títulos y páginas, y qué pasó con las tapas. No deja nada.
+
+Los resultados, con fecha y hora, están en las secciones 11 y 16 de [DOCUMENTACION.md](../DOCUMENTACION.md).
 
 Durante las pruebas el programa arranca con todo de fábrica y no escribe ni la configuración ni los favoritos, ni el registro, así que no tocan los tuyos. Con `CAPTURAS=<carpeta>` guardan además capturas de la interfaz.

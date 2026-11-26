@@ -21,6 +21,7 @@
 13. [Cómo modificarla](#13-cómo-modificarla)
 14. [Solución de problemas](#14-solución-de-problemas)
 15. [Historial de versiones](#15-historial-de-versiones)
+16. [La galería del sitio, en el programa (0.11.0)](#16-la-galería-del-sitio-en-el-programa-0110)
 
 ---
 
@@ -1070,6 +1071,10 @@ Seis cosas que la 0.10.3 dejó escritas como pendientes. De cada una: qué pasab
 
 **Lo que sigue abierto: un 429 o un 503 que mande un sitio por su cuenta.** El 25-11-2026, en las dos corridas contra one-piece-fans2.com (132 pedidos entre las dos), el sitio contestó 200 a todo lo que le llegó: los ocho 503 los puso el proxy. El proxy inyecta, no observa. Dice qué hacen el programa y la extensión con esas respuestas, no qué manda un sitio cuando de verdad se satura.
 
+### Programa 0.11.0: la galería del sitio
+
+Lo que hace, sus topes, lo que no recorre y cómo se probó (las comprobaciones automáticas y las corridas contra sitios de verdad, con fecha y hora) está todo junto en la [sección 16](#16-la-galería-del-sitio-en-el-programa-0110).
+
 ### Lote largo (`node tests/lote_largo.js`)
 
 Una serie de prueba servida en esta máquina, con la cantidad de capítulos que se pida, para ver si el lote aguanta más de unos minutos. No es parte de `e2e.js` porque tarda.
@@ -1299,3 +1304,134 @@ Para probar un sitio nuevo sin dejar archivos: `node tests/probar_sitio.js "<dir
 | 2.11.2 | **El sitio dice cuánto esperar, también con la página del capítulo.** (1) **`Retry-After` de la página:** el service worker lee la cabecera de la respuesta del documento del capítulo con `webRequest` (permiso nuevo, sin advertencias nuevas al instalar; se escucha solo mientras un lote tiene un capítulo abierto) y anota por sitio hasta cuándo no pedirle nada (`esperaSitio`). Lo mismo con lo que pidieron las imágenes. (2) **El lote frena lo que pidió el sitio** (`esperaDelSitio`): 4 s si dice 4, un minuto si dice 300 (el tope), y un minuto si no dice cuánto o manda algo que no se entiende o una fecha vencida; antes de cada pedido a ese sitio, con la cuenta regresiva ("sigo en N s"): frena el reintento y también el capítulo que sigue. Hasta la 2.11.1 eran siempre 60 s y el capítulo siguiente no esperaba. **Pruebas:** 13 comprobaciones más en Node (510) y un área nueva en el navegador, `espera` (10, de las que 4 fallan contra la 2.11.1); los pedidos que recibe el sitio en el área `ritmo` salen de las constantes del armador. `probar_sitio.js` lee el lector en un iframe, baja el capítulo abierto (`guardar`), y acepta ritmo y adaptador. Contra sitios reales: un capítulo dentro de un iframe (Comic Rocket con The Oatmeal: entero con un adaptador) y un intento de provocar un 429 o un 503 (one-piece-fans2.com no limita), con fecha en la sección 11 |
 | 2.11.3 | **Páginas dibujadas de fondo, sin ofrecer las tapas de alrededor.** Un lector que pinta cada página de fondo (CSS o SVG, como Issuu) no tenía `<img>` que la extensión viera, y se quedaba con cualquier imagen suelta: en Issuu guardó 18 tapas de otras publicaciones. (1) **Fondos:** del estilo calculado (con `::before` y `::after`), de los atributos de carga diferida (`data-bg`), de las reglas (con `image-set()`, respetando la cascada y los `@media`) y de los `<image>` de SVG; entra la serie que parece un lector (dos o más con números, juntas en un bloque), en orden, una por página, sin el mínimo de 250 px. Con `<img>` y fondos ganan las `<img>`; el diálogo dice "páginas dibujadas de fondo"; un adaptador puede pedir los fondos (casilla nueva). (2) **Lo que no son páginas:** tarjetas de un listado (con el link alrededor o al lado), recomendados de otro sitio, tiras de miniaturas, adornos desparramados (también los de un sitio empaquetado), íconos incrustados, degradés; en un iframe, avisos chicos y reproductores de video. (3) **Grilla de tapas:** si las imágenes sueltas son casi todas tapas, no se ofrecen ("Lo que hay son tapas que llevan a otras páginas del sitio"). (4) **Marcos y lotes:** el iframe de un lector de fondo del mismo sitio le gana a una página con pocas imágenes; un lote espera hasta 8 s a las `<img>` antes de dar por páginas unos fondos deducidos; el conteo para el service worker ya no usa números recordados. (5) **Páginas SVG:** el escaneo de adentro sin recodificar (embebido o por dirección), o dibujadas enteras si tienen algo más. Tres revisiones adversariales encontraron casos en páginas comunes (diarios, foros, catálogos, sitios empaquetados) que la primera versión tomaba por lectores; quedaron arreglados, cada uno con su prueba. **Pruebas:** 566 en Node (`test_fondos.js`, 50, nueva; contra la 2.11.2 fallan 22 de las 38 que corren ahí) y un área nueva en el navegador, `fondos` (14; contra la 2.11.2 fallan 11). Issuu de verdad: guarda la página que el lector tiene dibujada, o dice que no encontró páginas; nunca más las 18 tapas (sección 11) |
 | 2.11.4 | **Un 503 en las imágenes que carga la página corta el capítulo de un lote, igual que uno en la página.** La 2.11.3 guardaba el capítulo con las páginas que habían cargado (5 de 6) y no frenaba al sitio. (1) **Las imágenes de la página:** mientras un lote tiene un capítulo abierto, `webRequest` escucha también las imágenes; se anota por pestaña cada una que respondió 429 o 503, siguiendo las redirecciones. Cada marco dice ahora sus páginas y cuáles cargaron, y antes de pedirle al marco que guarde se decide con la regla del programa (una página que no cargó, o de su carpeta; un banner de otra carpeta no corta), y otra vez justo antes de guardar con las páginas medidas. El sitio queda frenado por el mismo camino (`esperaSitio`, con la espera más larga), no se escribe nada y el capítulo queda para Reintentar con "el sitio pidió esperar (HTTP 503)"; si ya estaba guardado, sigue siendo "ya estaba". Guardando de a uno se guarda lo que bajó, con el motivo, y no queda anotado. (2) **Un lector de fondo de una sola página:** el diálogo dice que muestra una por vez y que se guarda la que está a la vista. (3) **Los botones de la notificación** van por `alTocarAviso` con lo anotado al mostrarla (qué botones y de qué lote): "Mostrar la carpeta" ya no puede reintentar, Reintentar llega a la pestaña de la serie por el mismo camino que el botón del diálogo (también si estaba descartada o tiene datos de seguimiento en la dirección) y respeta el freno; se prueban disparando la acción como Chrome. (4) **El tercer intento** desde la cola, probado. (5) La cuenta regresiva vuelve a leer la espera cada segundo; el motivo lleva el código también cuando lo pide la página o el armador; 3 tapas que comparten carpeta no cuentan como el capítulo. En el programa, `pareceListado` mira primero las imágenes grandes. Una revisión adversarial (cuatro revisores, cada hallazgo con un escéptico) confirmó 24 problemas de la primera versión (cargas diferidas, adaptadores de fondo y con una carpeta por página, redirecciones, `srcset`, reintentos con otra consulta, la notificación de otro lote, pestañas descartadas, pruebas que no podían fallar); quedaron arreglados y cada uno con su prueba. **Pruebas:** 601 en Node (35 nuevas) y un área nueva en el navegador, `imagenes` (12; 10 fallan contra la 2.11.3) |
+
+---
+
+## 16. La galería del sitio, en el programa (0.11.0)
+
+En el programa de escritorio, al lado de **Analizar**, el botón **Ver todo el sitio** toma la dirección pegada y arma la galería del sitio: todos los títulos de su listado, cada uno con su tapa, con buscador y filtros. No cambia la exploración por niveles: la usa por detrás. Lo que se ve es la galería y el avance, no los niveles.
+
+El recorrido está en `programa/src/galeria.js`; lo que corre dentro de cada página, en `programa/src/pagina/galeria.js` (dos pedidos aparte, sin tocar `explorar.js`); la interfaz, al final de `programa/src/ui/ui.js`.
+
+### 16.1 Por dónde empieza
+
+Qué es cada página lo dice la exploración de siempre (`queEs`): un capítulo, una serie (su primera lista es de capítulos), un listado (tiene una lista de títulos) o nada.
+
+- **Un listado:** arranca ahí. Salvo la portada de un sitio que trae el link a su listado completo ("Directorio", "Biblioteca"): entra a ese, como hace Analizar.
+- **Un capítulo o una serie:** sube sola. Si la página trae el link al listado completo, va por ahí; si no, sube por la dirección: capítulo → serie → listado. Abre hasta 8 páginas buscando.
+- **Si no llega a ningún listado:** dice "Este sitio no tiene un listado recorrible", cuántas páginas abrió, y muestra la página pegada con la exploración de siempre. No queda girando.
+
+### 16.2 El recorrido
+
+- **Cada página se analiza con lo mismo que usa Analizar** (el pedido `explorar`): baja hasta el final para lo que la página carga de a poco, toca "Cargar más" y "Ver más", y baja los paneles con barra propia.
+- **De una página a la otra se pasa por la paginación que la exploración ya lee** (`siguiente`): el enlace con `rel="next"` o con texto "Siguiente", "Next", "›", "»". Una barra de páginas numeradas avanza si marca cuál es la siguiente (es lo habitual). No se agregó ninguna regla de paginación.
+- **Qué títulos toma de cada página:** los de la lista de títulos que da la exploración y, además, las otras tarjetas con tapa que están en el mismo bloque de la página (la grilla). La exploración agrupa los links por la forma de su dirección: en un catálogo que pone el tipo en la dirección (`/library/manga/…`, `/library/manhwa/…`) arma una lista por tipo, y un tipo con uno o dos títulos en la página no arma ninguna. Con una sola lista, la galería traía una parte chica del catálogo (ver 16.10). El bloque es el más de adentro que contiene a más de la mitad de los títulos de la lista; lo que está en otro bloque (un costado con "grupos", el menú) no entra, y tampoco los filtros ni lo que la exploración tomó por capítulos. Cada tarjeta se lee con la lectura de links de la exploración (`juntarLinks`): el nombre, el detalle y la imagen son los mismos. En un listado sin tapas se toma solo la lista.
+- **Los repetidos no se duplican ni cuentan:** un título es su dirección (sin la barra final ni el `#`). Los destacados que se repiten en todas las páginas entran una vez.
+- **Entre una página y la siguiente va la pausa de la cola** (1,5 s), y el freno es el mismo de la cola (sección 4.19): si el sitio pidió esperar, la galería espera antes de pedirle nada, y si una página del listado contesta 429 o 503, el sitio queda frenado para la galería y para las descargas.
+- **Se para** cuando no hay más páginas, cuando dos páginas seguidas no traen ningún título nuevo (un listado que da vueltas), al llegar al tope, al cancelar, o si una página pide esperar o no abre.
+- **Mientras recorre se ve el avance:** "Recorriendo el listado: 12 páginas, 284 títulos", y las tarjetas que se van sumando. **Cancelar** corta en el acto (cierra la página que estaba abierta) y deja lo juntado.
+- **Se va guardando:** cada 5 páginas y al cerrar el programa. Si se cierra en el medio, al abrirlo la galería está con lo juntado, como incompleta, y se sigue desde esa página.
+
+### 16.3 Las tapas
+
+Se muestran, no se inventan. Cada título trae la que le puso la página, y el programa la pide con el Referer de la página del listado donde la vio (la tapa de un título de la página 7, con el de la página 7), con el mismo pedido de miniaturas de la lista de capítulos. Se piden a medida que quedan a la vista. Si una no carga, queda un recuadro con la inicial del título; si el sitio no da tapas, la galería funciona igual, con las iniciales.
+
+### 16.4 Buscador y filtros
+
+- **Buscador** por nombre.
+- **Lo que ya tengo / lo que me falta:** ya tengo es un título del que bajaste algo con el programa (el registro) o que está en tu colección, como en las listas de títulos. "≈ parecido" no cuenta.
+- **Con tapa / sin tapa:** sin tapa es el que la página no le puso imagen o cuya imagen no cargó.
+- **Desaparecidas:** las que estaban y no aparecieron en el último recorrido completo.
+- **Tipo e idioma,** solo si las tarjetas del sitio los dicen con todas las letras ("Manhwa", "Español"). Una sigla suelta no cuenta: "EN EMISIÓN" no es inglés.
+
+Los filtros se combinan, y quedan guardados (`config.galeria.filtros`): al volver a abrir una galería siguen puestos. Lo escrito en el buscador, no.
+
+### 16.5 Guardada por sitio
+
+La galería se guarda por sitio (su origen: `https://sitio.com`), con su fecha, en `galerias.json` de la carpeta de datos. Volver a tocar **Ver todo el sitio** con cualquier dirección de ese sitio muestra la guardada, sin pedirle nada al sitio. Se recorre de nuevo solo con **Refrescar**.
+
+- **Refrescar** recorre el listado desde el principio. Lo nuevo se suma. Lo que estaba y no apareció queda marcado como **desaparecida**, no se borra; si vuelve a aparecer, se le saca la marca.
+- **Solo un recorrido que llegó al final marca desaparecidas.** Uno que se cortó (por el tope, cancelado, por el freno) no sabe qué falta: no marca nada. Al seguirlo hasta el final, sí.
+- **Olvidar** borra la galería de ese sitio (pide un segundo toque). No borra ningún archivo.
+
+### 16.6 Trabajar desde la galería
+
+- **Tocar una tapa** abre ese título con la exploración de siempre, con su nombre puesto como serie. Un botón vuelve a la galería. Si en "Serie" había un nombre escrito a mano, queda ese: la serie escrita a mano no se pisa, igual que al entrar a un título desde una lista.
+- **Marcar series** (la casilla de cada tapa, o "Marcar las que se ven" con los filtros puestos). Las marcas quedan guardadas.
+- **Buscar lo nuevo** abre la página de cada serie marcada, de a una, con la pausa y el freno de siempre, y dice qué capítulos hay que no tenés (los posteriores al último que tenés, como en "Siguiendo").
+- **Encolar lo nuevo** pone en la cola lo de todas las marcadas, cada una con su serie. Baja la cola de siempre, con su freno.
+
+### 16.7 Topes y avisos
+
+| | |
+|---|---|
+| Tope de páginas por corrida | 60 de fábrica. Se cambia en la galería, hasta 5.000, y queda guardado (`config.galeria.tope`) |
+| Al llegar al tope | "Quedó incompleta: llegué al tope de N páginas por corrida y el listado sigue". Tiene lo que juntó. **Seguir desde donde quedó** continúa en la página siguiente |
+| Cancelada | "Quedó incompleta: la cancelaste". Se puede seguir |
+| Una página pide esperar | "Quedó incompleta: el sitio pidió esperar (HTTP 503) en la página N del listado". El sitio queda frenado; al seguir, espera el freno |
+| Barra de solo números | "Quedó incompleta: el listado sigue en páginas numeradas (por lo menos hasta la N), pero no tiene un enlace a la página siguiente que la exploración sepa seguir" |
+| La página seguía creciendo al bajar | "Quedó incompleta: la página seguía cargando más títulos al bajar cuando dejé de bajar: puede faltar el final" |
+| Dos páginas seguidas sin nada nuevo | Completa, y dice: "Paré porque dos páginas seguidas no traían ningún título nuevo" |
+| Sin listado | "Este sitio no tiene un listado recorrible: abrí N páginas…", y la exploración de siempre |
+| Tarjetas en pantalla | De a 600, con "Mostrar más": la galería de un catálogo grande tiene decenas de miles |
+
+### 16.8 Qué no recorre, y por qué
+
+- **Un catálogo grande entero, de una:** cada página lleva unos 6 s (lo que tarda la exploración en dejar que la página termine de armarse, más la pausa). En zonatmo.org, 12 páginas tardaron 72 s; su Biblioteca tiene unas 1.360 páginas (unos 33.000 títulos): entera son unas 2 horas y cuarto, y con el tope de fábrica (60) una corrida trae 1.440 títulos en 6 minutos. Se sube el tope o se sigue de a corridas; lo juntado se va guardando.
+- **Una barra de páginas de solo números,** sin nada que marque la siguiente: la exploración no la sigue. La galería lee la primera página y lo dice.
+- **Un listado con tapas del tamaño de una página** (250 × 600 px o más) cuyos títulos cuelgan de la dirección del propio listado (`/manga/` → `/manga/serie/`): la exploración lo toma por un capítulo (para ella esas direcciones son partes de la misma página, como las de un lector), y la galería dice que no hay listado. Con miniaturas, que es lo habitual en un catálogo, no pasa.
+- **Más de 30 pantallas de un listado que carga al bajar:** la exploración baja hasta ahí. La galería queda incompleta y lo dice; no hay por dónde seguir.
+- **Títulos que no son links** (se abren con JavaScript) o un listado detrás de un inicio de sesión.
+- **Varios listados de un mismo sitio** (por letra, por género): recorre uno, el de la dirección pegada o el que encuentra subiendo. La galería es una por sitio.
+- **En una grilla que mezcla carpetas, las tarjetas sin tapa** de las otras carpetas: lo que suma del bloque tiene que tener tapa (sin eso entrarían botones y links sueltos).
+- **`www.sitio.com` y `sitio.com`** son dos sitios para la galería (se guarda por origen).
+
+### 16.9 Datos, mensajes y archivos
+
+- **`galerias.json`** (carpeta de datos del programa): `{ sitio: { sitio, inicio, listaIds, conTapas, fecha, refresco, paginas, estado, motivo, siguiente, titulos } }`. Cada título: `{ url, nombre, detalle, imagen, pagina, tipo, idioma, alta, vista, desaparecida, marcada }`. `pagina` es la del listado donde se vio (de ahí sale el Referer de su tapa); `vista`, el recorrido en el que apareció por última vez.
+- **`config.galeria`:** `{ tope, filtros: { tengo, tapa, tipo, idioma, desaparecidas } }`.
+- **Lo que pide la interfaz** (`mr.galeria` en `preload_ui.js`): `de(dirección)` (la guardada, sin recorrer), `recorrer({ url, tope, modo: 'nueva' | 'refrescar' | 'seguir' })`, `cancelar()`, `marcar({ sitio, urls, marcada })`, `buscarNuevo(sitio)`, `encolarNuevo(sitio)`, `marcas(sitio)` (solo lo que ya tenés de cada título), `olvidar(sitio)`. El avance llega por el evento `galeria`, con los títulos que sumó cada página.
+- **En la página:** `tarjetasDelListado` (las tarjetas de la grilla) y `paginasNumeradas` (si el listado sigue en páginas numeradas), en `src/pagina/galeria.js`. `scripts/generar.js` lo pone después de `explorar.js`.
+- **Constantes** (`src/galeria.js`): `TOPE_DEFECTO` 60 · `TOPE_MAX` 5.000 · `PASOS_PARA_SUBIR` 8 · `SIN_NUEVOS_PARA_CORTAR` 2 · `GUARDAR_CADA` 5. En la interfaz, `GAL_TANDA` 600.
+
+### 16.10 Cómo se probó
+
+**En `npm run prueba`** (291 comprobaciones en total, en 10 min 47 s; eran 234):
+
+- **En Node, con un sitio de mentira** (`node tests/galeria.js`, 15): la dirección de un título, subir por la dirección, qué es cada página, el tipo y el idioma; cómo se suman a los títulos de la exploración las otras tarjetas de la grilla; que la galería se guarde en el disco y se vuelva a leer (en las pruebas el programa no escribe nada); que un refresco cortado por el tope no marque desaparecidas y, al seguirlo hasta el final, sí; que un título que vuelve deje de estarlo; y un recorrido largo interrumpido (el programa que se cierra de golpe y el que sale ordenado).
+- **Contra el sitio de prueba** (`iniciar({ galeria: true })`, un sitio por caso; 42), por la interfaz y por el programa:
+  - Un listado de 3 páginas con "Siguiente": los 10 títulos de las tres, en orden y sin repetir; se ve la galería y no la ruta, las pestañas ni la lista.
+  - Las tapas: 2 pedidos de cada una (la página y el programa), el del programa con el Referer de la página del listado donde la vio; ninguna rechazada por no traerlo; y también con la grilla a más de 400 px del borde de arriba. Una que no existe: la inicial.
+  - Volver con otra dirección del mismo sitio: la guardada, sin ningún pedido. Una dirección que lleva a un sitio del que ya hay galería: no la pisa.
+  - Tocar una tapa (sus capítulos, su nombre como serie, y el botón para volver; con una serie escrita a mano de antes, queda la escrita); marcar dos series, "Buscar lo nuevo" (4 capítulos nuevos en 2 series) y "Encolar lo nuevo" (los 4 bajan por la cola); lo bajado queda marcado, y "Lo que me falta" lo saca.
+  - Una sola página: termina. Un título que el sitio deja de mostrar: al refrescar queda "desaparecida" y no se borra; cuando vuelve, se le saca.
+  - El buscador y cada filtro por separado (8) y combinados (5). Los filtros y el tope, guardados y puestos al volver.
+  - Números de página con `rel="next"` en el que sigue: avanza por las tres. "Cargar más": los 12, no los 4 primeros. Una barra de solo números: incompleta, con el motivo. La portada de un sitio con link a su listado completo, que carga al bajar: los 15.
+  - Tres destacados en todas las páginas: 15 títulos, sin duplicar y sin cortar. Un listado que da vueltas: para a la tercera página y lo dice.
+  - Un catálogo que mezcla carpetas en una grilla, con dos destacados arriba en otro bloque y un bloque de "grupos" al costado: los 14 títulos en el orden de la página, de los tres tipos, y ningún grupo.
+  - El tope (3 páginas: incompleta, con el motivo; "Seguir" continúa en la 4). Por la interfaz: el avance ("2 páginas, 6 títulos", con las 6 tarjetas), Cancelar (en menos de 2,5 s, sin ventanas abiertas) y, con el tope en 2, "Seguir desde donde quedó".
+  - Un 503 con `Retry-After: 2` en la página 2: incompleta, con el motivo y el sitio frenado; al seguir, la página 2 se vuelve a pedir a los 2 s o más y termina.
+  - Desde un capítulo: sube a su serie y de ahí al listado, sin pedir dos veces la primera página; y desde un capítulo con el link al listado completo, directo.
+  - Un sitio sin listado: lo dice con esas palabras y muestra la página pegada. Un listado con tapas del tamaño de una página (el límite de 16.8): no lo recorre. Un sitio sin tapas: funciona, con las iniciales. "Olvidar", con su segundo toque.
+
+**A mano, contra sitios de verdad** (`node tests/galeria-real.js <dirección> [tope]`: abre el programa de verdad con una carpeta de datos aparte y sin mostrar la ventana, toca "Ver todo el sitio" y cuenta lo que pasa). Todo el 25-11-2026, hora de Argentina:
+
+| Corrida | Qué pasó |
+|---|---|
+| 21:09 · one-piece-fans2.com, desde un capítulo (`/manga/es/todos/1104`), tope 3 | "Este sitio no tiene un listado recorrible: abrí 5 páginas, subiendo desde la que pegaste, y ninguna es un listado de títulos", y mostró el capítulo con la exploración de siempre. El sitio no tiene un catálogo de títulos: es el lector de una serie, con los capítulos en un desplegable. No hay títulos ni tapas que juntar. Repetida a las 22:01 con el código final: lo mismo, en 25,6 s |
+| 21:16 · zonatmo.org (la portada), tope 3, **como estaba antes del arreglo** | Entró sola a "Biblioteca" (`/biblioteca`): un listado de 24 títulos por página, con enlace a la siguiente. Juntó 56 títulos en 3 páginas (22 + 17 + 17), **todos manhwas**. El sitio pone el tipo en la dirección (`/library/manhwa/…`, `/library/manga/…`), la exploración arma una lista por tipo y la galería tomaba una sola. Es lo que el usuario vio como "solamente trae una pequeña parte" |
+| 21:23 · lo mismo, con el arreglo | 72 títulos en 3 páginas (24 por página), de tres tipos. Tapas: 24 pedidas, 24 cargaron (las sirve el mismo sitio). Incompleta por el tope, con el motivo; se puede seguir. 23,6 s |
+| 22:03 · zonatmo.org, tope 12, con el código final | 284 títulos en 12 páginas (24 por página, menos 4 que se repitieron de una página a otra), de cinco tipos: Manhwa, Manhua, Manga, Doujinshi y Novela (el idioma, el sitio no lo dice). 71,7 s: 6 s por página. Tapas: 36 pedidas, 36 cargaron; en la ventana, las 284 tarjetas, con su tapa las 20 que estaban a la vista. Incompleta por el tope. Una corrida igual a las 21:30 había dado los mismos 284 |
+| 22:05 · ahira.com.ar (`/revistas/`), tope 3 | Completa: 66 títulos en 1 página (el listado no tiene más), todos con tapa; 12 tapas pedidas, 12 cargaron. Las tarjetas son solo la imagen, así que el nombre sale de la dirección ("el porteno", "babel revista de libros"). 10,8 s |
+| 22:06 · comicbookplus.com, tope 3 | El sitio le contesta 403 a la página: "La página respondió HTTP 403", sin galería |
+
+**El tamaño de la Biblioteca de zonatmo.org,** tanteado aparte con 11 pedidos sueltos (21:36): la última página con títulos está entre la 1.359 y la 1.375, o sea unos 33.000 títulos. Entera, a 6 s por página, son unas 2 horas y cuarto. Con el tope de fábrica, una corrida trae 1.440 en 6 minutos.
+
+**Lo que encontraron estas corridas, y se arregló:**
+
+1. La galería traía solo una parte de cada página (la lista de un tipo). Ahora toma todas las tarjetas de la grilla.
+2. Desde un capítulo de one-piece-fans2.com, las 5 páginas que se abrían buscando el listado se gastaban justo al llegar a la portada. Ahora son hasta 8.
+3. Las tapas no se pedían si la grilla quedaba a más de 400 px del borde de arriba: la imagen sin cargar estaba oculta de una forma que le borraba la posición, y lo que se mira para pedirla es si su lugar quedó a la vista. Apareció al correr la suite entera (con la grilla a 576 px llegaban 0 de 10; ahora, las 10).
+4. La ventana del programa de prueba aparecía en la pantalla, y en la primera corrida alguien la usó y la cerró en el medio. Ahora esas pruebas abren el programa sin mostrar la ventana.
+
+**No se probó:** un recorrido de horas de punta a punta (el más largo fue de 12 páginas); un sitio real que conteste 429 o 503 en medio del listado (se probó con el sitio de prueba); la galería con decenas de miles de títulos en pantalla (las tandas de 600 se probaron con cientos); y "Buscar lo nuevo" contra un sitio real.
